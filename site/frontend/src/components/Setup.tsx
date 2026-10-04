@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { Button, Checkbox, Group, List, Stack, Text, Title, UnstyledButton } from '@mantine/core'
+import { Button, Group, List, Radio, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AIMS,
@@ -18,6 +18,7 @@ import cards from './Cards.module.css'
 import { CharacterName } from './CharacterName'
 import classes from './Setup.module.css'
 import { IconCoin, IconSteps } from './icons'
+import { SkillBar } from './SkillBar'
 
 const AIM_ICONS: Readonly<Record<Aim, ReactNode>> = {
   gold: <IconCoin />,
@@ -119,13 +120,14 @@ const ANY_CARD: Card<string> = {
   blurb: 'Every recipe that gives at least one of your characters a skill point.',
 }
 
-/** Who has a profession, one per line: the name in its class colour, then the skill. */
-function Holders({ holders }: { holders: readonly Holder[] }) {
+/** Who has a profession, one per line: the name in its class colour, then their skill against its cap. */
+function Holders({ holders, profession }: { holders: readonly Holder[]; profession: string }) {
   return (
     <Stack gap={2}>
       {holders.map((h) => (
         <Text key={h.name} size="sm" c="dimmed">
-          <CharacterName name={h.name} classFile={h.classFile} /> {h.rank}/{h.maxRank}
+          <CharacterName name={h.name} classFile={h.classFile} />{' '}
+          <SkillBar rank={h.rank} maxRank={h.maxRank} label={`${h.name}'s ${profession}`} />
         </Text>
       ))}
     </Stack>
@@ -133,8 +135,8 @@ function Holders({ holders }: { holders: readonly Holder[] }) {
 }
 
 /**
- * A profession card opened to ask which of its holders are skilling up: a checkbox each, `initial` checked, and Done
- * with the ones checked (in the holders' order).
+ * A profession card opened to ask which one of its holders is skilling up (one climbs at a time, so the list can say
+ * exactly what to do): a radio each, `initial` picked, and Done with them.
  */
 function HolderPicker({
   choice,
@@ -142,18 +144,18 @@ function HolderPicker({
   onDone,
 }: {
   choice: ProfessionChoice
-  initial: readonly string[]
-  onDone: (names: string[]) => void
+  initial: string
+  onDone: (name: string) => void
 }) {
-  const [checked, setChecked] = useState<string[]>([...initial])
+  const [picked, setPicked] = useState(initial)
   return (
     <div className={cards.card} data-featured>
       <Stack gap="sm" p="lg">
         <Title order={4}>{choice.name}</Title>
-        <Checkbox.Group label="Who is skilling up?" value={checked} onChange={setChecked}>
+        <Radio.Group label={`Who is skilling up ${choice.name}?`} value={picked} onChange={setPicked}>
           <Stack gap={6} mt={4}>
             {choice.holders.map((h) => (
-              <Checkbox
+              <Radio
                 key={h.name}
                 value={h.name}
                 label={
@@ -164,12 +166,9 @@ function HolderPicker({
               />
             ))}
           </Stack>
-        </Checkbox.Group>
+        </Radio.Group>
         <Group justify="flex-end">
-          <Button
-            disabled={checked.length === 0}
-            onClick={() => onDone(choice.holders.map((h) => h.name).filter((n) => checked.includes(n)))}
-          >
+          <Button disabled={!picked} onClick={() => onDone(picked)}>
             Done
           </Button>
         </Group>
@@ -178,9 +177,15 @@ function HolderPicker({
   )
 }
 
+/** Who to offer first for skilling up a profession: the one picked before, else its lowest-skilled holder. */
+const firstPick = (choice: ProfessionChoice, before: readonly string[] | undefined): string =>
+  before?.find((n) => choice.holders.some((h) => h.name === n)) ??
+  choice.holders.toSorted((a, b) => a.rank - b.rank)[0]?.name ??
+  ''
+
 /**
  * The cards answering `step`, the current answer marked. A profession several characters have first opens its card to
- * pick which of them are skilling up; `onPick` then gets them (none when all are).
+ * pick which of them is skilling up; `onPick` then gets them (none when only one has it).
  */
 function StepCards({
   step,
@@ -215,7 +220,7 @@ function StepCards({
               { card: ANY_CARD },
               ...professions.map((p) => ({
                 card: { key: p.name, title: p.name, blurb: '' },
-                body: <Holders holders={p.holders} />,
+                body: <Holders holders={p.holders} profession={p.name} />,
                 choice: p,
               })),
             ]
@@ -234,10 +239,8 @@ function StepCards({
             key={card.key}
             choice={choice}
             // reopened on the profession already picked: who was picked then
-            initial={
-              card.key === current && setup?.characters ? setup.characters : choice.holders.map((h) => h.name)
-            }
-            onDone={(names) => onPick(card.key, names.length === choice.holders.length ? undefined : names)}
+            initial={firstPick(choice, card.key === current ? setup?.characters : undefined)}
+            onDone={(name) => onPick(card.key, [name])}
           />
         ) : (
           <OptionCard

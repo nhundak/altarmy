@@ -13,6 +13,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from sqlalchemy import Connection
 
@@ -22,14 +23,18 @@ from .engine import (
     AH_CUT,
     ALL_EXITS,
     MAIL_POSTAGE,
+    MAX_LOOK_AHEAD,
     Choices,
     Crafter,
     Filters,
     Learning,
     Market,
     Result,
+    Rival,
+    SkillRuns,
     TimeModel,
     Unlearned,
+    ah_net,
     city_prices,
     recipes_for_characters,
     recipes_using,
@@ -168,6 +173,9 @@ def search(
     time: TimeModel | None = None,
     skill_crafters: frozenset[str] = frozenset(),
     arcane_salvager: bool = False,
+    skill_name: str | None = None,
+    skill_run: SkillRuns | None = None,
+    gathered: Mapping[int, int] | None = None,
 ) -> list[Result]:
     """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
@@ -182,7 +190,11 @@ def search(
     timed, and its time value weighs play time in every plan; without one, a single craft. Left to pick
     the city (`time.fastest`), each recipe is planned where it pays best per hour (`best_of`): vendors
     charge a character by their reputation, so cities differ in copper too. With `arcane_salvager` every
-    disenchant is done at an Arcane Salvager (see `Market`).
+    disenchant is done at an Arcane Salvager (see `Market`). With `skill_name`, only that profession's
+    recipes are ranked. With a `skill_run`, each recipe is ranked as the final crafter's run of it
+    (`engine.run_until_cheaper`: the crafts until another recipe would give a cheaper skill point, those they
+    can learn on the way included: `later_rivals`), not as a batch. `gathered`
+    items (with what a unit is worth: `gather_values`) may be gathered instead of bought.
     """
     crafts = 1
     if time is not None:
@@ -190,17 +202,40 @@ def search(
         time = session_model(time, (), None)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     models, differ = _models(base, chars, time)
+    rivals = later_rivals(
+        base, chars, unlearned, exits, no_ah, skill_crafters, arcane_salvager, skill_name, skill_run, gathered
+    )
     markets = [
         _market(
-            base, chars, unlearned, exits, no_ah, include_trivial, model, skill_crafters, "", arcane_salvager
+            base,
+            chars,
+            unlearned,
+            exits,
+            no_ah,
+            include_trivial,
+            model,
+            skill_crafters,
+            "",
+            arcane_salvager,
+            gathered,
+            rivals,
         )
         for model in models
     ]
-    ranked = markets[0].rank(min_profit=min_profit, crafts=crafts)
+    ranked = markets[0].rank(min_profit=min_profit, crafts=crafts, skill_name=skill_name, skill_run=skill_run)
     if time is not None and len(markets) > 1:
         # Only recipes that can involve an item the cities price differently are planned in the others too.
         affected = recipes_using(markets[0].recipes, differ)
-        others = [m.rank(min_profit=min_profit, crafts=crafts, only=affected) for m in markets[1:]]
+        others = [
+            m.rank(
+                min_profit=min_profit,
+                crafts=crafts,
+                skill_name=skill_name,
+                only=affected,
+                skill_run=skill_run,
+            )
+            for m in markets[1:]
+        ]
         ranked = best_of([ranked, *others], time.fastest, affected)
     return [r for r in ranked if filters.accepts(r)]
 
@@ -219,11 +254,27 @@ def evaluate(
     skill_crafters: frozenset[str] = frozenset(),
     crafter: str = "",
     arcane_salvager: bool = False,
+    skill_run: SkillRuns | None = None,
+    gathered: Mapping[int, int] | None = None,
 ) -> Result | None:
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
-    `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it); None if the
-    characters can't make or sell it. A `crafter` does the final craft (see `Market`'s `final_crafter`)."""
+    `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it), or as a useful run
+    (`skill_run`, as `search` ranks it then); None if the characters can't make or sell it. A `crafter`
+    does the final craft (see `Market`'s `final_crafter`)."""
     models, differ = _models(base, chars, time)
+    recipe_skill = next((r.skill_name for r in base.recipes if r.id == recipe_id), None)
+    rivals = later_rivals(
+        base,
+        chars,
+        unlearned,
+        exits,
+        no_ah,
+        skill_crafters,
+        arcane_salvager,
+        recipe_skill,
+        skill_run,
+        gathered,
+    )
     found = []
     same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
     for n, model in enumerate(models):
@@ -238,6 +289,8 @@ def evaluate(
             skill_crafters,
             crafter,
             arcane_salvager,
+            gathered,
+            rivals,
         )
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
@@ -246,7 +299,7 @@ def evaluate(
             same = recipe.id not in recipes_using(market.recipes, differ)
         elif same:
             break  # as `search` ranks it: planned once, with the first model
-        result = market.evaluate(recipe, choices, crafts=crafts)
+        result = market.evaluate(recipe, choices, crafts=crafts, skill_run=skill_run)
         if result is not None:
             found.append(result)
     if not found:
@@ -367,6 +420,8 @@ def _market(
     skill_crafters: frozenset[str] = frozenset(),
     crafter: str = "",
     arcane_salvager: bool = False,
+    gathered: Mapping[int, int] | None = None,
+    rivals: Sequence[Rival] = (),
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
@@ -391,6 +446,8 @@ def _market(
         books=base.books,
         reputation_discounts=base.reputation_discounts,
         arcane_salvager=arcane_salvager,
+        gathered=gathered,
+        later_rivals=rivals,
     )
 
 
@@ -457,21 +514,378 @@ def slow_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: 
     return days is not None and days > SLOW_DAYS
 
 
+@dataclass(frozen=True)
+class Likely:
+    """What a result is likely to make: its profit with the AH units beyond what the market has shown it
+    takes (`depth_units`) counted at the best other exit (`excess_units` of them), and the exit that then
+    pays best (`exit`)."""
+
+    profit: int
+    exit: str
+    depth_units: int
+    excess_units: int
+
+
+def likely(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> Likely:
+    """`r`'s likely profit (see `Likely`). An AH sale of an item from Alt Army's scans counts on as many
+    units as the market has shown it takes: the more of those seen sold over the last week and those listed
+    at or under `sell_price` (a crude depth, until a model of what sells replaces it). The units beyond go
+    to the best other exit (or are worth nothing), and when that exit outright pays better, it is the
+    likely one. Any other sale, or a price from another source, is what it is."""
+    listing = listings.get(r.recipe.output_item_id)
+    ah = next((e for e in r.exits if e.kind == "ah"), None)
+    if r.best_exit != "ah" or ah is None or listing is None or listing.source != prices.ALTARMY:
+        return Likely(r.profit, r.best_exit, 0, 0)
+    units = r.recipe.output_count * r.crafts
+    sold = round((listing.sale_rate or 0.0) * prices.SALES_DAYS)
+    ahead = sum(lv.quantity for lv in listing.ladder if sell_price is not None and lv.price <= sell_price)
+    depth = max(sold, ahead)
+    excess = max(0, units - depth)
+    fallback = max((e.value - e.postage for e in r.exits if e.kind != "ah"), default=0)
+    capped = r.profit - excess * (ah.value - fallback)
+    other = max((o for o in r.sell_options if o.kind != "ah"), key=lambda o: o.profit, default=None)
+    if other is not None and other.profit >= capped:
+        return Likely(other.profit, other.kind, depth, excess)
+    return Likely(capped, "ah", depth, excess)
+
+
+def by_likely(
+    results: Iterable[Result], listings: Mapping[int, prices.Listing], market: Market
+) -> list[Result]:
+    """`results` by likely profit (`likely`), best first; ties keep their order."""
+    worth = {
+        id(r): likely(r, listings, market.sell_prices.get(r.recipe.output_item_id)).profit for r in results
+    }
+    return sorted(results, key=lambda r: -worth[id(r)])
+
+
+VerdictLevel = Literal["steady", "likely", "unproven"]
+VERDICT_RANK: dict[VerdictLevel, int] = {"unproven": 0, "likely": 1, "steady": 2}
+_TIER: dict[prices.ConfidenceLevel, VerdictLevel] = {"high": "steady", "medium": "likely", "low": "unproven"}
+_WEAKER: dict[VerdictLevel, VerdictLevel] = {"steady": "likely", "likely": "unproven", "unproven": "unproven"}
+MATERIAL_SHARE = 0.25  # a disenchant's verdict weighs the materials carrying at least this share of its value
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """Whether a result's sale will sell, in a word: `steady` (a vendor, or sales seen that cover it),
+    `likely`, `unproven`. `reasons` say why it is no surer, most actionable first (`prices.ConfidenceFlag`s,
+    `unsold`, `few_sold`, `unknown` when nothing is known of the item on the AH, `disenchant_unchecked`);
+    `buy_flags` what about buying the reagents makes it one less sure (`short`: more than is listed;
+    `just_listed`: the cheapest listing of an AH reagent is new since the scan before)."""
+
+    level: VerdictLevel
+    reasons: tuple[str, ...] = ()
+    buy_flags: tuple[str, ...] = ()
+
+
+def _sure(listing: prices.Listing | None, units: int, watched: float) -> tuple[VerdictLevel, tuple[str, ...]]:
+    """How sure an AH sale of `units` is, and why: from the price's confidence."""
+    if listing is None:
+        return "unproven", ("unknown",)
+    sure = prices.confidence(listing, units, watched)
+    told = (sure.reason,) if sure.reason in ("unsold", "few_sold") else ()
+    return _TIER[sure.level], (*told, *(f for f in sure.flags if f not in told))
+
+
+def verdict(
+    r: Result,
+    listings: Mapping[int, prices.Listing],
+    watched: float,
+    market: Market,
+    disenchant_verified: bool,
+) -> Verdict:
+    """Whether `r`'s sale will sell (see `Verdict`). A vendor pays, so it is steady (and so is what is
+    never sold). An AH sale is as sure as its price (`prices.confidence`: high steady, medium likely, low
+    unproven). A disenchant is as sure as the least sure of the materials carrying at least
+    `MATERIAL_SHARE` of its value, and while the disenchant table is unchecked (`disenchant_verified`) never
+    more than likely. Buying more than is listed, or from a listing new since the scan before, makes it one
+    less sure."""
+    if r.best_exit == "ah":
+        level, reasons = _sure(
+            listings.get(r.recipe.output_item_id), r.recipe.output_count * r.crafts, watched
+        )
+    elif r.best_exit == "disenchant":
+        level, reasons = _disenchant_sure(r, listings, watched, disenchant_verified)
+    else:
+        level, reasons = "steady", ()
+    flags = (*(("short",) if r.short > 0 else ()), *(("just_listed",) if _fresh_buy(r, market) else ()))
+    if flags:
+        level = _WEAKER[level]
+    return Verdict(level, reasons, flags)
+
+
+def _disenchant_sure(
+    r: Result, listings: Mapping[int, prices.Listing], watched: float, verified: bool
+) -> tuple[VerdictLevel, tuple[str, ...]]:
+    exit = next((e for e in r.exits if e.kind == "disenchant"), None)
+    materials = exit.materials if exit is not None else ()
+    total = sum(m.value or 0 for m in materials)
+    weighed = [
+        m for m in materials if m.value is None or (total and (m.value or 0) >= MATERIAL_SHARE * total)
+    ]
+    level: VerdictLevel = "steady"
+    reasons: list[str] = []
+    for m in weighed:
+        sure, why = (
+            _sure(listings.get(m.item_id), 1, watched) if m.value is not None else ("unproven", ("unknown",))
+        )
+        if VERDICT_RANK[sure] < VERDICT_RANK[level]:
+            level = sure
+        reasons += [w for w in why if w not in reasons]
+    if not verified and level == "steady":
+        level, reasons = "likely", [*reasons, "disenchant_unchecked"]
+    return level, tuple(reasons)
+
+
+def _fresh_buy(r: Result, market: Market) -> bool:
+    """Whether the plan buys a reagent on the AH whose cheapest listing counted on is new since the scan
+    before."""
+    for s in r.steps:
+        if s.action == "buy" and s.via == "ah":
+            ladder = market.books.get(s.item_id)
+            if ladder and ladder[0].age == 0:
+                return True
+    return False
+
+
+PICK_FLOOR = (
+    10_000  # copper a session must likely make for the coach to pick it (a guess, tuned by the replay)
+)
+CoachNoneReason = Literal["nothing", "below_floor", "all_thin", "no_watched_sales", "none_sure"]
+
+
+@dataclass(frozen=True)
+class CoachNone:
+    """Why the coach picked nothing: nothing ranked; the surest craft (`best`) makes under the floor; every AH
+    sale rests on a thin market; nobody watched the house's sales; nothing else was sure enough."""
+
+    reason: CoachNoneReason
+    best: Result | None = None
+
+
+def coach_pick(
+    results: Sequence[Result],
+    listings: Mapping[int, prices.Listing],
+    watched: float,
+    market: Market,
+    disenchant_verified: bool,
+    floor: int = PICK_FLOOR,
+) -> tuple[Result | None, CoachNone | None]:
+    """The one craft to recommend next, or why there is none: the first by likely profit whose sale is at
+    least likely (`verdict`) with nothing about buying it in doubt, that counts on no units beyond what the
+    market takes (`likely`), that for an AH sale rests on at least `prices.THIN_UNITS` listed, and that likely
+    makes `floor`. A guarded pick: it never recommends what the numbers can't carry."""
+    if not results:
+        return None, CoachNone("nothing")
+    ordered = by_likely(results, listings, market)
+    surest: Result | None = None
+    for r in ordered:
+        judged = verdict(r, listings, watched, market, disenchant_verified)
+        made = likely(r, listings, market.sell_prices.get(r.recipe.output_item_id))
+        if not at_least_verdict("likely", judged.level) or judged.buy_flags or made.excess_units:
+            continue
+        if r.best_exit == "ah":
+            listing = listings.get(r.recipe.output_item_id)
+            if listing is None or (listing.quantity or 0) < prices.THIN_UNITS:
+                continue
+        if made.profit >= floor:
+            return r, None
+        surest = surest or r
+    if surest is not None:
+        return None, CoachNone("below_floor", surest)
+    doubts = [
+        verdict(r, listings, watched, market, disenchant_verified).reasons
+        for r in ordered
+        if r.best_exit == "ah"
+    ]
+    if doubts and all("thin" in d or "lone" in d for d in doubts):
+        return None, CoachNone("all_thin")
+    if watched < prices.WATCHED_ENOUGH_HOURS:
+        return None, CoachNone("no_watched_sales")
+    return None, CoachNone("none_sure")
+
+
+def at_least_verdict(least: VerdictLevel, level: VerdictLevel) -> bool:
+    """Whether `level` is at least as sure as `least`."""
+    return VERDICT_RANK[level] >= VERDICT_RANK[least]
+
+
+def by_roi(results: Iterable[Result]) -> list[Result]:
+    """`results` by ROI, best first."""
+    return sorted(results, key=lambda r: -r.roi)
+
+
+def by_spend(results: Iterable[Result]) -> list[Result]:
+    """`results` by what they spend, least first."""
+    return sorted(results, key=lambda r: r.cost)
+
+
+def by_profit_each(results: Iterable[Result]) -> list[Result]:
+    """`results` by profit per unit made, best first."""
+    return sorted(results, key=lambda r: -r.profit / max(1, r.recipe.output_count * r.crafts))
+
+
 def by_rate(results: Iterable[Result]) -> list[Result]:
     """`results` by profit per hour, best first (untimed ones last; ties keep their order). Times every
     result, once: they cache their timing."""
     return sorted(results, key=lambda r: -(r.rate if r.rate is not None else -(10**18)))
 
 
-def by_skill(results: Iterable[Result]) -> list[Result]:
+def by_skill(
+    results: Iterable[Result], learn_cost: Callable[[Result], int | None] | None = None
+) -> list[Result]:
     """`results` by what an expected skill point costs, cheapest first (so profitable ones lead), those that
-    can't give one last; ties go to the surer skill point, then the more profitable."""
+    can't give one last; ties go to the surer skill point, then the more profitable. With `learn_cost`,
+    what learning the recipe costs (`learn_cost`) counts too, and a recipe whose cost is unknown comes after
+    every one whose cost is known."""
 
-    def key(r: Result) -> tuple[bool, float, float, int]:
+    def key(r: Result) -> tuple[bool, bool, float, float, int]:
         ups = r.skill_ups
-        return (ups == 0, -r.profit / ups if ups else 0.0, -r.skill_chance, -r.profit)
+        learn = learn_cost(r) if learn_cost is not None else 0
+        spent = -r.profit + (learn or 0)
+        return (ups == 0, learn is None, spent / ups if ups else 0.0, -r.skill_chance, -r.profit)
 
     return sorted(results, key=key)
+
+
+def later_rivals(
+    base: Market,
+    chars: Sequence[Character],
+    unlearned: Learning | Unlearned,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_name: str | None,
+    skill_run: SkillRuns | None,
+    gathered: Mapping[int, int] | None,
+) -> list[Rival]:
+    """The recipes of `skill_name`'s profession the one character skilled up can't learn yet but could within
+    `MAX_LOOK_AHEAD` points, each with what a craft of it comes to and the skill they can learn it from: a run
+    may meet them on the way (`engine.run_until_cheaper`). None without runs, one profession and one
+    character."""
+    if skill_run is None or not skill_name or len(skill_crafters) != 1:
+        return []
+    (name,) = skill_crafters
+    climber = next((c for c in chars if c.name == name), None)
+    wanted = skill_name.lower()
+    held = next((p for p in climber.professions if p.name.lower() == wanted), None) if climber else None
+    if climber is None or held is None:
+        return []
+    ahead = Learning("train", MAX_LOOK_AHEAD, Learning.of(unlearned).sources)
+    market = _market(
+        base, chars, ahead, exits, no_ah, False, None, skill_crafters, "", arcane_salvager, gathered
+    )
+    out = []
+    for r in market.recipes:
+        if r.anyone or r.skill_name.lower() != wanted or r.required_skill <= held.rank:
+            continue
+        if r.spell_id in climber.known_recipes:
+            continue
+        one = market.evaluate(r)
+        if one is not None and one.crafter == name:
+            out.append(Rival(r, float(-one.profit), r.required_skill))
+    return out
+
+
+def gather_values(base: Market, item_ids: Iterable[int]) -> dict[int, int]:
+    """What a unit of each item the user gathers is worth to them: what selling it would make (on the AH,
+    after the cut, else to a vendor), never less than a copper, so gathering is never free."""
+    out = {}
+    for i in item_ids:
+        if i in base.sell_prices:
+            worth = ah_net(base.sell_prices[i], base.ah_cut)
+        else:
+            item = base.items.get(i)
+            worth = item.sell_price if item is not None else 0
+        out[i] = max(1, worth)
+    return out
+
+
+def then_up(
+    base: Market,
+    chars: Sequence[Character],
+    unlearned: Learning | Unlearned,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    include_trivial: bool,
+    time: TimeModel | None,
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_name: str,
+    skill_run: SkillRuns,
+    *,
+    first: Result,
+    gathered: Mapping[int, int] | None = None,
+) -> list[Result]:
+    """What could come after `first` (the best useful run) once it is done: the ranking with its crafter's
+    `skill_name` at where that run stops, cheapest skill point first, without `first`'s recipe."""
+    wanted = skill_name.lower()
+
+    def raised(c: Character) -> Character:
+        if c.name != first.crafter:
+            return c
+        return replace(
+            c,
+            professions=tuple(
+                replace(p, rank=max(p.rank, first.stop_skill)) if p.name.lower() == wanted else p
+                for p in c.professions
+            ),
+        )
+
+    later = search(
+        base,
+        [raised(c) for c in chars],
+        unlearned,
+        Filters(),
+        exits,
+        no_ah,
+        include_trivial,
+        time,
+        skill_crafters,
+        arcane_salvager,
+        skill_name=skill_name,
+        skill_run=skill_run,
+        gathered=gathered,
+    )
+    return [r for r in by_skill(later) if r.recipe.id != first.recipe.id]
+
+
+def pattern_price(
+    items: Sequence[store.RecipeItem], ah_prices: Mapping[int, int], faction: str
+) -> int | None:
+    """The least any of `items` (those teaching one recipe) costs: from a vendor serving `faction`, or on
+    the AH; None if nothing says."""
+    other = {"horde": "alliance", "alliance": "horde"}.get(faction.lower(), "")
+    found = []
+    for i in items:
+        if i.buy_price is not None and any(p.kind == "vendor" and p.side != other for p in i.places):
+            found.append(i.buy_price)
+        if i.item_id in ah_prices:
+            found.append(ah_prices[i.item_id])
+    return min(found, default=None)
+
+
+def learn_cost(
+    r: Result,
+    chars: Sequence[Character],
+    taught: Mapping[int, Sequence[store.RecipeItem]],
+    ah_prices: Mapping[int, int],
+    faction: str,
+) -> int | None:
+    """What the result's crafter must spend to learn its recipe: 0 when they know it (or it needs no
+    learning, or a trainer teaches it: fees are not known yet), else what its pattern costs
+    (`pattern_price`; `taught` by spell id), None when nothing says."""
+    who = next((c for c in chars if c.name == r.crafter), None)
+    if (
+        who is None
+        or r.recipe.anyone
+        or r.recipe.spell_id in who.known_recipes
+        or r.recipe.source == "trainer"
+    ):
+        return 0
+    return pattern_price(taught.get(r.recipe.spell_id, ()), ah_prices, faction)
 
 
 def favorites_first(results: Iterable[Result], favorites: frozenset[int]) -> list[Result]:

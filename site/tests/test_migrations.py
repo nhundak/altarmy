@@ -482,3 +482,28 @@ def test_0014_adds_the_order_book_and_drops_forevers_third_party_prices(database
                     status="accepted",
                 )
             )
+
+
+def test_0023_counts_the_scan_pairs_sales_were_seen_in(database: db.Database) -> None:
+    """Existing sales rows count no pair (they were seen in some, unknown); no item has a 7-day count yet."""
+    with database.engine.begin() as conn:
+        command.downgrade(db.alembic_config(conn), "0022")
+        assert "pairs" not in {c["name"] for c in inspect(conn).get_columns("price_sales_daily")}
+        assert "sold_pairs_7d" not in {c["name"] for c in inspect(conn).get_columns("price_current")}
+        old = MetaData()
+        old.reflect(conn, only=["auction_houses", "price_sales_daily"])
+        t = old.tables
+        ah: int = conn.execute(
+            t["auction_houses"]
+            .insert()
+            .values(game_version="forever", realm="Classic Beta PvE", faction="Horde")
+            .returning(t["auction_houses"].c.id)
+        ).scalar_one()
+        day = datetime(2026, 10, 1, tzinfo=UTC).date()
+        conn.execute(
+            t["price_sales_daily"]
+            .insert()
+            .values(auction_house_id=ah, item_id=1, day=day, units=5, copper=500, cancelled=0)
+        )
+        db.upgrade(conn)
+        assert conn.execute(select(schema.price_sales_daily.c.pairs)).scalar_one() == 0

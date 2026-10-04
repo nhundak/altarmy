@@ -6,31 +6,34 @@ import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, type Choices } from '../lib/choices'
 import { confidenceTitle } from '../lib/confidence'
 import { formatRoi } from '../lib/money'
+import { EXIT_SHORT } from '../lib/exits'
+import { fallback, unitsMade } from '../lib/selling'
+import { craftUntil, perPoint } from '../lib/skill'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { type PlanEditing } from './ChoiceMenu'
 import { DisenchantLabel, ItemLink, RecipeTooltip } from './ItemTooltip'
 import { LearnTooltip } from './LearnTooltip'
 import { Money } from './Money'
 import { SessionDetails } from './SessionDetails'
+import { VerdictChip } from './VerdictChip'
 import classes from './ResultsTable.module.css'
 
 /** Profit after costs, AH cut and postage. */
 const PROFIT = 'Net profit'
-/** Profit per skill point the crafter can expect: a column only when skilling up. */
-const PER_SKILL = 'Per skill up'
-/** The columns in order; skilling up adds what a skill point costs. */
-const columnsFor = (rankBy: RankBy | undefined): string[] => [
-  '',
-  PROFIT,
-  ...(rankBy === 'skill' ? [PER_SKILL] : []),
-  'Investment',
-  'ROI',
-  'Recipe',
-  'Crafter',
-  'Sell via',
-]
-/** Profit per expected skill point (negative: what one costs); null when the craft can't give one. */
-const perSkillUp = (r: RankResult): number | null => (r.skill_ups ? r.profit / r.skill_ups : null)
+/** What a skill point the crafter can expect costs: what skilling up ranks by. */
+const PER_POINT = 'Cost per point'
+/** The columns in order. Skilling up shows what a skill point costs and how far each recipe's run goes instead of
+ * the money a session makes. */
+const columnsFor = (rankBy: RankBy | undefined): string[] =>
+  rankBy === 'skill'
+    ? ['', PER_POINT, CRAFT_UNTIL, 'Investment', 'Recipe', 'Learn']
+    : rankBy === 'gold'
+      ? ['', 'Recipe', LIKELY, 'Will it sell', 'Market']
+      : ['', PROFIT, 'Investment', 'ROI', 'Recipe', 'Crafter', 'Sell via']
+/** How far a skill-up run goes: "110 (~17 crafts)". */
+const CRAFT_UNTIL = 'Craft until'
+/** What a gold list ranks by: the profit counting only the units the market has shown it takes. */
+const LIKELY = 'Likely profit'
 /** Sell via column text per exit; unknown exits show as-is. */
 const EXIT_LABELS: Readonly<Record<string, string>> = {
   ah: 'Auction',
@@ -49,32 +52,48 @@ const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit.charAt(0).
 /** Sort key per sortable column; numbers sort largest first on the first click, text alphabetically. */
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
   [PROFIT]: (r) => r.profit,
-  [PER_SKILL]: (r) => perSkillUp(r) ?? -Infinity,
+  [PER_POINT]: (r) => perPoint(r) ?? Infinity,
+  [CRAFT_UNTIL]: (r) => r.stop_skill,
+  Learn: (r) => learnLabel(r, undefined),
   ROI: (r) => r.roi,
   Recipe: (r) => r.output_name,
   Crafter: (r) => (r.crafters.length ? r.crafter : ''),
   Investment: (r) => r.cost,
   'Sell via': (r) => exitLabel(r.best_exit),
 }
-const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_SKILL, 'ROI'])
+const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, 'ROI', CRAFT_UNTIL])
 /** Money columns: fixed width, room for -99g 99s 99c on one line (larger amounts drop copper, then silver). */
-const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_SKILL])
+const MONEY_COLUMNS: ReadonlySet<string> = new Set(['Investment', PROFIT, PER_POINT])
 const MONEY_WIDTH = 110
+/** Skilling up: each column's width (px), Learn taking what is left. Craft until is no wider than its text needs;
+ * the room it would otherwise take goes to the money and the recipe, not to Learn. */
+const SKILL_WIDTHS: Readonly<Record<string, number>> = {
+  [PER_POINT]: 162,
+  [CRAFT_UNTIL]: 147,
+  Investment: 139,
+  Recipe: 347,
+}
 /** Crafter lists wrap at this width (px). */
 const CRAFTER_WIDTH = 219
-/** Columns dropped as the screen narrows (ResultsTable.module.css): Investment and Crafter first, then Sell via
- * and Per skill up. */
+/** Columns dropped as the screen narrows (ResultsTable.module.css): Investment, Crafter and Learn first, then
+ * Sell via and Craft until. */
 const COLUMN_HIDDEN: Readonly<Record<string, string | undefined>> = {
+  Market: classes.hideBelowSm,
   Investment: classes.hideBelowSm,
   Crafter: classes.hideBelowSm,
+  Learn: classes.hideBelowSm,
   'Sell via': classes.hideBelowXs,
-  [PER_SKILL]: classes.hideBelowXs,
+  [CRAFT_UNTIL]: classes.hideBelowXs,
 }
-/** What the server ranks by here (the whole ranking, not just this page): profit per session, or per expected
- * skill point. */
-export type RankBy = 'profit' | 'skill'
-/** The column showing each ranking. */
-const RANK_COLUMN: Readonly<Record<RankBy, string>> = { profit: PROFIT, skill: PER_SKILL }
+/** What the server ranks by here (the whole ranking, not just this page): profit per session, best first; the
+ * cost of an expected skill point, cheapest first; or a gold list (sorted by the server: its headers don't sort). */
+export type RankBy = 'profit' | 'skill' | 'gold'
+/** The column showing each ranking, and whether the server's order is largest first on it. */
+const RANK_COLUMN: Readonly<Record<RankBy, Sort | null>> = {
+  profit: { column: PROFIT, descending: true },
+  skill: { column: PER_POINT, descending: false },
+  gold: null,
+}
 
 type Sort = { column: string; descending: boolean }
 
@@ -106,13 +125,13 @@ function sorted(results: RankResult[], sort: Sort | null, favorites: ReadonlySet
   })
 }
 
-/** A row's profit per expected skill point, with the chance of one on hover. */
-function PerSkillCell({ result: r }: { result: RankResult }) {
-  const value = perSkillUp(r)
+/** A row's cost of an expected skill point (as a loss, in red; what it earns in green), with the chance of one on
+ * hover. */
+function PerPointCell({ result: r }: { result: RankResult }) {
+  const value = perPoint(r)
   const crafts = `${r.crafts} ${r.crafts === 1 ? 'craft' : 'crafts'}`
   return (
     <Table.Td
-      className={COLUMN_HIDDEN[PER_SKILL]}
       ff="monospace"
       ta="right"
       title={`${Math.round(r.skill_chance * 100)}% chance of a skill point on the first craft ·${r.skill_ups.toFixed(1)} expected from ${crafts}`}
@@ -122,12 +141,108 @@ function PerSkillCell({ result: r }: { result: RankResult }) {
           –
         </Text>
       ) : (
-        <Text span inherit c={value < 0 ? 'red' : 'teal'}>
-          <Money copper={Math.round(value)} padded />
+        <Text span inherit c={value > 0 ? 'red' : 'teal'}>
+          <Money copper={Math.round(-value)} padded />
         </Text>
       )}
     </Table.Td>
   )
+}
+
+/** A skill-up row's numbers: what a point costs, where the run stops and how many crafts it takes, and what it
+ * costs. */
+function SkillCells({ result: r }: { result: RankResult }) {
+  return (
+    <>
+      <PerPointCell result={r} />
+      <Table.Td className={COLUMN_HIDDEN[CRAFT_UNTIL]} ta="right">
+        {craftUntil(r)}
+      </Table.Td>
+      <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
+        <Money copper={r.cost} cost padded />
+      </Table.Td>
+    </>
+  )
+}
+
+/** A gold row's exits line: the way it likely sells and what that makes, and what an unsold unit falls back to. */
+function ExitsLine({ result: r }: { result: RankResult }) {
+  const other = r.best_exit === 'ah' || r.likely_exit === 'ah' ? fallback(r) : null
+  const unsold = other && r.sell_options.find((o) => o.kind === other.kind)
+  return (
+    <Text size="xs" c="dimmed">
+      {EXIT_SHORT[r.likely_exit] ?? r.likely_exit} <Money copper={r.likely_profit} signed />
+      {r.excess_units > 0 && ` · for ${Math.round(unitsMade(r)) - r.excess_units}, the rest to ${EXIT_SHORT[r.likely_exit === 'ah' ? (other?.kind ?? '') : r.likely_exit]?.toLowerCase() ?? 'nothing'}`}
+      {unsold && unsold.kind !== r.likely_exit && (
+        <>
+          {' '}
+          · if unsold: {(EXIT_SHORT[unsold.kind] ?? unsold.kind).toLowerCase()} <Money copper={unsold.profit} signed />
+        </>
+      )}
+    </Text>
+  )
+}
+
+/** A gold row's market, in a line: what is asked, what it usually goes for and what the plan counts on; how many are
+ * listed and how many the session adds. A disenchant names its main material's market; a vendor sale what it pays. */
+function MarketCell({ result: r, items }: { result: RankResult; items: ItemMap }) {
+  if (r.best_exit === 'vendor') {
+    const vendor = r.exits.find((e) => e.kind === 'vendor')
+    return (
+      <Text size="xs" c="dimmed">
+        a vendor pays {vendor ? <Money copper={vendor.value} /> : '?'} each
+      </Text>
+    )
+  }
+  if (r.best_exit === 'disenchant') {
+    const de = r.exits.find((e) => e.kind === 'disenchant')
+    const main = de?.materials.toSorted((a, b) => (b.value ?? 0) - (a.value ?? 0))[0]
+    const listed = main && items[main.item_id]?.ah_quantity
+    return (
+      <Text size="xs" c="dimmed">
+        {main ? `${main.name}${listed != null ? `: ${listed.toLocaleString()} listed` : ''}` : 'disenchant'}
+      </Text>
+    )
+  }
+  const item = items[r.output_item_id]
+  if (!item) return null
+  const parts = []
+  if (item.market_price != null) parts.push(<>asking <Money copper={item.market_price} /></>)
+  if (item.median_7d != null && (item.scans_7d ?? 0) >= 3)
+    parts.push(
+      <>
+        usually <Money copper={item.median_7d} /> ({item.scans_7d}d)
+      </>,
+    )
+  if (item.ah_sell_price != null) parts.push(<>count <Money copper={item.ah_sell_price} /></>)
+  return (
+    <Text size="xs" c="dimmed">
+      {parts.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 && ' · '}
+          {p}
+        </Fragment>
+      ))}
+      {item.ah_quantity != null && (
+        <>
+          <br />
+          {item.ah_quantity.toLocaleString()} listed · you add {Math.round(unitsMade(r))}
+        </>
+      )}
+    </Text>
+  )
+}
+
+/** How a recipe is learned, in a word: known, or where the climber learns it (and who already knows it). */
+function learnLabel(r: RankResult, learn: Learn | undefined): string {
+  if (!r.crafter || r.crafters.includes(r.crafter) || needsNoRecipe(r)) return 'known'
+  const how = learn ? LEARN_FROM[learn.source] : 'not learned'
+  return r.crafters.length ? `${how} · ${r.crafters[0]} knows it` : how
+}
+const LEARN_FROM: Readonly<Record<Learn['source'], string>> = {
+  trainer: 'trainer',
+  recipe: 'pattern',
+  bop: 'bind on pickup pattern',
 }
 
 /** The characters who know the recipe, the one doing the craft first. */
@@ -261,8 +376,8 @@ export function ResultsTable({
     })
   const [sort, setSort] = useState<Sort | null>(null)
   // With no column picked here, the server's order shows on the column it ranked by.
-  const shownSort: Sort | null =
-    sort ?? (rankBy ? { column: RANK_COLUMN[rankBy], descending: true } : null)
+  const shownSort: Sort | null = sort ?? (rankBy ? RANK_COLUMN[rankBy] : null)
+  const gold = rankBy === 'gold'
   const sortBy = (column: string) =>
     setSort(
       shownSort?.column === column
@@ -305,13 +420,21 @@ export function ResultsTable({
                   <Table.Th
                     key={c}
                     className={COLUMN_HIDDEN[c]}
-                    w={MONEY_COLUMNS.has(c) ? MONEY_WIDTH : c === 'Crafter' ? CRAFTER_WIDTH : undefined}
+                    w={
+                      rankBy === 'skill' && c in SKILL_WIDTHS
+                        ? SKILL_WIDTHS[c]
+                        : MONEY_COLUMNS.has(c)
+                          ? MONEY_WIDTH
+                          : c === 'Crafter'
+                            ? CRAFTER_WIDTH
+                            : undefined
+                    }
                     ta={MONEY_COLUMNS.has(c) ? 'right' : undefined}
                     aria-sort={
                       !(c in SORT_KEYS) ? undefined : !active ? 'none' : shownSort.descending ? 'descending' : 'ascending'
                     }
                   >
-                    {c in SORT_KEYS ? (
+                    {c in SORT_KEYS && !gold ? (
                       <UnstyledButton className={classes.sort} aria-label={`Sort by ${c}`} onClick={() => sortBy(c)}>
                         {c}
                         <span className={classes.arrow} data-active={active || undefined}>
@@ -359,7 +482,7 @@ export function ResultsTable({
                           ★
                         </Flag>
                       )}
-                      {r.confidence && r.confidence.level !== 'high' && (
+                      {!gold && r.confidence && r.confidence.level !== 'high' && (
                         <Flag
                           color={r.confidence.level === 'low' ? 'orange' : 'yellow'}
                           label={`${r.confidence.level === 'low' ? 'Low' : 'Medium'} price confidence`}
@@ -368,7 +491,7 @@ export function ResultsTable({
                           ?
                         </Flag>
                       )}
-                      {r.slow && r.days_to_sell != null && (
+                      {!gold && r.slow && r.days_to_sell != null && (
                         <Flag color="orange" label="Slow to sell" why={slowTitle(r.days_to_sell)}>
                           ⚠
                         </Flag>
@@ -384,14 +507,19 @@ export function ResultsTable({
                         </Flag>
                       )}
                     </Table.Td>
-                    <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
-                      <Money copper={r.profit} padded />
-                    </Table.Td>
-                    {rankBy === 'skill' && <PerSkillCell result={r} />}
-                    <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
-                      <Money copper={r.cost} cost padded />
-                    </Table.Td>
-                    <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
+                    {gold ? null : rankBy === 'skill' ? (
+                      <SkillCells result={r} />
+                    ) : (
+                      <>
+                        <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
+                          <Money copper={r.profit} padded />
+                        </Table.Td>
+                        <Table.Td className={COLUMN_HIDDEN.Investment} ff="monospace" ta="right">
+                          <Money copper={r.cost} cost padded />
+                        </Table.Td>
+                        <Table.Td c={r.roi < 0 ? 'red' : undefined}>{formatRoi(r.roi)}</Table.Td>
+                      </>
+                    )}
                     <Table.Td>
                       {r.kind === 'flip' && (
                         // buy the item and disenchant it: no recipe to name
@@ -412,7 +540,41 @@ export function ResultsTable({
                           />
                         }
                       />
+                      {gold && <ExitsLine result={r} />}
                     </Table.Td>
+                    {gold ? (
+                      <>
+                        <Table.Td ff="monospace" ta="right">
+                          <Text span inherit c={r.likely_profit < 0 ? 'red' : 'teal'}>
+                            <Money copper={r.likely_profit} padded />
+                          </Text>
+                          {r.likely_profit !== r.profit && (
+                            <Text size="xs" c="dimmed">
+                              all sell <Money copper={r.profit} />
+                            </Text>
+                          )}
+                          <Text size="xs" c="dimmed">
+                            spend <Money copper={r.cost} />
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <VerdictChip result={r} />
+                        </Table.Td>
+                        <Table.Td className={COLUMN_HIDDEN.Market}>
+                          <MarketCell result={r} items={items} />
+                        </Table.Td>
+                      </>
+                    ) : rankBy === 'skill' ? (
+                      <Table.Td className={COLUMN_HIDDEN.Learn}>
+                        {learn[r.recipe_id] && !r.crafters.includes(r.crafter) ? (
+                          <LearnTooltip learn={learn[r.recipe_id]}>{learnLabel(r, learn[r.recipe_id])}</LearnTooltip>
+                        ) : (
+                          <Text span size="sm" c="dimmed">
+                            {learnLabel(r, undefined)}
+                          </Text>
+                        )}
+                      </Table.Td>
+                    ) : (
                     <Table.Td
                       className={COLUMN_HIDDEN.Crafter}
                       title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
@@ -435,7 +597,10 @@ export function ResultsTable({
                         </Text>
                       )}
                     </Table.Td>
-                    <Table.Td className={COLUMN_HIDDEN['Sell via']}>{exitLabel(r.best_exit)}</Table.Td>
+                    )}
+                    {rankBy !== 'skill' && !gold && (
+                      <Table.Td className={COLUMN_HIDDEN['Sell via']}>{exitLabel(r.best_exit)}</Table.Td>
+                    )}
                     {actions && (
                       // Menu clicks (in its portal too) bubble here in React, not to the row.
                       <Table.Td onClick={(e) => e.stopPropagation()}>
@@ -461,6 +626,7 @@ export function ResultsTable({
                               editing={editing(r.recipe_id)}
                               params={params}
                               choices={choices[r.recipe_id]}
+                              market={gold}
                             />
                           </motion.div>
                         </Table.Td>

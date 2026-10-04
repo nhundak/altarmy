@@ -42,7 +42,7 @@ PARTITION_AT = 5_000_000
 PARTITION_ALERT = "partition-observations"
 
 Stats = tuple[int | None, int | None, int | None]  # median_7d, avail_7d, scans_7d
-Sales = tuple[int | None, float | None]  # sale_price, sale_rate
+Sales = tuple[int | None, float | None, int | None]  # sale_price, sale_rate, sold_pairs_7d
 
 
 def median(values: Sequence[int]) -> int:
@@ -100,15 +100,15 @@ def merge_auction_house(conn: Connection, auction_house_id: int, today: date) ->
     sales_updates = []
     for r in conn.execute(
         select(pc.c.item_id, pc.c.median_7d, pc.c.avail_7d, pc.c.scans_7d)
-        .add_columns(pc.c.sale_price, pc.c.sale_rate)
+        .add_columns(pc.c.sale_price, pc.c.sale_rate, pc.c.sold_pairs_7d)
         .where(pc.c.auction_house_id == auction_house_id)
     ):
         stats = _stats(per_item.get(r.item_id, []))
         if stats != (r.median_7d, r.avail_7d, r.scans_7d):
             current_updates.append({"i": r.item_id, "m": stats[0], "a": stats[1], "s": stats[2]})
-        sales = sold.get(r.item_id, (None, None))
-        if sales != (r.sale_price, r.sale_rate):
-            sales_updates.append({"i": r.item_id, "p": sales[0], "r": sales[1]})
+        sales = sold.get(r.item_id, (None, None, None))
+        if sales != (r.sale_price, r.sale_rate, r.sold_pairs_7d):
+            sales_updates.append({"i": r.item_id, "p": sales[0], "r": sales[1], "n": sales[2]})
     if current_updates:
         conn.execute(
             update(pc)
@@ -120,7 +120,7 @@ def merge_auction_house(conn: Connection, auction_house_id: int, today: date) ->
         conn.execute(
             update(pc)
             .where(pc.c.auction_house_id == auction_house_id, pc.c.item_id == bindparam("i"))
-            .values(sale_price=bindparam("p"), sale_rate=bindparam("r")),
+            .values(sale_price=bindparam("p"), sale_rate=bindparam("r"), sold_pairs_7d=bindparam("n")),
             sales_updates,
         )
 
@@ -139,12 +139,12 @@ def _stats(days: list[tuple[date, int, int | None]]) -> Stats:
 
 
 def _sales(conn: Connection, auction_house_id: int, today: date) -> dict[int, Sales]:
-    """{item_id: (sale price, units sold a day)} over the SALES_DAYS days up to `today`, for items that
-    sold at all. The sale price is, by units, the middle of the days' average prices; None under
-    MIN_SALES units."""
+    """{item_id: (sale price, units sold a day, pairs of scans they sold in)} over the SALES_DAYS days up
+    to `today`, for items that sold at all. The sale price is, by units, the middle of the days' average
+    prices; None under MIN_SALES units."""
     t = schema.price_sales_daily
     rows = conn.execute(
-        select(t.c.item_id, t.c.units, t.c.copper)
+        select(t.c.item_id, t.c.units, t.c.copper, t.c.pairs)
         .where(
             t.c.auction_house_id == auction_house_id,
             t.c.day > today - timedelta(days=SALES_DAYS),
@@ -154,12 +154,14 @@ def _sales(conn: Connection, auction_house_id: int, today: date) -> dict[int, Sa
         .order_by(t.c.item_id, t.c.day)
     )
     days: dict[int, list[tuple[int, int]]] = defaultdict(list)  # (average price, units)
+    pairs: dict[int, int] = defaultdict(int)
     for r in rows:
         days[r.item_id].append((r.copper // r.units, r.units))
+        pairs[r.item_id] += r.pairs
     out: dict[int, Sales] = {}
     for item_id, sold in days.items():
         units = sum(u for _, u in sold)
-        out[item_id] = (_middle(sold) if units >= MIN_SALES else None, units / SALES_DAYS)
+        out[item_id] = (_middle(sold) if units >= MIN_SALES else None, units / SALES_DAYS, pairs[item_id])
     return out
 
 

@@ -1,7 +1,9 @@
 import { Fragment, type ReactNode } from 'react'
 import { List, Text } from '@mantine/core'
 import type { ItemMap, RankResult, Step } from '../api/client'
+import { useAhCut } from '../api/queries'
 import { SELL_PATH } from '../lib/choices'
+import { breakEven, countedOn, floor } from '../lib/selling'
 import { stepSource } from '../lib/steps'
 import { bonusNote, discountNote } from '../lib/talents'
 import { formatCoords } from '../lib/time'
@@ -30,6 +32,31 @@ const Sale = ({ gross, net }: { gross: number; net: number }) => (
   </>
 )
 
+/** What to watch for when posting the craft: the price under which another exit pays more, the price under which
+ * the session loses gold, and what the plan counted on. */
+function SaleNotes({ result, items }: { result: RankResult; items: ItemMap }) {
+  const cut = useAhCut()
+  const lowest = floor(result, cut)
+  const even = breakEven(result, cut)
+  const counted = countedOn(result, items)
+  return (
+    <Text component="span" size="xs" c="dimmed" display="block">
+      {lowest !== null && (
+        <>
+          Don&apos;t go under <Money copper={lowest} /> each: below that the {result.exits.find((e) => e.kind !== 'ah')?.kind === 'vendor' ? 'vendor' : 'other way to sell'} pays more.{' '}
+        </>
+      )}
+      Under <Money copper={even} /> each this run loses gold (deposit not included).
+      {counted.price !== null && (
+        <>
+          {' '}
+          We counted on <Money copper={counted.price} /> for {counted.units} of your {counted.of}.
+        </>
+      )}
+    </Text>
+  )
+}
+
 /** Who does a line: their name and a colon, or nothing when no characters are known. */
 const Who = ({ who }: { who: string }) =>
   who ? (
@@ -42,8 +69,8 @@ const Who = ({ who }: { who: string }) =>
  * A step as one or more instruction lines, prefixed with who does it; disenchanting splits into disenchant,
  * then sell the mats. `vendor` names the vendor bought from or sold to (the detailed view knows it).
  */
-function describe(step: Step, result: RankResult, items: ItemMap, vendor?: string): ReactNode[] {
-  return describeAction(step, result, items, vendor).map((l) => (
+function describe(step: Step, result: RankResult, items: ItemMap, vendor?: string, skill = false): ReactNode[] {
+  return describeAction(step, result, items, vendor, skill).map((l) => (
     <>
       <Who who={step.who} />
       {l}
@@ -56,6 +83,7 @@ function describeAction(
   result: RankResult,
   items: ItemMap,
   vendor?: string,
+  skill = false,
 ): ReactNode[] {
   const item = <ItemLink item={items[item_id]} name={name} />
   const discounted = discountNote(discount, rep_discount, rep_faction)
@@ -67,6 +95,13 @@ function describeAction(
           Purchase {quantity}x {item} {via === 'vendor' ? `from ${vendor ?? 'a vendor'}` : 'on the AH'} (
           <StepMoney value={value} />
           {discounted && `, ${discounted}`})
+        </>,
+      ]
+    case 'gather':
+      // the user's own: what it costs is what selling it would have made
+      return [
+        <>
+          Gather {quantity}x {item} (worth <Money copper={-value} /> to sell)
         </>,
       ]
     case 'craft':
@@ -101,10 +136,27 @@ function describeAction(
             <Sale gross={value} net={result.profit} />
           </>,
         ]
+      if (via === 'keep')
+        return [
+          <>
+            Keep the {quantity > 1 ? `${quantity}x ` : ''}
+            {item}
+            {extra} (no vendor buys it)
+          </>,
+        ]
+      if (skill)
+        // skilling up sells back what was made: what it brings in, no profit to speak of
+        return [
+          <>
+            Sell back {quantity}x {item}
+            {extra} {via === 'ah' ? 'on the AH' : `to ${vendor ?? 'a vendor'}`} (<StepMoney value={value} />)
+          </>,
+        ]
       return [
         <>
           Sell {quantity}x {item}
           {extra} {via === 'ah' ? 'on the AH' : `to ${vendor ?? 'a vendor'}`} <Sale gross={value} net={result.profit} />
+          {via === 'ah' && <SaleNotes result={result} items={items} />}
         </>,
       ]
   }
@@ -133,8 +185,8 @@ function StepChoice({ step, result }: { step: Step; result: RankResult }) {
 
 /** A step's lines (a disenchant sale's split: disenchanting, then selling the materials), the last ending in a
  * menu of its alternatives, if it has any. */
-function stepLines(step: Step, result: RankResult, items: ItemMap, vendor?: string): ReactNode[] {
-  return describe(step, result, items, vendor).map((line, i, all) =>
+function stepLines(step: Step, result: RankResult, items: ItemMap, vendor?: string, skill = false): ReactNode[] {
+  return describe(step, result, items, vendor, skill).map((line, i, all) =>
     i < all.length - 1 ? (
       line
     ) : (
@@ -230,18 +282,59 @@ function planLines(result: RankResult, items: ItemMap, detailed: boolean): React
   })
 }
 
-/** The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. */
+/**
+ * The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. In `skill` mode
+ * (skilling up: a checklist) the steps are grouped under each character in the order they do them, and selling back
+ * says what it brings in rather than a profit.
+ */
 export function StepList({
   result,
   items,
   editing,
   detailed = false,
+  mode = 'default',
 }: {
   result: RankResult
   items: ItemMap
   editing?: PlanEditing
   detailed?: boolean
+  mode?: 'default' | 'skill'
 }) {
+  if (mode === 'skill') {
+    const groups: { who: string; steps: Step[] }[] = []
+    for (const step of result.steps) {
+      const last = groups.at(-1)
+      if (last && last.who === step.who) last.steps.push(step)
+      else groups.push({ who: step.who, steps: [step] })
+    }
+    return (
+      <ChooseContext.Provider value={editing?.onChoose}>
+        {groups.map((g, n) => (
+          <div key={n} role="group" aria-label={g.who ? `${g.who}'s steps` : 'Steps'}>
+            {g.who && (
+              <Text size="sm" fw={600} mt={n ? 'xs' : 0}>
+                <CharacterName name={g.who} />
+              </Text>
+            )}
+            <List type="ordered" size="sm">
+              {g.steps.flatMap((step, i) =>
+                describeAction(step, result, items, undefined, true).map((line, j, all) => (
+                  <List.Item key={`${i}.${j}`}>
+                    {line}
+                    {j === all.length - 1 && (
+                      <span className={classes.stepChoice}>
+                        <StepChoice step={step} result={result} />
+                      </span>
+                    )}
+                  </List.Item>
+                )),
+              )}
+            </List>
+          </div>
+        ))}
+      </ChooseContext.Provider>
+    )
+  }
   const lines = planLines(result, items, detailed)
   return (
     <ChooseContext.Provider value={editing?.onChoose}>

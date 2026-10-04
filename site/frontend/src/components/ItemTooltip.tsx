@@ -16,6 +16,9 @@ import { Money } from './Money'
 
 const qualityColor = (quality: number) => QUALITY_COLORS[quality] ?? QUALITY_COLORS[1]
 
+/** Price levels a tooltip lists, cheapest first. */
+const LEVELS_SHOWN = 5
+
 /** A CDN icon that disappears if it cannot load (offline, or an icon Wowhead does not have). */
 function Icon({
   icon,
@@ -99,7 +102,7 @@ function ItemLines({ item }: { item: ItemInfo }) {
       )}
       {item.ah_quantity != null && <div>{item.ah_quantity.toLocaleString()} listed</div>}
       {item.ah_levels.length > 1 &&
-        item.ah_levels.map((level) => (
+        item.ah_levels.slice(0, LEVELS_SHOWN).map((level) => (
           <div key={level.price} style={{ opacity: 0.8 }}>
             {level.quantity.toLocaleString()}
             {level.more ? ' more from ' : ' at '}

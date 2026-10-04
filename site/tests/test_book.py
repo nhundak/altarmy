@@ -209,6 +209,16 @@ def test_an_undercut_market_sold_nothing() -> None:
     assert book.sold_between(before, after) == book.Sold(0, 0, 0)
 
 
+def test_a_fresh_undercut_does_not_turn_sales_into_cancellations() -> None:
+    # 6 at 100 went (and none at 120): sold, though a cheaper listing (at 90) came up in between
+    before = ladder((100, 10), (120, 5))
+    after = ladder((90, 3), (100, 4), (120, 5))
+    assert book.sold_between(before, after) == book.Sold(units=6, copper=600, cancelled=0)
+    # what went from behind a level still listed was still cancelled
+    after = ladder((90, 3), (100, 10), (120, 1))
+    assert book.sold_between(before, after) == book.Sold(units=0, copper=0, cancelled=4)
+
+
 def test_an_emptied_market_says_nothing_of_sales() -> None:
     assert book.sold_between(ladder((100, 10)), ()) == book.Sold(units=0, copper=0, cancelled=10)
 

@@ -254,6 +254,7 @@ class RecipeItem:
     item_id: int
     name: str
     places: tuple[Place, ...]
+    buy_price: int | None = None  # per unit, from a vendor that sells it; None if none charges anything
 
 
 def load_recipe_items(
@@ -264,16 +265,18 @@ def load_recipe_items(
     wanted = sorted(set(spell_ids))
     ri, it, src = schema.recipe_items, schema.items, schema.item_sources
     taught: dict[int, list[tuple[int, str]]] = {}
+    buy: dict[int, int | None] = {}
     for start in range(0, len(wanted), IN_CHUNK):
         chunk = wanted[start : start + IN_CHUNK]
         query = (
-            select(ri.c.spell_id, ri.c.item_id, it.c.name)
+            select(ri.c.spell_id, ri.c.item_id, it.c.name, it.c.buy_price, it.c.buy_count)
             .join(it, (it.c.game_version == ri.c.game_version) & (it.c.id == ri.c.item_id))
             .where(ri.c.game_version == game_version, ri.c.spell_id.in_(chunk))
             .order_by(ri.c.spell_id, ri.c.item_id)
         )
-        for spell, item, name in conn.execute(query):
+        for spell, item, name, price, count in conn.execute(query):
             taught.setdefault(spell, []).append((item, name))
+            buy[item] = -(-price // max(1, count)) if price > 0 else None
     items = sorted({i for lst in taught.values() for i, _ in lst})
     places: dict[int, list[Place]] = {}
     for start in range(0, len(items), IN_CHUNK):
@@ -287,7 +290,7 @@ def load_recipe_items(
             m = r._mapping  # `Row.count` is a tuple method, not the column
             places.setdefault(m["item_id"], []).append(Place(**{f.name: m[f.name] for f in fields(Place)}))
     return {
-        spell: [RecipeItem(i, name, tuple(places.get(i, ()))) for i, name in lst]
+        spell: [RecipeItem(i, name, tuple(places.get(i, ())), buy.get(i)) for i, name in lst]
         for spell, lst in taught.items()
     }
 

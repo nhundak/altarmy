@@ -71,9 +71,9 @@ describe('ProfitPage', () => {
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
     await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
     expect(paths(fetch, '/api/rank')).toEqual([])
-    await userEvent.click(await within(search).findByRole('button', { name: 'Anything that might sell' }))
+    await userEvent.click(await within(search).findByRole('button', { name: 'Use the auction house too' }))
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
-    expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.has('sort')).toBe(false)
+    expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('likely')
 
     unmount()
     renderWithProviders(<ProfitPage />)

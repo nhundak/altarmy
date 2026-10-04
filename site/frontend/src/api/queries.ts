@@ -1,6 +1,7 @@
 import { useDebouncedCallback } from '@mantine/hooks'
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCallback, useEffect } from 'react'
 import {
   call,
   client,
@@ -73,8 +74,10 @@ export function useDeleteCharacter() {
   })
 }
 
-/** A way to sell; `skill` is an enchant's: cast for the skill point alone, nothing is sold. */
-export type Exit = 'vendor' | 'disenchant' | 'ah' | 'skill'
+/** A way to sell; `skill` is an enchant's: cast for the skill point alone, nothing is sold; `keep` (skilling up
+ * only) keeps what no vendor buys, worth nothing. */
+export type Exit = 'vendor' | 'disenchant' | 'ah' | 'skill' | 'keep'
+
 
 /** Which recipes nobody has learned count: none, those a character can train (see `lookAhead` and `sources`), or
  * every recipe of their professions. */
@@ -110,11 +113,21 @@ export type RankParams = {
   minConfidence: Confidence | null
   /** only recipes of these professions; empty for every one */
   professions: string[]
-  /** best profit per session first, or cheapest expected skill point (the API's `rate`, per hour of play, is not
-   * used) */
-  sort: 'profit' | 'skill'
+  /** best profit per session first, cheapest expected skill point, or a gold list's order (likely profit, profit if
+   * all sell, ROI, least spent, profit per unit); the API's `rate`, per hour of play, is not used */
+  sort: RankSort
+  /** only sales at least this sure to sell; null or unset for any */
+  minVerdict?: VerdictLevel | null
+  /** skilling up: rank each recipe as a run, the crafts until another would give a cheaper skill point; false: a
+   * session */
+  runs: boolean
+  /** items the user gathers themselves: had for what selling them would make, instead of bought */
+  gathered?: number[]
   top: number
 }
+
+export type RankSort = 'profit' | 'skill' | 'likely' | 'all_sell' | 'roi' | 'spend' | 'profit_each'
+export type VerdictLevel = 'steady' | 'likely' | 'unproven'
 
 /** How far a sell price can be trusted, least first. */
 export const CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const
@@ -130,10 +143,15 @@ const training = ({
 }: Pick<RankParams, 'unlearned' | 'lookAhead' | 'sources'>): { look_ahead?: number; sources?: Source[] } =>
   unlearned === 'train' ? { look_ahead: lookAhead, sources } : {}
 
-/** Ranked recipes for the selected realm/faction's characters (every recipe without characters). */
-export function useRank(params: RankParams) {
-  const version = useDataVersion()
-  const priceVersion = usePriceVersion()
+/** Ranked recipes for the selected realm/faction's characters (every recipe without characters). With a
+ * `priceVersion`, ranked at that price version (as of when it was frozen) until it is moved, however prices change
+ * meanwhile: a list being worked through doesn't reshuffle. */
+export function useRank(params: RankParams, { priceVersion: frozen }: { priceVersion?: number } = {}) {
+  const live = useDataVersion()
+  const status = useStatus().data
+  const livePrices = usePriceVersion()
+  const version = frozen === undefined || !status ? live : `${status.data_version}.${frozen}`
+  const priceVersion = frozen ?? livePrices
   return useQuery({
     queryKey: ['rank', GAME_VERSION, version, params],
     queryFn: () =>
@@ -155,8 +173,11 @@ export function useRank(params: RankParams) {
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
               min_confidence: orUndefined(params.minConfidence),
+              min_verdict: params.minVerdict ?? undefined,
               professions: params.professions.length ? params.professions : undefined,
               sort: params.sort === 'profit' ? undefined : params.sort,
+              runs: params.runs || undefined,
+              gathered: params.gathered?.length ? params.gathered : undefined,
               top: params.top,
               price_version: priceVersion,
             },
@@ -173,7 +194,7 @@ export function useRank(params: RankParams) {
 export type EvaluateParams = Pick<
   RankParams,
   'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
-> & { version?: string }
+> & { runs?: boolean; gathered?: number[]; version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -181,13 +202,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -201,6 +222,8 @@ export function useEvaluations(
               skill_crafters: skillCrafters,
               exits,
               arcane_salvager: arcaneSalvager,
+              runs: runs ?? false,
+              gathered: gathered ?? [],
               choices: choices[id] ?? {},
               price_version: priceVersion,
             },
@@ -217,24 +240,22 @@ export function useEvaluations(
   })
 }
 
-/** A recipe planned as a session of `copies` crafts (null: the time settings' batch, as ranked) in `city` (null: as
- * the time settings pick) with `crafter` doing the final craft (null: as ranked), spelled out with where to go. The
- * user's plan `choices` apply. Only fetched while `enabled`: with none set the ranked (or re-costed) result already
- * is this plan. The previous plan stays
- * shown while a new one loads. */
-export function useSessionPlan(
+/** The query of a recipe planned as a session of `copies` crafts (null: the time settings' batch, as ranked) in
+ * `city` (null: as the time settings pick) with `crafter` doing the final craft (null: as ranked), spelled out with
+ * where to go; the user's plan `choices` apply. Its key holds the data and price versions, so a plan stays good
+ * until they move: never stale. */
+function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
   crafter: string | null,
-  enabled: boolean,
+  priceVersion: number | undefined,
 ) {
-  const priceVersion = usePriceVersion()
-  return useQuery({
+  return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -248,6 +269,8 @@ export function useSessionPlan(
             skill_crafters: skillCrafters,
             exits,
             arcane_salvager: arcaneSalvager,
+            runs: runs ?? false,
+            gathered: gathered ?? [],
             choices: choices ?? {},
             copies: copies ?? undefined,
             city: city ?? undefined,
@@ -256,9 +279,66 @@ export function useSessionPlan(
           },
         }),
       ),
+    staleTime: Infinity,
+  }
+}
+
+/** A recipe planned as a session (`sessionPlanQuery`). Only fetched while `enabled`: with none set the ranked (or
+ * re-costed) result already is this plan. The previous plan stays shown while a new one loads. */
+export function useSessionPlan(
+  recipeId: number,
+  params: EvaluateParams,
+  choices: Choices | undefined,
+  copies: number | null,
+  city: string | null,
+  crafter: string | null,
+  enabled: boolean,
+) {
+  const priceVersion = usePriceVersion()
+  return useQuery({
+    ...sessionPlanQuery(recipeId, params, choices, copies, city, crafter, priceVersion),
     placeholderData: keepPreviousData,
     enabled,
   })
+}
+
+/** Fetches ahead the session plans of these recipes for these many crafts each (`sessionPlanQuery`, no choices,
+ * city or crafter), so opening one finds its plan in the cache. */
+export function usePrefetchSessionPlans(plans: readonly { recipeId: number; copies: number }[], params: EvaluateParams) {
+  const queryClient = useQueryClient()
+  const priceVersion = usePriceVersion()
+  const wanted = JSON.stringify(plans)
+  const paramsKey = JSON.stringify(params)
+  useEffect(() => {
+    for (const { recipeId, copies } of JSON.parse(wanted) as { recipeId: number; copies: number }[]) {
+      void queryClient.prefetchQuery(sessionPlanQuery(recipeId, JSON.parse(paramsKey) as EvaluateParams, undefined, copies, null, null, priceVersion))
+    }
+  }, [queryClient, wanted, paramsKey, priceVersion])
+}
+
+/** What the front end may say happened (`POST /api/events`): anonymous, a log line each. */
+export type EventName = 'aim_chosen' | 'next_up_shown' | 'row_opened' | 'copy_steps' | 'gather_toggled' | 'coach_shown'
+
+/** Say that something happened, with a few words of context (never anything about the user). Fire and forget: a
+ * failure is ignored. */
+export function useTrack() {
+  return useCallback((name: EventName, props: Record<string, string | number | boolean> = {}) => {
+    client.POST('/api/events', { ...GV, body: { name, props } }).catch(() => {})
+  }, [])
+}
+
+/** The game versions the app serves (game data: it changes only with an update). */
+export function useVersions() {
+  return useQuery({
+    queryKey: ['versions'],
+    queryFn: () => call(client.GET('/api/versions')),
+    staleTime: Infinity,
+  })
+}
+
+/** The auction house's cut of a sale for this game version (5% until the versions load). */
+export function useAhCut(): number {
+  return useVersions().data?.find((v) => v.key === GAME_VERSION)?.ah_cut ?? 0.05
 }
 
 /** Keep retrying a query the app can't do without (signing in), backing off to every 30 s. */

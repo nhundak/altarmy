@@ -1,4 +1,5 @@
 import gzip
+import json
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -6,12 +7,13 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Connection, insert, select
+from sqlalchemy import Connection, insert, select, update
 
 from altarmy_profit import (
     altarmy,
     auth,
     db,
+    engine,
     ingest,
     jobs,
     launch,
@@ -298,6 +300,15 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connec
         "ah_quantity": None,
         "ah_levels": [],
         "vendor_price": None,
+        "market_price": None,
+        "median_7d": None,
+        "scans_7d": None,
+        "sale_price": None,
+        "sold_7d": 0,
+        "sold_pairs_7d": None,
+        "listed": None,
+        "seen_at": None,
+        "stack_size": 1,
     }
 
 
@@ -610,6 +621,132 @@ def test_rank_and_evaluate_for_the_characters_skilled_up(client: TestClient, pri
     assert client.post("/api/evaluate", json={**body, "crafter": "Nobody"}).status_code == 404
 
 
+def test_a_character_skilled_up_is_told_where_to_learn_what_an_alt_knows(
+    client: TestClient, priced: Connection
+) -> None:
+    high = Character(
+        "Realm", "High", "Horde", "MAGE", 60, (Profession("Tailoring", 55, 150, frozenset({900})),)
+    )
+    low = Character("Realm", "Low", "Horde", "MAGE", 60, (Profession("Tailoring", 40, 150, frozenset()),))
+    service.replace_characters(priced, ME, FOREVER, [high, low])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params: dict[str, str | int | bool | list[str]] = {
+        "unlearned": "train",
+        "look_ahead": 10,
+        "include_trivial": False,
+        "skill_crafters": ["Low"],
+    }
+    body = client.get("/api/rank", params=params).json()
+    (r,) = body["results"]
+    assert (r["crafter"], r["crafters"]) == ("Low", ["High"])  # High knows it; Low must learn it
+    assert body["learn"][str(r["recipe_id"])]["skill"] == 50
+
+
+def test_one_profession_is_ranked_alone(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str | None] = []
+    search = service.search
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        asked.append(kwargs.get("skill_name"))
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", spy)
+    assert client.get("/api/rank", params={"professions": ["Tailoring"]}).json()["total"] == 1
+    client.get("/api/rank", params={"professions": ["Tailoring", "Cooking"]})
+    client.get("/api/rank")
+    assert asked == ["Tailoring", None]  # several professions narrow the full ranking, cached for no filter
+
+
+def test_favorites_never_reorder_the_skill_ranking(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    first = service.favorites_first
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return first(*args, **kwargs)
+
+    monkeypatch.setattr(service, "favorites_first", spy)
+    r = client.get("/api/rank").json()["results"][0]
+    client.put(f"/api/favorites/{r['recipe_id']}")
+    client.get("/api/rank", params={"sort": "skill"})
+    assert calls == []
+    client.get("/api/rank")
+    assert calls == [1]
+
+
+SKILL_UP: dict[str, str | bool | list[str]] = {
+    "sort": "skill",
+    "professions": ["Tailoring"],
+    "skill_crafters": ["Tailor Guy"],
+    "include_trivial": False,
+    "exits": ["vendor", "keep"],
+}
+
+
+def test_skill_up_ranks_each_recipe_as_a_run_until_another_gets_cheaper(
+    client: TestClient, priced: Connection
+) -> None:
+    # Tailor Guy has Tailoring 50: the robe is yellow from 30, green from 45 and grey from 60; it is the only
+    # recipe, so nothing gets cheaper and its run goes on until it is about to turn grey
+    (r,) = client.get("/api/rank", params={**SKILL_UP, "runs": True}).json()["results"]
+    assert (r["learn_skill"], r["trivial_low"], r["trivial_high"]) == (50, 30, 60)
+    assert (r["crafts"], r["stop_skill"], r["stop_reason"], r["overtaken_by"]) == (68, 59, "trivial", "")
+    assert r["overtaken_by_item"] == 0
+    assert r["crafts_p80"] >= r["crafts"]
+    assert r["reach_chances"][r["crafts_p80"] - 1] >= 0.8  # the odds of reaching stop_skill by each craft
+    novice = Character(
+        "Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 20, 75, frozenset({900})),)
+    )
+    service.replace_characters(priced, ME, FOREVER, [novice])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params = {**SKILL_UP, "skill_crafters": ["Novice"], "runs": True}
+    (r,) = client.get("/api/rank", params=params).json()["results"]
+    assert (r["crafts"], r["stop_reason"]) == (100, "ceiling")  # the most crafts a run asks for
+    body = {
+        "recipe_id": r["recipe_id"],
+        "choices": {},
+        "include_trivial": False,
+        "skill_crafters": ["Novice"],
+    }
+    got = client.post("/api/evaluate", json={**body, "exits": ["vendor", "keep"], "runs": True}).json()
+    assert got["result"]["crafts"] == 100
+    got = client.post("/api/evaluate", json={**body, "runs": True, "copies": 12}).json()
+    assert got["result"]["crafts"] == 12  # copies asked for win
+
+
+def test_skill_up_keeps_what_no_vendor_buys(client: TestClient, priced: Connection) -> None:
+    priced.execute(update(schema.items).where(schema.items.c.id == 3).values(sell_price=0))
+    assert client.get("/api/rank", params={**SKILL_UP, "exits": ["vendor"]}).json()["results"] == []
+    (r,) = client.get("/api/rank", params=SKILL_UP).json()["results"]
+    assert (r["best_exit"], r["revenue"]) == ("keep", 0)
+
+
+def test_the_skill_run_ranks_again(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[object] = []
+    search = service.search
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs.get("skill_run"))
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", spy)
+    client.get("/api/rank", params={**SKILL_UP, "runs": True})
+    assert calls and set(calls) == {engine.SkillRuns()}  # the ranking, and what comes after its first
+    ranked = len(calls)
+    client.get("/api/rank", params={**SKILL_UP, "runs": True})
+    assert len(calls) == ranked  # all cached
+    client.get("/api/rank", params={**SKILL_UP})
+    assert calls[ranked:] == [None]  # a session of the batch: ranked apart
+    client.get("/api/rank", params={"runs": True})  # nobody skilled up: no run
+    assert calls[-1] is None
+
+
 def test_characters_and_selection(client: TestClient, db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
     set_prices(conn, {1: 20, 2: 100})
@@ -690,8 +827,8 @@ def test_each_game_version_has_its_own_data(client: TestClient, priced: Connecti
     assert client.get("/api/ah-blocked", params=tbc).json()["items"] == []
     assert client.get("/api/rank", params=tbc).json()["results"] == []
     assert client.get("/api/versions").json() == [
-        {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1},
-        {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0},
+        {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1, "ah_cut": 0.05},
+        {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0, "ah_cut": 0.05},
     ]
 
 
@@ -807,8 +944,8 @@ def test_rank_buys_at_the_cheapest_listing_and_says_how_many_are_listed(
     linen = body["items"]["1"]
     assert (linen["ah_price"], linen["ah_quantity"]) == (20, 403)
     assert linen["ah_levels"] == [
-        {"price": 20, "quantity": 3, "counted": True, "more": False},
-        {"price": 25, "quantity": 400, "counted": True, "more": False},
+        {"price": 20, "quantity": 3, "counted": True, "more": False, "listings": 1, "age": 0},
+        {"price": 25, "quantity": 400, "counted": True, "more": False, "listings": 1, "age": 0},
     ]
     (r,) = body["results"]
     buy = next(step for step in r["steps"] if step["item_id"] == 1)
@@ -829,6 +966,45 @@ def test_rank_says_how_far_an_ah_sell_price_can_be_trusted(
     assert (r["confidence"]["level"], r["confidence"]["reason"]) == (level, reason)
     assert (r["confidence"]["listed"], r["confidence"]["units"]) == (listed, 1)
     assert body["items"]["3"]["ah_quantity"] == listed
+    # every doubt, most actionable first: two that never sold are a lone listing on a thin market
+    flags = ["lone", "thin", "unwatched"] if listed == 2 else ["unwatched"]
+    assert (r["confidence"]["flags"], r["confidence"]["sold_pairs"]) == (flags, 0)
+
+
+def test_rank_says_what_the_market_for_each_item_is(client: TestClient, priced: Connection) -> None:
+    scanned_robe(priced, 1200, 1000)
+    robe = client.get("/api/rank").json()["items"]["3"]
+    assert (robe["market_price"], robe["median_7d"], robe["scans_7d"]) == (1200, 1000, 4)
+    assert (robe["sale_price"], robe["sold_7d"], robe["sold_pairs_7d"]) == (None, 0, None)
+    assert robe["listed"] is True
+    assert robe["seen_at"] is not None
+    assert robe["stack_size"] == 1
+    linen = client.get("/api/rank").json()["items"]["1"]
+    assert (linen["market_price"], linen["listed"], linen["sold_7d"]) == (None, None, 0)  # set by hand
+
+
+def test_rank_counts_on_only_the_units_the_market_takes(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # a session of 10 robes, the AH listing one at 1000 (nets 950), a vendor paying 500
+    scanned_robe(priced, 1000, 1000)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert (r["best_exit"], r["crafts"]) == ("ah", 10)
+    assert (r["depth_units"], r["excess_units"], r["likely_exit"]) == (1, 9, "ah")
+    assert r["likely_profit"] == r["profit"] - 9 * (950 - 500)
+    calls: list[int] = []
+    search = service.search
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", counted)
+    body = client.get("/api/rank", params={"sort": "likely"}).json()
+    assert (body["total"], calls) == (1, [])  # ordered from the cached ranking
+    one_craft(client)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert (r["excess_units"], r["likely_profit"]) == (0, r["profit"])
 
 
 def test_rank_narrows_to_sell_prices_trusted_enough(client: TestClient, priced: Connection) -> None:
@@ -902,7 +1078,7 @@ def test_coverage_lists_each_realms_scans(client: TestClient, conn: Connection) 
         1,
         1,
     )
-    assert (row["scans_7d"], row["uploaders_7d"]) == (1, 1)
+    assert (row["scans_7d"], row["uploaders_7d"], row["watched_hours"]) == (1, 1, 0.0)
     assert row["last_scan"] is not None
     (dream,) = client.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
     assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
@@ -1494,3 +1670,71 @@ def test_rank_and_evaluate_enchants_cast_for_the_skill_point_alone(
     got = client.post("/api/evaluate", json=body).json()["result"]
     assert (got["kind"], got["profit"], got["best_exit"]) == ("enchant", -40, "skill")
     assert client.post("/api/evaluate", json={**body, "exits": ["vendor"]}).status_code == 404
+
+
+def test_skill_up_with_a_gathered_reagent(client: TestClient, priced: Connection) -> None:
+    calls: list[int] = []
+    params = {**SKILL_UP, "runs": True}
+    (r,) = client.get("/api/rank", params={**params, "gathered": [1]}).json()["results"]
+    linen = next(s for s in r["steps"] if s["item_id"] == 1)
+    # what selling it nets, 20 less the cut, for 10 linen a robe over the run
+    assert (linen["action"], linen["value"]) == ("gather", -r["crafts"] * 10 * 19)
+    (bought,) = client.get("/api/rank", params=params).json()["results"]
+    assert bought["cost"] > r["cost"]
+    del calls
+    body = {"recipe_id": r["recipe_id"], "choices": {}, "skill_crafters": ["Tailor Guy"], "gathered": [1]}
+    got = client.post("/api/evaluate", json=body).json()["result"]
+    assert next(s for s in got["steps"] if s["item_id"] == 1)["action"] == "gather"
+
+
+def test_skill_up_counts_the_pattern_and_says_what_comes_next(client: TestClient, priced: Connection) -> None:
+    src = {"game_version": FOREVER, "item_id": 3, "chance": 0.0, "count": 0, "levels": "", "limited": True}
+    src |= {"area": 0, "map_x": 0.0, "map_y": 0.0, "seq": 0, "kind": "vendor", "name": "Borya"}
+    priced.execute(insert(schema.item_sources), [{**src, "zone": "Orgrimmar", "side": "horde"}])
+    priced.execute(update(schema.items).where(schema.items.c.id == 3).values(buy_price=2000, buy_count=1))
+    low = Character("Realm", "Low", "Horde", "MAGE", 60, (Profession("Tailoring", 40, 150, frozenset()),))
+    service.replace_characters(priced, ME, FOREVER, [low])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params = {**SKILL_UP, "skill_crafters": ["Low"], "runs": True, "unlearned": "train", "look_ahead": 10}
+    body = client.get("/api/rank", params=params).json()
+    (r,) = body["results"]
+    assert r["learn_cost"] == 2000  # the pattern, from Borya
+    (taught,) = body["learn"][str(r["recipe_id"])]["items"]
+    assert (taught["price"], taught["limited"]) == (2000, True)
+    assert body["then"] is None  # one recipe: nothing after it
+    service.replace_characters(
+        priced, ME, FOREVER, [replace(low, professions=(Profession("Tailoring", 40, 150, frozenset({900})),))]
+    )
+    (known,) = client.get("/api/rank", params=params).json()["results"]
+    assert known["learn_cost"] == 0
+
+
+def test_events_are_logged_without_who_sent_them(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level("INFO", logger="altarmy_profit.events"):
+        got = client.post("/api/events", json={"name": "next_up_shown", "props": {"profession": "Tailoring"}})
+    assert got.status_code == 204
+    (record,) = [r for r in caplog.records if r.name == "altarmy_profit.events"]
+    line = json.loads(record.getMessage())
+    assert line == {"event": "next_up_shown", "game_version": "forever", "profession": "Tailoring"}  # no user
+    assert client.post("/api/events", json={"name": "anything"}).status_code == 422
+
+
+def test_rank_says_whether_a_sale_will_sell_and_narrows_to_the_sure_ones(
+    client: TestClient, priced: Connection
+) -> None:
+    one_craft(client)
+    scanned_robe(priced, 1000, 1000)  # one robe listed, nothing seen sold, a house hardly watched
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
+    assert (r["best_exit"], r["verdict"]) == ("ah", "unproven")
+    assert r["verdict_reasons"] == ["lone", "thin", "unwatched"]
+    assert r["buy_flags"] == []
+    assert body["hidden_by_verdict"] == 0
+    narrowed = client.get("/api/rank", params={"min_verdict": "likely"}).json()
+    assert (narrowed["total"], narrowed["hidden_by_verdict"]) == (0, 1)
+    vendor = client.get("/api/rank", params={"exits": ["vendor"], "min_verdict": "steady"}).json()
+    assert vendor["results"][0]["verdict"] == "steady"
+    for sort in ("all_sell", "roi", "spend", "profit_each"):
+        assert client.get("/api/rank", params={"sort": sort}).json()["total"] == 1

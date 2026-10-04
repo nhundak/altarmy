@@ -13,7 +13,11 @@ export function confidenceWhy(c: PriceConfidence): string {
     case 'sold':
       return `${units(c.sold)} seen selling in the last 7 days`
     case 'few_sold':
-      return `Only ${units(c.sold)} seen selling in the last 7 days${plan}`
+      return c.sold >= c.units
+        ? `${units(c.sold)} seen selling in the last 7 days, but the auction house was watched for only ${hours(c.watched_hours)}`
+        : `Only ${units(c.sold)} seen selling in the last 7 days${plan}`
+    case 'one_pair':
+      return `${units(c.sold)} seen selling, all between one pair of scans: maybe a single buyer`
     case 'unlisted': {
       const since = c.unlisted_since ? ` since ${day(c.unlisted_since)}` : ''
       return `None listed${since}, and none seen selling: priced from what it was listed for before`

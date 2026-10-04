@@ -28,6 +28,9 @@ class GameVersion:
     max_level: int  # the level cap
     max_skill: int  # the highest profession skill rank
     ah_cut: float = AH_CUT
+    # whether the version's disenchant table has been checked in game: until it is, a disenchant's sale is
+    # never more than likely (`service.verdict`)
+    disenchant_verified: bool = False
     mail_postage: int = MAIL_POSTAGE  # copper per attachment
     # Prices come from the Alt Army addon's full scans (and prices set by hand) alone: `prices.record_book`
     first_party_prices: bool = False

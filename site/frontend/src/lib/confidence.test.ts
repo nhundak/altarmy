@@ -11,6 +11,8 @@ const base: PriceConfidence = {
   scan_days: 5,
   watched_hours: 0,
   unlisted_since: null,
+  flags: [],
+  sold_pairs: 0,
 }
 
 describe('confidence', () => {
@@ -28,6 +30,12 @@ describe('confidence', () => {
     )
     expect(confidenceWhy({ ...base, reason: 'thin', listed: 3 })).toBe('Rests on 3 units listed')
     expect(confidenceWhy({ ...base, reason: 'hand_set' })).toBe('Price set by hand')
+    expect(confidenceWhy({ ...base, reason: 'one_pair', sold: 6, sold_pairs: 1 })).toBe(
+      '6 units seen selling, all between one pair of scans: maybe a single buyer',
+    )
+    expect(confidenceWhy({ ...base, reason: 'few_sold', sold: 9, units: 4, watched_hours: 0.5 })).toBe(
+      '9 units seen selling in the last 7 days, but the auction house was watched for only 0.5 hours',
+    )
   })
 
   it('names the day an item went unlisted', () => {

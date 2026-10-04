@@ -293,10 +293,14 @@ def test_price_confidence_rests_on_sales_seen() -> None:
         return got.level, got.reason
 
     known = prices.Listing(900, 50, source="altarmy", listed=True, median_7d=900, scans_7d=5)
-    sold = replace(known, sale_rate=1.0, sale_price=880)  # 7 sold this week
-    assert sure(sold, 7) == ("high", "sold")
-    assert sure(sold, 8) == ("medium", "few_sold")
-    assert sure(replace(sold, listed=False, quantity=0), 7) == ("high", "sold")  # sold, though none up
+    sold = replace(known, sale_rate=1.0, sale_price=880, sold_pairs_7d=2)  # 7 sold this week, in two pairs
+    watched = prices.WATCHED_ENOUGH_HOURS
+    assert sure(sold, 7, watched) == ("high", "sold")
+    assert sure(sold, 8, watched) == ("medium", "few_sold")
+    assert sure(replace(sold, listed=False, quantity=0), 7, watched) == ("high", "sold")  # though none up
+    # one buyer in one pair of scans, or a house hardly watched, is no market yet
+    assert sure(replace(sold, sold_pairs_7d=1), 7, watched) == ("medium", "one_pair")
+    assert sure(sold, 7, watched - 1) == ("medium", "few_sold")
     unlisted = replace(known, listed=False, quantity=0, seen_at=T0)
     assert sure(unlisted) == ("low", "unlisted")
     assert prices.confidence(unlisted, 1, 0.0).unlisted_since == T0
@@ -598,3 +602,20 @@ def test_find_saved_variables(wow_root: Path) -> None:
         wow_root / SV_DIR / "frellscout.lua"
     ]
     assert wowfiles.find_saved_variables("frellscout.lua", [wow_root], ("_anniversary_",)) == []
+
+
+def test_price_confidence_flags_every_doubt_most_actionable_first() -> None:
+    def flags(listing: prices.Listing, units: int = 1, watched: float = 0.0) -> tuple[str, ...]:
+        return prices.confidence(listing, units, watched).flags
+
+    known = prices.Listing(900, 50, source="altarmy", listed=True, median_7d=900, scans_7d=5)
+    assert flags(known, watched=prices.WATCHED_ENOUGH_HOURS) == ()
+    assert flags(known) == ("unwatched",)
+    # a lone listing that never sold: an asking price, not a price; also thin, too new and unwatched
+    lone = replace(known, quantity=1, scans_7d=1)
+    assert flags(lone) == ("lone", "thin", "few_days", "unwatched")
+    assert prices.confidence(lone, 1, 0.0).reason == "few_days"  # the level keeps its rule
+    gone = replace(known, listed=False, quantity=0, sale_rate=2 / 7, sold_pairs_7d=1)
+    assert flags(gone, watched=prices.WATCHED_ENOUGH_HOURS) == ("sold_out", "one_pair")
+    assert flags(replace(known, listed=False, quantity=0)) == ("unlisted", "unwatched")
+    assert prices.confidence(replace(known, sold_pairs_7d=3), 1, 0.0).sold_pairs == 3

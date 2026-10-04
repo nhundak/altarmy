@@ -476,6 +476,7 @@ price_current = Table(
     Column("market_price", BigInteger),  # `book.market_price` of the ladder; the last one when unlisted
     Column("sale_price", BigInteger),  # what units sold for over the last week (the merge); NULL: too few
     Column("sale_rate", Float),  # units sold a day over the last week (the merge)
+    Column("sold_pairs_7d", Integer),  # the pairs of scans those sales were seen in (the merge); NULL: none
 )
 
 # The last price table AHledger served per market. Unused since revision 0014, which emptied it; dropped
@@ -532,6 +533,8 @@ price_sales_daily = Table(
     Column("units", Integer, nullable=False),  # bought
     Column("copper", BigInteger, nullable=False),  # what they were listed for, in all
     Column("cancelled", Integer, nullable=False),  # gone from behind cheaper listings
+    # the pairs of scans units were seen bought in: one buyer's sweep is one pair, a market is several
+    Column("pairs", Integer, nullable=False, default=0, server_default="0"),
     PrimaryKeyConstraint("auction_house_id", "item_id", "day"),
 )
 

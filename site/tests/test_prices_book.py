@@ -131,6 +131,27 @@ def test_sales_are_inferred_between_scans_close_together(conn: Connection) -> No
     rows = {r.item_id: (r.units, r.copper, r.cancelled) for r in conn.execute(select(sales))}
     assert rows[ORE] == (33, 3 * 64 + 30 * 167, 0)
     assert rows[BAR] == (0, 0, 10)  # gone altogether: no telling
+    # the pairs of scans each item was seen selling in: ore in both, the bars in none
+    pairs = {r.item_id: r.pairs for r in conn.execute(select(sales))}
+    assert pairs == {ORE: 2, BAR: 0}
+
+
+def test_cheap_levels_first_seen_before_a_baseline_are_not_counted_on(conn: Connection) -> None:
+    ah = house(conn)
+    prices.record_book(conn, ah, scan({ORE: ladder((150, 10), (160, 40))}))
+    # a fresh listing at under half the next level's price: gone before anyone gets there
+    later = T0 + timedelta(hours=2)
+    prices.record_book(conn, ah, scan({ORE: ladder((60, 1), (150, 10), (160, 40))}, later))
+    assert [lv.price for lv in prices.load_books(conn, ah)[ORE]] == [150, 160]
+    assert [lv.price for lv in prices.load_books(conn, ah, credible=False)[ORE]] == [60, 150, 160]
+    # once it has stayed a scan, it counts
+    prices.record_book(
+        conn, ah, scan({ORE: ladder((60, 1), (150, 10), (160, 40))}, later + timedelta(hours=2))
+    )
+    assert [lv.price for lv in prices.load_books(conn, ah)[ORE]] == [60, 150, 160]
+    # an undercut near the next price is no stray
+    prices.record_book(conn, ah, scan({ORE: ladder((140, 1), (150, 10))}, later + timedelta(hours=4)))
+    assert [lv.price for lv in prices.load_books(conn, ah)[ORE]] == [140, 150]
 
 
 def test_scans_far_apart_infer_no_sales(conn: Connection) -> None:
@@ -223,10 +244,10 @@ def test_the_sell_price_is_the_lowest_of_what_is_asked_and_what_sells() -> None:
 def test_first_party_prices_ignore_other_sources(conn: Connection) -> None:
     ah = house(conn)
     prices.record_snapshot(conn, ah, "ahledger", T0, [prices.Observation(BAR, 5, T0)])  # an old row
-    prices.record_book(conn, ah, scan({ORE: ladder((64, 3), (167, 5020))}, T0 + timedelta(minutes=1)))
+    prices.record_book(conn, ah, scan({ORE: ladder((100, 3), (167, 5020))}, T0 + timedelta(minutes=1)))
     prices.set_price(conn, ah, EARTH, 999)
     buy, sell = prices.load_buy_and_sell(conn, ah, first_party=True)
-    assert buy == {ORE: 64, EARTH: 999}
+    assert buy == {ORE: 100, EARTH: 999}
     assert sell == {ORE: 167, EARTH: 999}
     books = prices.load_books(conn, ah)
     assert list(books) == [ORE]

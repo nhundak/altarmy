@@ -27,6 +27,15 @@ export function makeItem(overrides: Partial<ItemInfo> & Pick<ItemInfo, 'id' | 'n
     ah_quantity: null,
     ah_levels: [],
     vendor_price: null,
+    market_price: null,
+    median_7d: null,
+    scans_7d: null,
+    sale_price: null,
+    sold_7d: 0,
+    sold_pairs_7d: null,
+    listed: null,
+    seen_at: null,
+    stack_size: 1,
     ...overrides,
   }
 }

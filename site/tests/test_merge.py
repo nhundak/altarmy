@@ -137,6 +137,14 @@ def sales(conn: Connection, ah: int, item_id: int) -> tuple[int | None, float | 
     return row.sale_price, row.sale_rate
 
 
+def sold_pairs(conn: Connection, ah: int, item_id: int) -> int | None:
+    pc = schema.price_current
+    found: int | None = conn.execute(
+        select(pc.c.sold_pairs_7d).where(pc.c.auction_house_id == ah, pc.c.item_id == item_id)
+    ).scalar_one()
+    return found
+
+
 def test_a_scans_market_price_makes_the_median_not_its_cheapest_listing(conn: Connection) -> None:
     ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
     prices.record_book(conn, ah, book_scan({1: [(64, 3), (167, 5000)]}, NOON))
@@ -150,16 +158,22 @@ def test_sales_of_the_last_week_make_the_sale_price_and_rate(conn: Connection) -
     prices.record_book(conn, ah, book_scan({1: [(100, 50)], 2: [(100, 50)]}, NOON))
     t = schema.price_sales_daily
     rows = [
-        (1, TODAY - timedelta(days=8), 500, 500 * 900),  # too long ago
-        (1, TODAY - timedelta(days=3), 10, 10 * 100),
-        (1, TODAY - timedelta(days=1), 30, 30 * 120),
-        (1, TODAY, 2, 2 * 500),
-        (2, TODAY, merge.MIN_SALES - 1, (merge.MIN_SALES - 1) * 100),  # too few to tell a price by
+        (1, TODAY - timedelta(days=8), 500, 500 * 900, 9),  # too long ago
+        (1, TODAY - timedelta(days=3), 10, 10 * 100, 1),
+        (1, TODAY - timedelta(days=1), 30, 30 * 120, 2),
+        (1, TODAY, 2, 2 * 500, 1),
+        (2, TODAY, merge.MIN_SALES - 1, (merge.MIN_SALES - 1) * 100, 1),  # too few to tell a price by
     ]
-    for item, day, units, copper in rows:
+    for item, day, units, copper, pairs in rows:
         conn.execute(
             t.insert().values(
-                auction_house_id=ah, item_id=item, day=day, units=units, copper=copper, cancelled=0
+                auction_house_id=ah,
+                item_id=item,
+                day=day,
+                units=units,
+                copper=copper,
+                cancelled=0,
+                pairs=pairs,
             )
         )
     before = prices.price_version(conn, ah)
@@ -167,6 +181,7 @@ def test_sales_of_the_last_week_make_the_sale_price_and_rate(conn: Connection) -
     # by units, the middle sale went for 120: 10 at 100, 30 at 120, 2 at 500
     assert sales(conn, ah, 1) == (120, 42 / 7)
     assert sales(conn, ah, 2) == (None, (merge.MIN_SALES - 1) / 7)
+    assert (sold_pairs(conn, ah, 1), sold_pairs(conn, ah, 2)) == (4, 1)  # the pairs of scans they sold in
     assert prices.price_version(conn, ah) == (before or 0) + 1
     assert not merge.merge_auction_house(conn, ah, TODAY)
 
@@ -183,3 +198,4 @@ def test_sales_that_age_out_are_forgotten(conn: Connection) -> None:
     assert sales(conn, ah, 1) == (100, 10 / 7)
     merge.merge_auction_house(conn, ah, TODAY + timedelta(days=7))
     assert sales(conn, ah, 1) == (None, None)
+    assert sold_pairs(conn, ah, 1) is None

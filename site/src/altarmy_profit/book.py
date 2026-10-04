@@ -222,9 +222,20 @@ def sold_between(before: Ladder, after: Ladder) -> Sold:
     """What the units gone between two scans of an item tell. A buyer takes the cheapest, so units gone
     at or below the cheapest price still listed were bought; units gone from behind it were cancelled
     (or expired). With nothing left listed there is no telling, and new cheaper listings sold nothing.
-    Tails pool many prices and are not counted."""
+    Tails pool many prices and are not counted. A listing new since the first scan and cheaper than anything
+    in it doesn't count for the cheapest still listed: posted in between, it can't have been there when the
+    units it undercut went."""
     still = {lv.price: lv.quantity for lv in after if not lv.tail}
-    floor = min((lv.price for lv in after), default=None)
+    was = {lv.price for lv in before if not lv.tail}
+    cheapest_before = min(was, default=None)
+    floor = min(
+        (
+            lv.price
+            for lv in after
+            if lv.price in was or cheapest_before is None or lv.price >= cheapest_before
+        ),
+        default=None,
+    )
     units = copper = cancelled = 0
     for lv in before:
         if lv.tail:

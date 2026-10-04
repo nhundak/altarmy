@@ -12,6 +12,7 @@ import nameClasses from './CharacterName.module.css'
 import { Money } from './Money'
 import { RecipeFlow } from './RecipeFlow'
 import { Earned, StepList } from './StepList'
+import { MarketPanel } from './MarketPanel'
 import { TimingNotes } from './TimingSummary'
 
 const MAX_COPIES = 1000
@@ -54,12 +55,15 @@ export function SessionDetails({
   editing,
   params,
   choices,
+  market = false,
 }: {
   result: RankResult
   items: ItemMap
   editing: PlanEditing
   params: EvaluateParams
   choices: Choices | undefined
+  /** a gold list's row: Why this? (the market for what is sold) comes first */
+  market?: boolean
 }) {
   const [view, setView] = useState<View>('flow')
   const defaultCopies = result.crafts
@@ -127,6 +131,7 @@ export function SessionDetails({
           </Text>
         )}
       </Group>
+      {market && <MarketPanel result={shown} items={shownItems} />}
       <Summary result={shown} />
       {/* The view switch stands out (the primary colour, a size up): it changes the whole panel below. */}
       <SegmentedControl

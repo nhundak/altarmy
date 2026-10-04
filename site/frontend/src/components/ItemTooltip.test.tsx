@@ -71,9 +71,9 @@ describe('ItemTooltip', () => {
 
   it('lists the cheapest price levels of a scanned item', () => {
     const ah_levels = [
-      { price: 7, quantity: 1, counted: false, more: false },
-      { price: 20, quantity: 300, counted: true, more: false },
-      { price: 45, quantity: 90, counted: true, more: true },
+      { price: 7, quantity: 1, counted: false, more: false, listings: 1, age: 1 },
+      { price: 20, quantity: 300, counted: true, more: false, listings: 1, age: 1 },
+      { price: 45, quantity: 90, counted: true, more: true, listings: 1, age: 1 },
     ]
     renderWithProviders(<ItemTooltip item={{ ...linen, ah_quantity: 391, ah_levels }} />)
     expect(line('1 at 7 (just listed: not counted on)')).toBeInTheDocument()
@@ -82,7 +82,7 @@ describe('ItemTooltip', () => {
   })
 
   it('lists no levels for a single price', () => {
-    const ah_levels = [{ price: 20, quantity: 3, counted: true, more: false }]
+    const ah_levels = [{ price: 20, quantity: 3, counted: true, more: false, listings: 1, age: 1 }]
     renderWithProviders(<ItemTooltip item={{ ...linen, ah_quantity: 3, ah_levels }} />)
     expect(screen.getByText('3 listed')).toBeInTheDocument()
     expect(screen.queryByText(/3 at/)).not.toBeInTheDocument()

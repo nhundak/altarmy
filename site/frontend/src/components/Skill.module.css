@@ -1,0 +1,10 @@
+.bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+.track {
+  width: 64px;
+}

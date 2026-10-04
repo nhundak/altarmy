@@ -168,6 +168,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Event
+         * @description Note that something happened in the front end: one JSON log line, anonymous.
+         */
+        post: operations["post_event_api_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/favorites": {
         parameters: {
             query?: never;
@@ -260,12 +280,12 @@ export interface paths {
         };
         /**
          * Get Rank
-         * @description What the selected realm/faction's characters can craft, the user's favorites first, then most
-         *     profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
-         *     the user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give
-         *     none last); without characters, every recipe, crafted by one unnamed character (nothing is
-         *     mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
-         *     included unless `min_profit` is set).
+         * @description What the selected realm/faction's characters can craft, the user's favorites first (not with
+         *     `sort=skill`), then most profitable first (each a session of the user's batch of crafts, or with
+         *     `sort=rate` per hour of play in the user's city, or with `sort=skill` cheapest expected skill point first
+         *     (`skill_ups`), those that give none last); without characters, every recipe, crafted by one unnamed
+         *     character (nothing is mailed). Bounds are inclusive and on the session's numbers; an omitted bound is
+         *     unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -557,6 +577,11 @@ export interface components {
          */
         ConfidenceOut: {
             /**
+             * Flags
+             * @default []
+             */
+            flags: ("lone" | "thin" | "sold_out" | "unlisted" | "few_days" | "unwatched" | "one_pair")[];
+            /**
              * Level
              * @enum {string}
              */
@@ -567,11 +592,16 @@ export interface components {
              * Reason
              * @enum {string}
              */
-            reason: "hand_set" | "sold" | "few_sold" | "unlisted" | "few_days" | "unsold" | "unwatched" | "thin";
+            reason: "hand_set" | "sold" | "few_sold" | "one_pair" | "unlisted" | "few_days" | "unsold" | "unwatched" | "thin";
             /** Scan Days */
             scan_days: number;
             /** Sold */
             sold: number;
+            /**
+             * Sold Pairs
+             * @default 0
+             */
+            sold_pairs: number;
             /** Units */
             units: number;
             /** Unlisted Since */
@@ -604,6 +634,11 @@ export interface components {
             scans_7d: number;
             /** Uploaders 7D */
             uploaders_7d: number;
+            /**
+             * Watched Hours
+             * @default 0
+             */
+            watched_hours: number;
         };
         /**
          * DetailOut
@@ -663,7 +698,12 @@ export interface components {
              *       "disenchant"
              *     ]
              */
-            exits: ("vendor" | "ah" | "disenchant" | "skill")[];
+            exits: ("vendor" | "ah" | "disenchant" | "skill" | "keep")[];
+            /**
+             * Gathered
+             * @default []
+             */
+            gathered: number[];
             /**
              * Include Trivial
              * @default true
@@ -678,6 +718,11 @@ export interface components {
             price_version?: number | null;
             /** Recipe Id */
             recipe_id: number;
+            /**
+             * Runs
+             * @default false
+             */
+            runs: boolean;
             /**
              * Skill Crafters
              * @default []
@@ -705,6 +750,21 @@ export interface components {
                 [key: string]: components["schemas"]["ItemInfo"];
             };
             result: components["schemas"]["RankResult"];
+        };
+        /** EventIn */
+        EventIn: {
+            /**
+             * Name
+             * @enum {string}
+             */
+            name: "aim_chosen" | "next_up_shown" | "row_opened" | "copy_steps" | "gather_toggled" | "coach_shown";
+            /**
+             * Props
+             * @default {}
+             */
+            props: {
+                [key: string]: string | number | boolean;
+            };
         };
         /** ExitOut */
         ExitOut: {
@@ -839,6 +899,12 @@ export interface components {
             inventory_type: number;
             /** Item Delay */
             item_delay: number;
+            /** Listed */
+            listed?: boolean | null;
+            /** Market Price */
+            market_price?: number | null;
+            /** Median 7D */
+            median_7d?: number | null;
             /** Name */
             name: string;
             /** Quality */
@@ -849,8 +915,26 @@ export interface components {
             required_skill: string | null;
             /** Required Skill Rank */
             required_skill_rank: number;
+            /** Sale Price */
+            sale_price?: number | null;
+            /** Scans 7D */
+            scans_7d?: number | null;
+            /** Seen At */
+            seen_at?: string | null;
             /** Sell Price */
             sell_price: number;
+            /**
+             * Sold 7D
+             * @default 0
+             */
+            sold_7d: number;
+            /** Sold Pairs 7D */
+            sold_pairs_7d?: number | null;
+            /**
+             * Stack Size
+             * @default 1
+             */
+            stack_size: number;
             /** Stats */
             stats: string[];
             /** Subclass Name */
@@ -944,8 +1028,12 @@ export interface components {
          * @description The units listed at one unit price.
          */
         LevelOut: {
+            /** Age */
+            age: number;
             /** Counted */
             counted: boolean;
+            /** Listings */
+            listings: number;
             /** More */
             more: boolean;
             /** Price */
@@ -1159,6 +1247,11 @@ export interface components {
             classes: {
                 [key: string]: string;
             };
+            /**
+             * Hidden By Verdict
+             * @default 0
+             */
+            hidden_by_verdict: number;
             /** Items */
             items: {
                 [key: string]: components["schemas"]["ItemInfo"];
@@ -1172,6 +1265,7 @@ export interface components {
             };
             /** Results */
             results: components["schemas"]["RankResult"][];
+            then?: components["schemas"]["RankResult"] | null;
             /** Total */
             total: number;
         };
@@ -1186,6 +1280,11 @@ export interface components {
              * @default 0
              */
             bonus_output: number;
+            /**
+             * Buy Flags
+             * @default []
+             */
+            buy_flags: string[];
             /**
              * Cities
              * @default []
@@ -1203,13 +1302,28 @@ export interface components {
              * @default 1
              */
             crafts: number;
+            /**
+             * Crafts P80
+             * @default 0
+             */
+            crafts_p80: number;
             /** Days To Sell */
             days_to_sell: number | null;
+            /**
+             * Depth Units
+             * @default 0
+             */
+            depth_units: number;
             /**
              * Details
              * @default []
              */
             details: components["schemas"]["DetailOut"][];
+            /**
+             * Excess Units
+             * @default 0
+             */
+            excess_units: number;
             /** Exits */
             exits: components["schemas"]["ExitOut"][];
             /**
@@ -1218,6 +1332,20 @@ export interface components {
              * @enum {string}
              */
             kind: "craft" | "convert" | "flip" | "enchant";
+            /**
+             * Learn Cost
+             * @default 0
+             */
+            learn_cost: number | null;
+            /**
+             * Learn Skill
+             * @default 0
+             */
+            learn_skill: number;
+            /** Likely Exit */
+            likely_exit: string;
+            /** Likely Profit */
+            likely_profit: number;
             /** Mail To */
             mail_to: string;
             /** Output Count */
@@ -1226,12 +1354,24 @@ export interface components {
             output_item_id: number;
             /** Output Name */
             output_name: string;
+            /**
+             * Overtaken By
+             * @default
+             */
+            overtaken_by: string;
+            /**
+             * Overtaken By Item
+             * @default 0
+             */
+            overtaken_by_item: number;
             /** Postage */
             postage: number;
             /** Profession */
             profession: string;
             /** Profit */
             profit: number;
+            /** Reach Chances */
+            reach_chances?: number[];
             /** Reagents */
             reagents: components["schemas"]["ItemCount"][];
             /** Recipe */
@@ -1259,8 +1399,39 @@ export interface components {
             slow: boolean;
             /** Steps */
             steps: components["schemas"]["StepOut"][];
+            /**
+             * Stop Reason
+             * @default
+             */
+            stop_reason: string;
+            /**
+             * Stop Skill
+             * @default 0
+             */
+            stop_skill: number;
             timing?: components["schemas"]["TimingOut"] | null;
             tree: components["schemas"]["NodeOut"];
+            /**
+             * Trivial High
+             * @default 0
+             */
+            trivial_high: number;
+            /**
+             * Trivial Low
+             * @default 0
+             */
+            trivial_low: number;
+            /**
+             * Verdict
+             * @default steady
+             * @enum {string}
+             */
+            verdict: "steady" | "likely" | "unproven";
+            /**
+             * Verdict Reasons
+             * @default []
+             */
+            verdict_reasons: string[];
         };
         /** RealmPricesOut */
         RealmPricesOut: {
@@ -1283,10 +1454,17 @@ export interface components {
         RecipeItemOut: {
             /** Item Id */
             item_id: number;
+            /**
+             * Limited
+             * @default false
+             */
+            limited: boolean;
             /** Name */
             name: string;
             /** Places */
             places: components["schemas"]["PlaceOut"][];
+            /** Price */
+            price?: number | null;
         };
         /**
          * SelectionModel
@@ -1346,7 +1524,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "buy" | "craft" | "mail" | "sell";
+            action: "buy" | "gather" | "craft" | "mail" | "sell";
             /**
              * Bonus
              * @default 0
@@ -1597,6 +1775,8 @@ export interface components {
          * @description A game version the app serves; pass its `key` as `game_version` to the other routes.
          */
         VersionOut: {
+            /** Ah Cut */
+            ah_cut: number;
             /** Build */
             build: string | null;
             /**
@@ -1936,6 +2116,40 @@ export interface operations {
             };
         };
     };
+    post_event_api_events_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EventIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_favorites_api_favorites_get: {
         parameters: {
             query: {
@@ -2120,7 +2334,7 @@ export interface operations {
                 /** @description the characters being skilled up: the final craft is done only by one of them, the lowest-skilled in the recipe's profession (default: anyone) */
                 skill_crafters?: string[] | null;
                 /** @description ways the crafts may be sold */
-                exits?: ("vendor" | "ah" | "disenchant" | "skill")[];
+                exits?: ("vendor" | "ah" | "disenchant" | "skill" | "keep")[];
                 /** @description disenchant at an Arcane Salvager: a 10% chance of a second disenchant's materials */
                 arcane_salvager?: boolean;
                 /** @description copper */
@@ -2137,10 +2351,16 @@ export interface operations {
                 max_roi?: number | null;
                 /** @description only AH sales whose sell price is trusted at least this much (others all pass) */
                 min_confidence?: ("high" | "medium" | "low") | null;
+                /** @description only sales at least this sure to sell (`verdict`) */
+                min_verdict?: ("steady" | "likely" | "unproven") | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
-                /** @description profit per session (the batch), per hour of play, or cheapest skill point */
-                sort?: "profit" | "rate" | "skill";
+                /** @description profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made */
+                sort?: "profit" | "rate" | "skill" | "likely" | "all_sell" | "roi" | "spend" | "profit_each";
+                /** @description items the user gathers: had for what selling them would make, instead of bought */
+                gathered?: number[] | null;
+                /** @description with skill_crafters: rank each recipe as a run, the crafts until another recipe would give the one skilled up a cheaper skill point, not as the user's batch */
+                runs?: boolean;
                 top?: number;
                 /** @description the auction house's price version the front end knows of */
                 price_version?: number | null;

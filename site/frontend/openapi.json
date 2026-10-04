@@ -344,6 +344,23 @@
       "ConfidenceOut": {
         "description": "How far a result's AH sell price can be trusted (`prices.confidence`), and the numbers behind it.",
         "properties": {
+          "flags": {
+            "default": [],
+            "items": {
+              "enum": [
+                "lone",
+                "thin",
+                "sold_out",
+                "unlisted",
+                "few_days",
+                "unwatched",
+                "one_pair"
+              ],
+              "type": "string"
+            },
+            "title": "Flags",
+            "type": "array"
+          },
           "level": {
             "enum": [
               "high",
@@ -369,6 +386,7 @@
               "hand_set",
               "sold",
               "few_sold",
+              "one_pair",
               "unlisted",
               "few_days",
               "unsold",
@@ -384,6 +402,11 @@
           },
           "sold": {
             "title": "Sold",
+            "type": "integer"
+          },
+          "sold_pairs": {
+            "default": 0,
+            "title": "Sold Pairs",
             "type": "integer"
           },
           "units": {
@@ -473,6 +496,11 @@
           "uploaders_7d": {
             "title": "Uploaders 7D",
             "type": "integer"
+          },
+          "watched_hours": {
+            "default": 0.0,
+            "title": "Watched Hours",
+            "type": "number"
           }
         },
         "required": [
@@ -629,11 +657,20 @@
                 "vendor",
                 "ah",
                 "disenchant",
-                "skill"
+                "skill",
+                "keep"
               ],
               "type": "string"
             },
             "title": "Exits",
+            "type": "array"
+          },
+          "gathered": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Gathered",
             "type": "array"
           },
           "include_trivial": {
@@ -662,6 +699,11 @@
           "recipe_id": {
             "title": "Recipe Id",
             "type": "integer"
+          },
+          "runs": {
+            "default": false,
+            "title": "Runs",
+            "type": "boolean"
           },
           "skill_crafters": {
             "default": [],
@@ -723,6 +765,49 @@
           "items"
         ],
         "title": "EvaluateResponse",
+        "type": "object"
+      },
+      "EventIn": {
+        "properties": {
+          "name": {
+            "enum": [
+              "aim_chosen",
+              "next_up_shown",
+              "row_opened",
+              "copy_steps",
+              "gather_toggled",
+              "coach_shown"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "props": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "default": {},
+            "maxProperties": 8,
+            "propertyNames": {
+              "maxLength": 32
+            },
+            "title": "Props",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "EventIn",
         "type": "object"
       },
       "ExitOut": {
@@ -1086,6 +1171,39 @@
             "title": "Item Delay",
             "type": "integer"
           },
+          "listed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listed"
+          },
+          "market_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Price"
+          },
+          "median_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median 7D"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -1113,8 +1231,63 @@
             "title": "Required Skill Rank",
             "type": "integer"
           },
+          "sale_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sale Price"
+          },
+          "scans_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scans 7D"
+          },
+          "seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen At"
+          },
           "sell_price": {
             "title": "Sell Price",
+            "type": "integer"
+          },
+          "sold_7d": {
+            "default": 0,
+            "title": "Sold 7D",
+            "type": "integer"
+          },
+          "sold_pairs_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sold Pairs 7D"
+          },
+          "stack_size": {
+            "default": 1,
+            "title": "Stack Size",
             "type": "integer"
           },
           "stats": {
@@ -1415,9 +1588,17 @@
       "LevelOut": {
         "description": "The units listed at one unit price.",
         "properties": {
+          "age": {
+            "title": "Age",
+            "type": "integer"
+          },
           "counted": {
             "title": "Counted",
             "type": "boolean"
+          },
+          "listings": {
+            "title": "Listings",
+            "type": "integer"
           },
           "more": {
             "title": "More",
@@ -1436,7 +1617,9 @@
           "price",
           "quantity",
           "counted",
-          "more"
+          "more",
+          "listings",
+          "age"
         ],
         "title": "LevelOut",
         "type": "object"
@@ -1865,6 +2048,11 @@
             "title": "Classes",
             "type": "object"
           },
+          "hidden_by_verdict": {
+            "default": 0,
+            "title": "Hidden By Verdict",
+            "type": "integer"
+          },
           "items": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ItemInfo"
@@ -1886,6 +2074,16 @@
             },
             "title": "Results",
             "type": "array"
+          },
+          "then": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RankResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "total": {
             "title": "Total",
@@ -1922,6 +2120,14 @@
             "default": 0.0,
             "title": "Bonus Output",
             "type": "number"
+          },
+          "buy_flags": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Buy Flags",
+            "type": "array"
           },
           "cities": {
             "default": [],
@@ -1961,6 +2167,11 @@
             "title": "Crafts",
             "type": "integer"
           },
+          "crafts_p80": {
+            "default": 0,
+            "title": "Crafts P80",
+            "type": "integer"
+          },
           "days_to_sell": {
             "anyOf": [
               {
@@ -1972,6 +2183,11 @@
             ],
             "title": "Days To Sell"
           },
+          "depth_units": {
+            "default": 0,
+            "title": "Depth Units",
+            "type": "integer"
+          },
           "details": {
             "default": [],
             "items": {
@@ -1979,6 +2195,11 @@
             },
             "title": "Details",
             "type": "array"
+          },
+          "excess_units": {
+            "default": 0,
+            "title": "Excess Units",
+            "type": "integer"
           },
           "exits": {
             "items": {
@@ -1998,6 +2219,31 @@
             "title": "Kind",
             "type": "string"
           },
+          "learn_cost": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 0,
+            "title": "Learn Cost"
+          },
+          "learn_skill": {
+            "default": 0,
+            "title": "Learn Skill",
+            "type": "integer"
+          },
+          "likely_exit": {
+            "title": "Likely Exit",
+            "type": "string"
+          },
+          "likely_profit": {
+            "title": "Likely Profit",
+            "type": "integer"
+          },
           "mail_to": {
             "title": "Mail To",
             "type": "string"
@@ -2014,6 +2260,16 @@
             "title": "Output Name",
             "type": "string"
           },
+          "overtaken_by": {
+            "default": "",
+            "title": "Overtaken By",
+            "type": "string"
+          },
+          "overtaken_by_item": {
+            "default": 0,
+            "title": "Overtaken By Item",
+            "type": "integer"
+          },
           "postage": {
             "title": "Postage",
             "type": "integer"
@@ -2025,6 +2281,13 @@
           "profit": {
             "title": "Profit",
             "type": "integer"
+          },
+          "reach_chances": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Reach Chances",
+            "type": "array"
           },
           "reagents": {
             "items": {
@@ -2084,6 +2347,16 @@
             "title": "Steps",
             "type": "array"
           },
+          "stop_reason": {
+            "default": "",
+            "title": "Stop Reason",
+            "type": "string"
+          },
+          "stop_skill": {
+            "default": 0,
+            "title": "Stop Skill",
+            "type": "integer"
+          },
           "timing": {
             "anyOf": [
               {
@@ -2096,6 +2369,34 @@
           },
           "tree": {
             "$ref": "#/components/schemas/NodeOut"
+          },
+          "trivial_high": {
+            "default": 0,
+            "title": "Trivial High",
+            "type": "integer"
+          },
+          "trivial_low": {
+            "default": 0,
+            "title": "Trivial Low",
+            "type": "integer"
+          },
+          "verdict": {
+            "default": "steady",
+            "enum": [
+              "steady",
+              "likely",
+              "unproven"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          },
+          "verdict_reasons": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Verdict Reasons",
+            "type": "array"
           }
         },
         "required": [
@@ -2123,7 +2424,9 @@
           "reagents",
           "steps",
           "tree",
-          "sell_options"
+          "sell_options",
+          "likely_profit",
+          "likely_exit"
         ],
         "title": "RankResult",
         "type": "object"
@@ -2177,6 +2480,11 @@
             "title": "Item Id",
             "type": "integer"
           },
+          "limited": {
+            "default": false,
+            "title": "Limited",
+            "type": "boolean"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -2187,6 +2495,17 @@
             },
             "title": "Places",
             "type": "array"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
           }
         },
         "required": [
@@ -2357,6 +2676,7 @@
           "action": {
             "enum": [
               "buy",
+              "gather",
               "craft",
               "mail",
               "sell"
@@ -2926,6 +3246,10 @@
       "VersionOut": {
         "description": "A game version the app serves; pass its `key` as `game_version` to the other routes.",
         "properties": {
+          "ah_cut": {
+            "title": "Ah Cut",
+            "type": "number"
+          },
           "build": {
             "anyOf": [
               {
@@ -2958,7 +3282,8 @@
           "key",
           "label",
           "build",
-          "recipes"
+          "recipes",
+          "ah_cut"
         ],
         "title": "VersionOut",
         "type": "object"
@@ -3500,6 +3825,60 @@
         "summary": "Evaluate"
       }
     },
+    "/api/events": {
+      "post": {
+        "description": "Note that something happened in the front end: one JSON log line, anonymous.",
+        "operationId": "post_event_api_events_post",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Event"
+      }
+    },
     "/api/favorites": {
       "get": {
         "operationId": "get_favorites_api_favorites_get",
@@ -3758,7 +4137,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, the user's favorites first, then most\nprofitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in\nthe user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give\nnone last); without characters, every recipe, crafted by one unnamed character (nothing is\nmailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are\nincluded unless `min_profit` is set).",
+        "description": "What the selected realm/faction's characters can craft, the user's favorites first (not with\n`sort=skill`), then most profitable first (each a session of the user's batch of crafts, or with\n`sort=rate` per hour of play in the user's city, or with `sort=skill` cheapest expected skill point first\n(`skill_ups`), those that give none last); without characters, every recipe, crafted by one unnamed\ncharacter (nothing is mailed). Bounds are inclusive and on the session's numbers; an omitted bound is\nunbounded (so losses are included unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -3865,7 +4244,8 @@
                   "vendor",
                   "ah",
                   "disenchant",
-                  "skill"
+                  "skill",
+                  "keep"
                 ],
                 "type": "string"
               },
@@ -4017,6 +4397,29 @@
             }
           },
           {
+            "description": "only sales at least this sure to sell (`verdict`)",
+            "in": "query",
+            "name": "min_verdict",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "steady",
+                    "likely",
+                    "unproven"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "only sales at least this sure to sell (`verdict`)",
+              "title": "Min Verdict"
+            }
+          },
+          {
             "description": "only recipes of these professions (default: every one)",
             "in": "query",
             "name": "professions",
@@ -4038,20 +4441,58 @@
             }
           },
           {
-            "description": "profit per session (the batch), per hour of play, or cheapest skill point",
+            "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made",
             "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
               "default": "profit",
-              "description": "profit per session (the batch), per hour of play, or cheapest skill point",
+              "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made",
               "enum": [
                 "profit",
                 "rate",
-                "skill"
+                "skill",
+                "likely",
+                "all_sell",
+                "roi",
+                "spend",
+                "profit_each"
               ],
               "title": "Sort",
               "type": "string"
+            }
+          },
+          {
+            "description": "items the user gathers: had for what selling them would make, instead of bought",
+            "in": "query",
+            "name": "gathered",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "items the user gathers: had for what selling them would make, instead of bought",
+              "title": "Gathered"
+            }
+          },
+          {
+            "description": "with skill_crafters: rank each recipe as a run, the crafts until another recipe would give the one skilled up a cheaper skill point, not as the user's batch",
+            "in": "query",
+            "name": "runs",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "with skill_crafters: rank each recipe as a run, the crafts until another recipe would give the one skilled up a cheaper skill point, not as the user's batch",
+              "title": "Runs",
+              "type": "boolean"
             }
           },
           {

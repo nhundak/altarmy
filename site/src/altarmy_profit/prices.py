@@ -165,11 +165,13 @@ class Coverage:
     last_scan_items: int  # items in it
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # distinct users who sent them
+    watched_hours: float = 0.0  # how long its sales were watched lately (`watched_hours`)
 
 
 def coverage(conn: Connection, game_version: str, now: datetime | None = None) -> list[Coverage]:
     """Every named auction house of the version, by realm then faction."""
-    since = db.utc(now or db.utcnow()) - timedelta(days=7)
+    now = db.utc(now or db.utcnow())
+    since = now - timedelta(days=7)
     t, pc, snap = schema.auction_houses, schema.price_current, schema.price_snapshots
     accepted = snap.c.status == "accepted"
     counts: dict[int, int] = dict(
@@ -220,6 +222,7 @@ def coverage(conn: Connection, game_version: str, now: datetime | None = None) -
                 items,
                 scans,
                 uploaders,
+                round(watched_hours(conn, r.id, now), 1),
             )
         )
     return out
@@ -693,22 +696,23 @@ def record_book(
 
 
 def _add_sales(conn: Connection, auction_house_id: int, day: date, sales: Mapping[int, book.Sold]) -> None:
-    """Add what sold (and was cancelled) to the day's `price_sales_daily` rows."""
+    """Add what sold (and was cancelled) between one pair of scans to the day's `price_sales_daily` rows,
+    counting the pair for each item seen bought in it."""
     sales = {i: s for i, s in sales.items() if s.units or s.cancelled}
     if not sales:
         return
     t = schema.price_sales_daily
     stored = {
-        r.item_id: (r.units, r.copper, r.cancelled)
+        r.item_id: (r.units, r.copper, r.cancelled, r.pairs)
         for r in conn.execute(
-            select(t.c.item_id, t.c.units, t.c.copper, t.c.cancelled).where(
+            select(t.c.item_id, t.c.units, t.c.copper, t.c.cancelled, t.c.pairs).where(
                 t.c.auction_house_id == auction_house_id, t.c.day == day, t.c.item_id.in_(sorted(sales))
             )
         )
     }
     rows = []
     for item_id, s in sorted(sales.items()):
-        units, copper, cancelled = stored.get(item_id, (0, 0, 0))
+        units, copper, cancelled, pairs = stored.get(item_id, (0, 0, 0, 0))
         rows.append(
             {
                 "auction_house_id": auction_house_id,
@@ -717,9 +721,12 @@ def _add_sales(conn: Connection, auction_house_id: int, day: date, sales: Mappin
                 "units": units + s.units,
                 "copper": copper + s.copper,
                 "cancelled": cancelled + s.cancelled,
+                "pairs": pairs + (1 if s.units else 0),
             }
         )
-    db.upsert(conn, t, rows, ["auction_house_id", "item_id", "day"], ["units", "copper", "cancelled"])
+    db.upsert(
+        conn, t, rows, ["auction_house_id", "item_id", "day"], ["units", "copper", "cancelled", "pairs"]
+    )
 
 
 def load_books(
@@ -727,8 +734,8 @@ def load_books(
 ) -> dict[int, book.Ladder]:
     """{item_id: ladder} of what the auction house's newest scan lists; empty for None. With `credible`,
     without the levels first seen in that scan that are under STRAY of the item's 7-day median (where it
-    has MIN_BASELINE_DAYS days of one): a stray cheap listing is gone before anyone gets there. An item
-    left without levels is left out."""
+    has MIN_BASELINE_DAYS days of one; before that, under STRAY of the next level's price): a stray cheap
+    listing is gone before anyone gets there. An item left without levels is left out."""
     if auction_house_id is None:
         return {}
     pc, snap = schema.price_current, schema.price_snapshots
@@ -748,6 +755,12 @@ def load_books(
         ladder = book.decode(r.ladder)
         if credible and r.median_7d and (r.scans_7d or 0) >= MIN_BASELINE_DAYS:
             ladder = tuple(lv for lv in ladder if lv.age > 0 or lv.price >= STRAY * r.median_7d)
+        elif credible:
+            ladder = tuple(
+                lv
+                for lv, above in zip(ladder, (*ladder[1:], None), strict=True)
+                if lv.age > 0 or lv.tail or above is None or lv.price >= STRAY * above.price
+            )
         if ladder:
             out[r.item_id] = ladder
     return out
@@ -881,6 +894,10 @@ class Listing:
     median_7d: int | None = None
     scans_7d: int | None = None  # the days that median is from
     sale_price: int | None = None
+    market_price: int | None = (
+        None  # what is asked: the price 15% into the units listed (`book.market_price`)
+    )
+    sold_pairs_7d: int | None = None  # the pairs of scans its sales were seen in lately
 
 
 def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, Listing]:
@@ -891,6 +908,7 @@ def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, L
     rows = conn.execute(
         select(pc.c.item_id, pc.c.price, pc.c.quantity, pc.c.ladder, pc.c.sale_rate, snap.c.source)
         .add_columns(pc.c.listed, pc.c.seen_at, pc.c.median_7d, pc.c.scans_7d, pc.c.sale_price)
+        .add_columns(pc.c.market_price, pc.c.sold_pairs_7d)
         .join(snap, snap.c.id == pc.c.snapshot_id)
         .where(pc.c.auction_house_id == auction_house_id)
     )
@@ -906,6 +924,8 @@ def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, L
             r.median_7d,
             r.scans_7d,
             r.sale_price,
+            r.market_price,
+            r.sold_pairs_7d,
         )
         for r in rows
     }
@@ -934,13 +954,20 @@ def watched_hours(conn: Connection, auction_house_id: int | None, now: datetime 
 
 
 ConfidenceLevel = Literal["high", "medium", "low"]
-# Why: `hand_set` a price set by hand; `sold` enough sales seen; `few_sold` fewer than the plan sells;
+# Why: `hand_set` a price set by hand; `sold` enough sales seen; `few_sold` fewer than the plan sells (or
+# seen while the house was hardly watched); `one_pair` all seen in one pair of scans (maybe one buyer);
 # `unlisted` none listed and no sales seen; `few_days` its median is from too few days; `unsold` watched
 # long enough to see sales and too few came; `unwatched` listed in depth but sales unknown; `thin` it
 # rests on few listed units
 ConfidenceReason = Literal[
-    "hand_set", "sold", "few_sold", "unlisted", "few_days", "unsold", "unwatched", "thin"
+    "hand_set", "sold", "few_sold", "one_pair", "unlisted", "few_days", "unsold", "unwatched", "thin"
 ]
+# Every doubt about a price, each on its own (`Confidence.flags`), most actionable first: `lone` a listing or
+# few that never sold (an asking price, not a price); `thin` few listed for what the plan sells; `sold_out`
+# none listed, though some sold; `unlisted` none listed and none sold; `few_days` its median is from too few
+# days; `unwatched` the house was hardly watched lately, so sales are unknown; `one_pair` its sales were all
+# seen in one pair of scans
+ConfidenceFlag = Literal["lone", "thin", "sold_out", "unlisted", "few_days", "unwatched", "one_pair"]
 
 
 @dataclass(frozen=True)
@@ -955,27 +982,47 @@ class Confidence:
     scan_days: int  # the days its median is from
     watched_hours: float
     unlisted_since: datetime | None  # when it was last seen gone, if the newest scan had none
+    flags: tuple[ConfidenceFlag, ...] = ()  # every doubt, most actionable first
+    sold_pairs: int = 0  # the pairs of scans its sales were seen in
 
 
 def confidence(listing: Listing, units: int, watched: float) -> Confidence:
     """How far `listing`'s sell price can be trusted for a sale of `units`, the auction house watched
-    `watched` hours lately (`watched_hours`). Sales seen say most: enough to cover the plan is high,
-    fewer medium. Without them a price is low when nothing is listed, its median is from under
+    `watched` hours lately (`watched_hours`). Sales seen say most: enough to cover the plan, seen in at
+    least two pairs of scans of a house watched WATCHED_ENOUGH_HOURS, is high; fewer, or all in one pair, or
+    hardly watched, medium. Without them a price is low when nothing is listed, its median is from under
     CONFIDENT_SCAN_DAYS days, the house was watched WATCHED_ENOUGH_HOURS with too few sales, or it rests
-    on a thin market (`thin_market`); else medium. A price set by hand is high."""
+    on a thin market (`thin_market`); else medium. A price set by hand is high. Whatever the level, `flags`
+    lists every doubt."""
     sold = round((listing.sale_rate or 0.0) * SALES_DAYS)
     unlisted = listing.listed is False
     listed = 0 if unlisted else listing.quantity
     days = listing.scans_7d or 0
+    pairs = listing.sold_pairs_7d or 0
+    hand_set = listing.source in HAND_SET
+    doubts: dict[ConfidenceFlag, bool] = {
+        "lone": not unlisted and listed is not None and listed < THIN_UNITS and sold == 0,
+        "thin": not unlisted and thin_market(listed, units),
+        "sold_out": unlisted and sold > 0,
+        "unlisted": unlisted and sold == 0,
+        "few_days": listing.median_7d is None or days < CONFIDENT_SCAN_DAYS,
+        "unwatched": watched < WATCHED_ENOUGH_HOURS,
+        "one_pair": sold > 0 and pairs == 1,
+    }
+    flags = () if hand_set else tuple(f for f, doubt in doubts.items() if doubt)
 
     def says(level: ConfidenceLevel, reason: ConfidenceReason) -> Confidence:
         since = listing.seen_at if unlisted else None
-        return Confidence(level, reason, sold, units, listed, days, round(watched, 1), since)
+        return Confidence(level, reason, sold, units, listed, days, round(watched, 1), since, flags, pairs)
 
-    if listing.source in HAND_SET:
+    if hand_set:
         return says("high", "hand_set")
     if listing.sale_price is not None:
-        return says("high", "sold") if sold >= units else says("medium", "few_sold")
+        if sold < units:
+            return says("medium", "few_sold")
+        if pairs >= 2 and watched >= WATCHED_ENOUGH_HOURS:
+            return says("high", "sold")
+        return says("medium", "one_pair") if pairs == 1 else says("medium", "few_sold")
     if unlisted:
         return says("low", "unlisted")
     if listing.median_7d is None or days < CONFIDENT_SCAN_DAYS:

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { CharacterGroup } from '../api/client'
 import type { Exit, Unlearned } from '../api/queries'
+import { writeStored } from './storage'
+import { WORKING_OVERTIME } from './talents'
 
 /*
  * The Profit page's setup: a few questions asked before the search, each setting one thing about it. What the user is
@@ -17,7 +19,8 @@ export type Selling = z.infer<typeof sellingSchema>
 export const setupSchema = z.object({
   aim: aimSchema,
   profession: z.string().optional(),
-  /** Which of the profession's holders are being skilled up; unset: all of them. */
+  /** Which of the profession's holders is being skilled up (one; several from before one climbed at a time); unset:
+   * the one who has it. */
   characters: z.array(z.string()).optional(),
   selling: sellingSchema.optional(),
 })
@@ -28,6 +31,8 @@ export type Step = 'aim' | 'profession' | 'selling'
 export const ALL_EXITS: readonly Exit[] = ['vendor', 'disenchant', 'ah']
 /** Ways to sell that never leave the user holding stock: a vendor always pays, enchanting materials always sell. */
 const RELIABLE_EXITS: readonly Exit[] = ['vendor', 'disenchant']
+/** Skilling up sells what is made to a vendor or disenchants it (when someone can), else keeps it. */
+export const SKILL_EXITS: readonly Exit[] = ['vendor', 'disenchant', 'keep']
 
 export type Card<K extends string> = {
   key: K
@@ -56,33 +61,40 @@ export const AIMS: readonly Card<Aim>[] = [
     title: 'Skill up',
     blurb: 'Raise a profession, or any, for as little gold as possible.',
     details:
-      'Recipes that can no longer give a skill point are hidden. The rest are ranked by what an expected skill point costs: orange recipes always give one, yellow and green ones less often.',
+      'Each recipe is counted as the crafts until it turns green for you, ranked by what an expected skill point costs: orange recipes always give one, yellow and green ones less often.',
   },
 ]
 
 export const SELLING: readonly Card<Selling>[] = [
   {
     key: 'reliable',
-    title: 'Only what reliably sells',
+    title: 'Play it safe',
     blurb: 'Sell to a vendor, or disenchant and sell the materials.',
     details:
-      "Enchanting materials have steady prices and always find buyers, and a vendor always pays. Margins are smaller, but you won't be left holding stock.",
+      "A vendor always pays, and enchanting materials usually find buyers: disenchanting and converting essences still sell materials on the auction house, so each says how sure its sale is. Margins are smaller, but you won't be left holding stock.",
   },
   {
     key: 'any',
-    title: 'Anything that might sell',
+    title: 'Use the auction house too',
     blurb: 'Also sell crafted items on the auction house.',
-    details: "We'll show you the theoretical profits from selling on the auction house,",
-    caution: 'but you must take an active role in:',
-    points: ['Evaluating which items you think are likely to sell', 'Taking care not to flood the market'],
+    details:
+      'Each recipe counts only the units its market has shown it takes, and says how sure the sale is and why.',
+    caution: 'Watch for:',
+    points: ['Thin markets, where one listing is an asking price, not a price', 'Flooding the market yourself'],
   },
 ]
 
 /** The profession answer that skills up any profession: every recipe that gives someone a skill point. */
 export const ANY_PROFESSION = 'any'
 
-/** One character having a profession, at what skill. */
-export type Holder = { name: string; classFile: string; rank: number; maxRank: number }
+/** One character having a profession, at what skill, and their Working Overtime ranks (unset without any). */
+export type Holder = {
+  name: string
+  classFile: string
+  rank: number
+  maxRank: number
+  workingOvertime?: { rank: number; maxRank: number }
+}
 
 /** A profession someone on the realm has, and who. */
 export type ProfessionChoice = { name: string; holders: Holder[] }
@@ -102,7 +114,14 @@ export function professionsOf(
       const key = p.name.toLowerCase()
       if (ranked && !ranked.has(key)) continue
       const entry = byName.get(key) ?? { name: p.name, holders: [] }
-      entry.holders.push({ name: c.name, classFile: c.class_file, rank: p.rank, maxRank: p.max_rank })
+      const overtime = c.talents.find((t) => t.spell_id === WORKING_OVERTIME && t.rank > 0)
+      entry.holders.push({
+        name: c.name,
+        classFile: c.class_file,
+        rank: p.rank,
+        maxRank: p.max_rank,
+        ...(overtime ? { workingOvertime: { rank: overtime.rank, maxRank: overtime.max_rank } } : {}),
+      })
       byName.set(key, entry)
     }
   }
@@ -185,7 +204,7 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
     setup.aim === 'skill'
       ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI; what is made along the way
         // is sold where it surely sells, not left on the auction house
-        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...RELIABLE_EXITS], unlearned: 'train' }
+        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...SKILL_EXITS], unlearned: 'train' }
       : {
           includeTrivial: true,
           minProfit: 0.0001,
@@ -203,6 +222,20 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
   }
 }
 
+/**
+ * Where an aim keeps one of its search filters: making gold and skilling up each remember their own, so answering one
+ * never overwrites the other's. `legacySearchKey` is where every filter was kept before, read while an aim has none.
+ */
+export const searchKey = (aim: Aim, name: string) => `altarmy-profit.search.${aim}.${name}`
+export const legacySearchKey = (name: string) => `altarmy-profit.search.${name}`
+
+/** Store the filters an answer presets under the aim's keys, for its search to start from. */
+export function storePresets(aim: Aim, presets: Partial<Presets>) {
+  for (const [name, value] of Object.entries(presets)) {
+    if (value !== undefined) writeStored(searchKey(aim, name), value)
+  }
+}
+
 /** How the server ranks for this setup: the most profit, or the cheapest expected skill point. */
 export const rankSort = (setup: Setup | null): 'profit' | 'skill' => (setup?.aim === 'skill' ? 'skill' : 'profit')
 
@@ -211,8 +244,8 @@ export const rankProfessions = (setup: Setup | null): string[] =>
   setup?.aim === 'skill' && setup.profession && setup.profession !== ANY_PROFESSION ? [setup.profession] : []
 
 const SELLING_TEXT: Readonly<Record<Selling, string>> = {
-  reliable: 'Only what reliably sells',
-  any: 'Anything that might sell',
+  reliable: 'Play it safe',
+  any: 'Use the auction house too',
 }
 
 /** The answers in a few words each, in question order, for the folded summary: "Making gold · …". */

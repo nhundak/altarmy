@@ -235,19 +235,25 @@ def test_price_confidence_is_for_the_plans_ah_sale() -> None:
     recipe = engine.Recipe(1, "Green Robe", 3, output_count=2)
     tree = engine.Node(3, "Green Robe", 1, 100)
     sale = engine.Result(recipe, 100, 500, "ah", tree, crafts=5)
-    # 10 seen sold over the week, the plan sells 2 x 5
-    sold = {3: prices.Listing(900, 50, sale_rate=10 / 7, sale_price=900, median_7d=900, scans_7d=5)}
-    got = service.price_confidence(sale, sold, 1.0)
+    # 10 seen sold over the week in two pairs of scans of a house watched long enough; the plan sells 2 x 5
+    sold = {
+        3: prices.Listing(
+            900, 50, sale_rate=10 / 7, sale_price=900, median_7d=900, scans_7d=5, sold_pairs_7d=2
+        )
+    }
+    watched = prices.WATCHED_ENOUGH_HOURS
+    got = service.price_confidence(sale, sold, watched)
     assert got is not None and (got.level, got.units, got.sold) == ("high", 10, 10)
-    more = service.price_confidence(replace(sale, crafts=6), sold, 1.0)
+    more = service.price_confidence(replace(sale, crafts=6), sold, watched)
     assert more is not None and more.level == "medium"  # sells 12
-    assert service.price_confidence(replace(sale, best_exit="vendor"), sold, 1.0) is None
-    assert service.price_confidence(sale, {}, 1.0) is None  # nothing known of it on the AH
+    assert service.price_confidence(replace(sale, best_exit="vendor"), sold, watched) is None
+    assert service.price_confidence(sale, {}, watched) is None  # nothing known of it on the AH
     unlisted = {3: prices.Listing(900, 0, listed=False, median_7d=900, scans_7d=5)}
-    assert service.confident(sale, sold, 1.0, "high")
-    assert not service.confident(sale, unlisted, 1.0, "medium")
-    assert service.confident(sale, unlisted, 1.0, "low")
-    assert service.confident(replace(sale, best_exit="vendor"), unlisted, 1.0, "high")  # off the AH
+    assert service.confident(sale, sold, watched, "high")
+    assert not service.confident(sale, sold, 1.0, "high")  # hardly watched: not yet
+    assert not service.confident(sale, unlisted, watched, "medium")
+    assert service.confident(sale, unlisted, watched, "low")
+    assert service.confident(replace(sale, best_exit="vendor"), unlisted, watched, "high")  # off the AH
 
 
 def test_a_sale_is_slow_when_what_is_listed_ahead_outlasts_two_days() -> None:
@@ -364,6 +370,50 @@ def test_by_skill_puts_the_cheapest_skill_point_first() -> None:
     market = engine.Market(items, recipes, {1: 10}, crafters=[tailor], exits=frozenset({"vendor"}))
     ranked = market.rank(min_profit=-(10**18))
     assert [r.recipe.name for r in service.by_skill(ranked)] == ["Orange", "Yellow", "Sure", "Green", "Grey"]
+
+
+def test_a_skill_run_ranks_each_recipe_as_the_crafts_until_another_gets_cheaper(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))
+    (tailor,) = chars("Tailor Guy")
+    novice = replace(tailor, professions=(Profession("Tailoring", 20, 75, frozenset({900})),))
+    skilled = frozenset({"Tailor Guy"})
+    (one,) = service.search(base, [novice], "none", Filters(), skill_crafters=skilled)
+    assert one.crafts == 1
+    (run,) = service.search(
+        base, [novice], "none", Filters(), skill_crafters=skilled, skill_run=engine.SkillRuns()
+    )
+    # the robe, the only recipe: nothing gets cheaper, so on until the 100-craft ceiling (orange to 30,
+    # then the falling chance towards grey at 60)
+    assert (run.crafts, run.stop_skill, run.stop_reason, run.overtaken_by) == (100, 59, "ceiling", "")
+    assert run.cost == 100 * one.cost
+    got = service.evaluate(
+        base,
+        [novice],
+        "none",
+        ALL_EXITS,
+        100,
+        {},
+        skill_crafters=skilled,
+        skill_run=engine.SkillRuns(ceiling=10),
+    )
+    assert got is not None
+    assert (got.crafts, got.stop_skill, got.stop_reason) == (10, 30, "ceiling")
+
+
+def test_search_ranks_one_profession_when_asked() -> None:
+    recipes = [
+        engine.Recipe(1, "Robe", 11, 1, ((1, 1),), "Tailoring"),
+        engine.Recipe(2, "Stew", 12, 1, ((1, 1),), "Cooking"),
+    ]
+    items = {1: engine.Item(1, "Cloth"), 11: engine.Item(11, "Robe", sell_price=50)}
+    items[12] = engine.Item(12, "Stew", sell_price=40)
+    market = engine.Market(items, recipes, {1: 10})
+    assert [r.recipe.name for r in service.search(market, [], "none", engine.Filters())] == ["Robe", "Stew"]
+    tailoring = service.search(market, [], "none", engine.Filters(), skill_name="Tailoring")
+    assert [r.recipe.name for r in tailoring] == ["Robe"]
 
 
 def test_favorites_first_keeps_each_part_in_order() -> None:
@@ -601,3 +651,202 @@ def test_a_saved_city_prices_the_plan_there() -> None:
         rep_base(thread=290), [tailor((THUNDER_BLUFF, 6))], "none", Filters(), time=engine.TimeModel(WALK, tb)
     )
     assert (r.profit, r.alternatives) == (10 * 39, ())
+
+
+def test_likely_profit_counts_unsold_units_at_the_fallback_exit() -> None:
+    # ten robes: the AH nets 950 each, a vendor pays 500; the market took 3 lately, 2 listed at or under 1000
+    items = {1: engine.Item(1, "Cloth"), 10: engine.Item(10, "Robe", sell_price=500, class_id=4)}
+    robe = engine.Recipe(1, "Robe", 10, 1, ((1, 1),), "Tailoring")
+    market = engine.Market(items, [robe], {1: 100}, sell_prices={10: 1000})
+    (r,) = market.rank(crafts=10)
+    assert (r.best_exit, r.profit) == ("ah", 10 * 950 - 1000)
+    ladder = (book.Level(900, 1, 1), book.Level(1000, 1, 1), book.Level(1500, 5, 1))
+    listing = prices.Listing(900, 7, ladder, 3 / 7, "altarmy", True, sale_price=1000)
+    likely = service.likely(r, {10: listing}, 1000)
+    assert (likely.depth_units, likely.excess_units, likely.exit) == (3, 7, "ah")
+    assert likely.profit == r.profit - 7 * (950 - 500)
+    # a vendor sale is what it is; so is another source's price
+    vendor = replace(r, best_exit="vendor", revenue=5000)
+    assert service.likely(vendor, {10: listing}, 1000) == service.Likely(vendor.profit, "vendor", 0, 0)
+    other = replace(listing, source="auctionator")
+    assert service.likely(r, {10: other}, 1000).profit == r.profit
+    # when even the capped sale loses to the vendor, the vendor is the likely exit
+    swamped = replace(listing, sale_rate=0.0, ladder=())
+    assert service.likely(r, {10: swamped}, 1000) == service.Likely(10 * 500 - 1000, "vendor", 0, 10)
+
+
+def test_a_gathered_material_is_worth_what_it_would_sell_for() -> None:
+    items = {1: engine.Item(1, "Cloth", sell_price=3), 2: engine.Item(2, "Thread"), 3: engine.Item(3, "Dust")}
+    market = engine.Market(items, [], {}, sell_prices={1: 100})
+    assert service.gather_values(market, [1, 2, 3, 9]) == {1: 95, 2: 1, 3: 1, 9: 1}  # AH net, else 1c
+    vendor_only = engine.Market(items, [], {})
+    assert service.gather_values(vendor_only, [1]) == {1: 3}  # what a vendor pays
+
+
+def test_then_is_the_best_recipe_once_the_first_run_is_done(
+    db2_paths: dict[str, Path], conn: Connection
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    base = store.load_market(conn, FOREVER, set_prices(conn, {1: 20, 2: 100}))
+    (tailor,) = chars("Tailor Guy")
+    novice = replace(tailor, professions=(Profession("Tailoring", 20, 75, frozenset({900})),))
+    skilled = frozenset({"Tailor Guy"})
+    run = engine.SkillRuns()
+    (first,) = service.search(base, [novice], "none", Filters(), skill_crafters=skilled, skill_run=run)
+
+    def then(first: engine.Result) -> list[engine.Result]:
+        none: frozenset[int] = frozenset()
+        return service.then_up(
+            base,
+            [novice],
+            "none",
+            ALL_EXITS,
+            none,
+            False,
+            None,
+            skilled,
+            False,
+            "Tailoring",
+            run,
+            first=first,
+        )
+
+    # the robe is the only recipe: once its run is done, nothing else comes next
+    assert then(first) == []
+    later = then(replace(first, recipe=replace(first.recipe, id=-1)))
+    (r,) = later
+    # planned from 59, where the first run ends: about to turn grey by then
+    assert (r.crafts, r.stop_reason, r.stop_skill) == (1, "trivial", 59)
+
+
+def test_learn_cost_counts_a_pattern_the_climber_must_buy() -> None:
+    robe = engine.Recipe(1, "Robe", 10, 1, ((1, 1),), "Tailoring", spell_id=900, source="recipe")
+    trained = replace(robe, id=2, spell_id=901, source="trainer")
+    result = engine.Result(robe, 100, 0, "vendor", engine.Node(10, "Robe", 1, 100), crafter="Novice")
+    novice = Character("R", "Novice", "Horde", "MAGE", 20, (Profession("Tailoring", 20, 75, frozenset()),))
+    vendor = store.Place("vendor", "Borya", "Orgrimmar", "horde", 0, 0, "", False)
+    pattern = store.RecipeItem(5, "Pattern: Robe", (vendor,), 120)
+    taught = {900: [pattern]}
+    assert service.learn_cost(result, [novice], taught, {}, "Horde") == 120
+    assert service.learn_cost(result, [novice], taught, {5: 90}, "Horde") == 90  # cheaper on the AH
+    assert (
+        service.learn_cost(result, [novice], taught, {}, "Alliance") is None
+    )  # their vendor serves the Horde
+    assert service.learn_cost(result, [novice], {}, {}, "Horde") is None  # nothing says what it costs
+    knows = replace(novice, professions=(Profession("Tailoring", 20, 75, frozenset({900})),))
+    assert service.learn_cost(result, [knows], taught, {}, "Horde") == 0
+    assert service.learn_cost(replace(result, recipe=trained), [novice], {}, {}, "Horde") == 0  # fee unknown
+    # ranked by what a point costs with the pattern, unknown prices last
+    cheap = replace(result, cost=50, skill_ups=1.0)
+    dear = replace(result, recipe=replace(robe, id=3), cost=10, skill_ups=1.0)
+    unknown = replace(result, recipe=replace(robe, id=4), cost=1, skill_ups=1.0)
+    costs = {1: 0, 3: 100, 4: None}
+    ordered = service.by_skill([unknown, dear, cheap], lambda r: costs[r.recipe.id])
+    assert [r.recipe.id for r in ordered] == [1, 3, 4]
+
+
+def _sale(best_exit: str, exits: list[engine.Exit], inputs: tuple[engine.Node, ...] = ()) -> engine.Result:
+    recipe = engine.Recipe(1, "Green Robe", 3, 1, ((1, 10),), "Tailoring")
+    return engine.Result(
+        recipe, 300, 950, best_exit, engine.Node(3, "Green Robe", 1, 300, inputs=inputs), exits
+    )
+
+
+AH = engine.Exit("ah", 950)
+VENDOR = engine.Exit("vendor", 500)
+WATCHED = prices.WATCHED_ENOUGH_HOURS
+SEEN = prices.Listing(1000, 50, source="altarmy", listed=True, median_7d=1000, scans_7d=5)
+SOLD = replace(SEEN, sale_rate=2.0, sale_price=1000, sold_pairs_7d=3)
+
+
+def test_a_vendor_sale_is_steady_and_an_ah_sale_as_sure_as_its_price() -> None:
+    market = engine.Market({}, [], {})
+
+    def verdict(
+        r: engine.Result, listing: prices.Listing | None, watched: float = WATCHED
+    ) -> service.Verdict:
+        return service.verdict(r, {3: listing} if listing else {}, watched, market, disenchant_verified=False)
+
+    assert verdict(_sale("vendor", [VENDOR]), None) == service.Verdict("steady", (), ())
+    assert verdict(_sale("ah", [AH, VENDOR]), SOLD) == service.Verdict("steady", (), ())
+    # watched long enough, and nothing seen sold
+    assert verdict(_sale("ah", [AH]), SEEN) == service.Verdict("unproven", ("unsold",), ())
+    assert verdict(_sale("ah", [AH]), SEEN, watched=0) == service.Verdict("likely", ("unwatched",), ())
+    lone = replace(SEEN, quantity=1, scans_7d=1)
+    assert verdict(_sale("ah", [AH]), lone, watched=0) == service.Verdict(
+        "unproven", ("lone", "thin", "few_days", "unwatched"), ()
+    )
+    assert verdict(_sale("ah", [AH]), None).level == "unproven"  # nothing known of it
+
+
+def test_a_disenchant_is_as_sure_as_its_main_materials_and_never_steady_unchecked() -> None:
+    dust = engine.Material(5, "Dust", 1.0, 1, 2, 900)
+    speck = engine.Material(6, "Speck", 0.1, 1, 1, 100)  # under a quarter of the value: not weighed
+    sale = _sale("disenchant", [engine.Exit("disenchant", 1000, (dust, speck))])
+    market = engine.Market({}, [], {})
+    listings = {5: replace(SOLD, min_buyout=600), 6: replace(SEEN, quantity=1, scans_7d=1)}
+    got = service.verdict(sale, listings, WATCHED, market, disenchant_verified=False)
+    assert got == service.Verdict("likely", ("disenchant_unchecked",), ())
+    assert service.verdict(sale, listings, WATCHED, market, disenchant_verified=True).level == "steady"
+    unsure = {**listings, 5: SEEN}
+    assert service.verdict(sale, unsure, 0.0, market, disenchant_verified=True) == service.Verdict(
+        "likely", ("unwatched",), ()
+    )
+
+
+def test_buying_short_or_from_a_fresh_listing_makes_a_verdict_less_sure() -> None:
+    linen = engine.Node(1, "Linen", 10, 200, source="ah")
+    fresh = {1: (book.Level(20, 5, 1, age=0), book.Level(25, 100, 1, age=2))}
+    market = engine.Market({}, [], {}, books=fresh)
+    sale = _sale("ah", [AH], (linen,))
+    assert service.verdict(sale, {3: SOLD}, WATCHED, market, False) == service.Verdict(
+        "likely", (), ("just_listed",)
+    )
+    short = _sale("ah", [AH], (replace(linen, short=3),))
+    settled = engine.Market({}, [], {}, books={1: (book.Level(20, 5, 1, age=1),)})
+    assert service.verdict(short, {3: SOLD}, WATCHED, settled, False) == service.Verdict(
+        "likely", (), ("short",)
+    )
+    both = _sale("ah", [AH], (replace(linen, short=3),))
+    assert service.verdict(both, {3: SEEN}, 0.0, market, False) == service.Verdict(
+        "unproven", ("unwatched",), ("short", "just_listed")
+    )
+
+
+def test_the_gold_sorts() -> None:
+    def made(i: int, cost: int, revenue: int, crafts: int = 1) -> engine.Result:
+        recipe = engine.Recipe(i, f"R{i}", 10 + i, 1, ((1, 1),), "Tailoring")
+        return engine.Result(recipe, cost, revenue, "vendor", engine.Node(10 + i, "", 1, cost), crafts=crafts)
+
+    a, b, c = made(1, 100, 300), made(2, 1000, 1500), made(3, 10, 200, crafts=10)
+    assert [r.recipe.id for r in service.by_roi([a, b, c])] == [3, 1, 2]
+    assert [r.recipe.id for r in service.by_spend([a, b, c])] == [3, 1, 2]
+    assert [r.recipe.id for r in service.by_profit_each([a, b, c])] == [2, 1, 3]
+    assert service.at_least_verdict("likely", "steady") and not service.at_least_verdict("likely", "unproven")
+
+
+def test_the_coach_picks_the_first_sure_profitable_craft_or_says_why_none() -> None:
+    market = engine.Market({}, [], {})
+
+    def run(i: int, profit: int, best_exit: str = "vendor") -> engine.Result:
+        recipe = engine.Recipe(i, f"R{i}", 10 + i, 1, ((1, 1),), "Tailoring")
+        exits = [engine.Exit(best_exit, profit + 100)]
+        return engine.Result(
+            recipe, 100, profit + 100, best_exit, engine.Node(10 + i, f"R{i}", 1, 100), exits
+        )
+
+    sure, small = run(1, 30_000), run(2, 500)
+    listings: dict[int, prices.Listing] = {}
+    pick, why = service.coach_pick([sure, small], listings, WATCHED, market, False)
+    assert (pick, why) == (sure, None)
+    pick, why = service.coach_pick([small], listings, WATCHED, market, False)
+    assert pick is None and why == service.CoachNone("below_floor", small)
+    # an AH sale on a thin market is never picked; nor an unproven one on a house nobody watched
+    thin = run(3, 50_000, "ah")
+    lone = {13: replace(SEEN, quantity=1, scans_7d=1)}
+    pick, why = service.coach_pick([thin], lone, 0.0, market, False)
+    assert pick is None and why == service.CoachNone("all_thin", None)
+    seen = {13: SEEN}
+    pick, why = service.coach_pick([thin], seen, 0.0, market, False)
+    assert pick is None and why == service.CoachNone("no_watched_sales", None)
+    assert service.coach_pick([], {}, WATCHED, market, False) == (None, service.CoachNone("nothing", None))

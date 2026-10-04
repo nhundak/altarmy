@@ -14,7 +14,9 @@ in front).
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
+import json
+import logging
+from collections.abc import Awaitable, Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -66,7 +68,7 @@ from .versions import GameVersion, GameVersionKey
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 # "skill": an enchant cast for the skill point alone (`engine.SKILL_EXIT`); only when asked for
-ExitKind = Literal["vendor", "ah", "disenchant", "skill"]
+ExitKind = Literal["vendor", "ah", "disenchant", "skill", "keep"]
 ALL_EXIT_KINDS: tuple[ExitKind, ...] = ("vendor", "ah", "disenchant")
 # What may teach a recipe "to train" unless the request says otherwise (as `engine.DEFAULT_SOURCES`, ordered)
 DEFAULT_SOURCES: tuple[engine.Source, ...] = ("trainer", "recipe")
@@ -114,7 +116,7 @@ class ExitOut(BaseModel):
 
 
 class StepOut(BaseModel):
-    action: Literal["buy", "craft", "mail", "sell"]
+    action: Literal["buy", "gather", "craft", "mail", "sell"]
     item_id: int
     name: str
     quantity: int
@@ -216,9 +218,6 @@ class EffectOut(BaseModel):
     text: str
 
 
-LEVELS_SHOWN = 5
-
-
 class LevelOut(BaseModel):
     """The units listed at one unit price."""
 
@@ -228,6 +227,8 @@ class LevelOut(BaseModel):
     # (it may be gone before you get there)
     counted: bool
     more: bool  # pools every dearer level too (`price` is the cheapest of them)
+    listings: int  # the auctions at that price
+    age: int  # the scans before the newest that already had it (0: just listed)
 
 
 class ItemInfo(BaseModel):
@@ -261,8 +262,21 @@ class ItemInfo(BaseModel):
     # lone listing, cheap or overpriced, isn't taken for the going rate
     ah_sell_price: int | None
     ah_quantity: int | None  # units listed; None if unknown
-    ah_levels: list[LevelOut] = []  # the cheapest price levels listed (Alt Army's scans)
+    ah_levels: list[LevelOut] = []  # every price level listed, cheapest first (Alt Army's scans)
     vendor_price: int | None  # per unit, if a vendor sells it
+    # what the auction house's market for it says (Alt Army's scans; None from other sources): what is
+    # asked (the price 15% into the units listed), what it usually goes for (the 7-day median, from
+    # `scans_7d` days) and what it sold for, the units seen sold over the last week and the pairs of
+    # scans they were seen in, whether the newest scan listed it (False: gone since `seen_at`)
+    market_price: int | None = None
+    median_7d: int | None = None
+    scans_7d: int | None = None
+    sale_price: int | None = None
+    sold_7d: int = 0
+    sold_pairs_7d: int | None = None
+    listed: bool | None = None
+    seen_at: datetime | None = None
+    stack_size: int = 1
 
 
 class LegOut(BaseModel):
@@ -363,6 +377,38 @@ class RankResult(BaseModel):
     best_city: str | None = None
     crafts: int = 1  # what cost, revenue, profit, steps and tree are for: a session (the user's batch)
     details: list[DetailOut] = []  # the steps with where to go in between
+    # what the session is likely to make (`service.likely`): an AH sale counts on the units the market has
+    # shown it takes (`depth_units`); the rest (`excess_units`) go to the best other exit, which is
+    # `likely_exit` when it then pays better
+    # what the crafter must spend to learn the recipe (its pattern; 0 when known or a trainer's, whose
+    # fees aren't known yet); None when nothing says
+    learn_cost: int | None = 0
+    # whether the sale will sell (`service.verdict`): steady, likely or unproven, why it is no surer, and what
+    # about buying the reagents makes it one less sure
+    verdict: service.VerdictLevel = "steady"
+    verdict_reasons: list[str] = []
+    buy_flags: list[str] = []
+    likely_profit: int
+    likely_exit: str
+    depth_units: int = 0
+    excess_units: int = 0
+    # the skill the recipe is learned at (0: a trainer's, at no skill DB2 knows) and where it turns yellow
+    # and grey (green halfway between); 0 when unknown
+    learn_skill: int = 0
+    trivial_low: int = 0
+    trivial_high: int = 0
+    # with `runs` (`engine.run_until_cheaper`): the skill the crafts take the crafter to, why they stop
+    # there (rival: `overtaken_by`, another recipe's output, gives a cheaper point by then; trivial: the
+    # recipe is about to turn grey; cap; ceiling: the most crafts a run asks for), the crafts that get there
+    # four times in five; 0 / "" without a run. `overtaken_by_item`: that output's item id (in `items`; 0 for
+    # an enchant or without a rival)
+    stop_skill: int = 0
+    stop_reason: str = ""
+    overtaken_by: str = ""
+    overtaken_by_item: int = 0
+    crafts_p80: int = 0
+    # the chance of reaching `stop_skill` after each of 1, 2, ... crafts (past the end, at least the last)
+    reach_chances: list[float] = Field(default_factory=list)
 
 
 class ConfidenceOut(BaseModel):
@@ -376,6 +422,8 @@ class ConfidenceOut(BaseModel):
     scan_days: int  # the days its 7-day median is from
     watched_hours: float  # hours of back-to-back scans of the auction house lately, when sales are seen
     unlisted_since: datetime | None  # set when the newest scan had none: since when
+    flags: list[prices.ConfidenceFlag] = []  # every doubt about the price, most actionable first
+    sold_pairs: int = 0  # the pairs of scans its sales were seen in
 
 
 class PlaceOut(BaseModel):
@@ -398,6 +446,10 @@ class RecipeItemOut(BaseModel):
     item_id: int
     name: str
     places: list[PlaceOut]  # none known: one of Forever's own recipe items, or one nobody tracked
+    price: int | None = (
+        None  # the least it costs: from a vendor serving the selection's faction, or on the AH
+    )
+    limited: bool = False  # a vendor sells it in limited stock
 
 
 class LearnOut(BaseModel):
@@ -416,6 +468,10 @@ class RankResponse(BaseModel):
     # recipe id -> where to learn it, for the results nobody selected has learned ("not learned")
     learn: dict[int, LearnOut] = {}
     classes: dict[str, str]  # selected character name -> class file (e.g. PALADIN), for class colours
+    # with `sort=skill`, `runs`, one profession and one character skilled up: the best run once the first
+    # result's is done (its skill at that run's `stop_skill`), another recipe than the first's
+    then: RankResult | None = None
+    hidden_by_verdict: int = 0  # matches left out by `min_verdict`
 
 
 class EvaluateRequest(BaseModel):
@@ -432,8 +488,10 @@ class EvaluateRequest(BaseModel):
     arcane_salvager: bool = False  # as /api/rank's
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
-    # that many crafts at once; None: the user's batch, as ranked
+    # that many crafts at once; None: the user's batch, as ranked (or the run, with `runs`)
     copies: int | None = Field(default=None, ge=1, le=1000)
+    runs: bool = False  # as /api/rank's: plan the run, unless `copies` is given
+    gathered: list[int] = []  # as /api/rank's
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
 
@@ -563,6 +621,7 @@ class VersionOut(BaseModel):
     label: str  # e.g. TBC Anniversary
     build: str | None  # the DB2 build loaded, None before the first game data download
     recipes: int
+    ah_cut: float  # the auction house's cut of a sale (0.05: 5%)
 
 
 class FirebaseOut(BaseModel):
@@ -596,6 +655,7 @@ class CoverageOut(BaseModel):
     last_scan_items: int  # items in that scan
     scans_7d: int  # accepted scans in the last 7 days
     uploaders_7d: int  # how many users sent them
+    watched_hours: float = 0.0  # hours of scans at most 30 minutes apart lately: when its sales are seen
 
 
 UploadKind = Literal["altarmy", "auctionator"]
@@ -986,24 +1046,42 @@ def get_rank(
         prices.ConfidenceLevel | None,
         Query(description="only AH sales whose sell price is trusted at least this much (others all pass)"),
     ] = None,
+    min_verdict: Annotated[
+        service.VerdictLevel | None,
+        Query(description="only sales at least this sure to sell (`verdict`)"),
+    ] = None,
     professions: Annotated[
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
     sort: Annotated[
-        Literal["profit", "rate", "skill"],
-        Query(description="profit per session (the batch), per hour of play, or cheapest skill point"),
+        Literal["profit", "rate", "skill", "likely", "all_sell", "roi", "spend", "profit_each"],
+        Query(
+            description="profit per session (the batch; all_sell is the same), per hour of play, cheapest "
+            "skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made"
+        ),
     ] = "profit",
+    gathered: Annotated[
+        list[int] | None,
+        Query(description="items the user gathers: had for what selling them would make, instead of bought"),
+    ] = None,
+    runs: Annotated[
+        bool,
+        Query(
+            description="with skill_crafters: rank each recipe as a run, the crafts until another recipe "
+            "would give the one skilled up a cheaper skill point, not as the user's batch"
+        ),
+    ] = False,
     top: Annotated[int, Query(ge=1)] = 50,
     price_version: Annotated[
         int | None, Query(description="the auction house's price version the front end knows of")
     ] = None,
 ) -> RankResponse:
-    """What the selected realm/faction's characters can craft, the user's favorites first, then most
-    profitable first (each a session of the user's batch of crafts, or with `sort=rate` per hour of play in
-    the user's city, or with `sort=skill` cheapest expected skill point first (`skill_ups`), those that give
-    none last); without characters, every recipe, crafted by one unnamed character (nothing is
-    mailed). Bounds are inclusive and on the session's numbers; an omitted bound is unbounded (so losses are
-    included unless `min_profit` is set)."""
+    """What the selected realm/faction's characters can craft, the user's favorites first (not with
+    `sort=skill`), then most profitable first (each a session of the user's batch of crafts, or with
+    `sort=rate` per hour of play in the user's city, or with `sort=skill` cheapest expected skill point first
+    (`skill_ups`), those that give none last); without characters, every recipe, crafted by one unnamed
+    character (nothing is mailed). Bounds are inclusive and on the session's numbers; an omitted bound is
+    unbounded (so losses are included unless `min_profit` is set)."""
     s = _selected(state, user, price_version)
     base, chars, no_ah = s.base, s.chars, s.no_ah
     # Without characters the ranking depends on nobody but the time settings: browsing users with the same
@@ -1012,8 +1090,15 @@ def get_rank(
     whose = user.uid if chars else ""
     skilled = frozenset(skill_crafters or ())
     learning = engine.Learning(unlearned, look_ahead, frozenset(sources)).normalized()
+    # One profession is ranked alone (most of the work skipped); several are narrowed from the full ranking.
+    skill_name = professions[0] if professions and len(professions) == 1 else None
+    run = engine.SkillRuns() if runs and skilled else None
+    gather = service.gather_values(base, gathered) if gathered else None
     key = (
         whose,
+        skill_name.lower() if skill_name else None,
+        run,
+        frozenset(gathered or ()),
         tuple(chars),
         learning,
         include_trivial,
@@ -1036,32 +1121,81 @@ def get_rank(
             s.time,
             skilled,
             arcane_salvager,
+            skill_name=skill_name,
+            skill_run=run,
+            gathered=gather,
         )
         state.rank_cache.put(key, base, matches)
-    if sort != "profit":
+    if sort in ("rate", "skill"):
         ordered = state.rank_cache.get((key, sort), base)
         if ordered is None:
-            ordered = (service.by_rate if sort == "rate" else service.by_skill)(matches)
+            if sort == "rate":
+                ordered = service.by_rate(matches)
+            else:  # what learning each recipe costs counts too
+                costs = _learn_costs(state, s, matches)
+                ordered = service.by_skill(matches, lambda r: costs.get(r.recipe.id, 0))
             state.rank_cache.put((key, sort), base, ordered)
         matches = ordered
+    elif sort == "likely":  # cheap: ordered per request
+        matches = service.by_likely(matches, s.listings, base)
+    elif sort in ("roi", "spend", "profit_each"):
+        matches = {"roi": service.by_roi, "spend": service.by_spend, "profit_each": service.by_profit_each}[
+            sort
+        ](matches)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = [r for r in matches if filters.accepts(r)]
     if min_confidence is not None:
         matches = [r for r in matches if service.confident(r, s.listings, s.watched, min_confidence)]
+    hidden = 0
+    if min_verdict is not None:
+        before = len(matches)
+        matches = [r for r in matches if service.at_least_verdict(min_verdict, _verdict(r, s).level)]
+        hidden = before - len(matches)
     if professions:
         wanted = {p.lower() for p in professions}
         matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
-    if s.favorites:
+    if s.favorites and sort != "skill":  # a climb goes cheapest point first, favorite or not
         matches = service.favorites_first(matches, s.favorites)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
-    out = [_result_out(r, base, crafters, s) for r in results]
+    costs = _learn_costs(state, s, results)
+    out = [_result_out(r, base, crafters, s, costs.get(r.recipe.id, 0)) for r in results]
+    then = None
+    if sort == "skill" and skill_name and run is not None and len(skilled) == 1 and matches:
+        first = matches[0]
+        then_key = (key, "then", first.recipe.id)
+        found = state.rank_cache.get(then_key, base)
+        if found is None:
+            later = service.then_up(
+                base,
+                chars,
+                learning,
+                frozenset(exits),
+                no_ah,
+                include_trivial,
+                s.time,
+                skilled,
+                arcane_salvager,
+                skill_name,
+                run,
+                first=first,
+                gathered=gather,
+            )
+            later_costs = _learn_costs(state, s, later)
+            found = service.by_skill(later, lambda r: later_costs.get(r.recipe.id, 0))[:1]
+            state.rank_cache.put(then_key, base, found)
+        if found:
+            then = _result_out(
+                found[0], base, crafters, s, _learn_costs(state, s, found).get(found[0].recipe.id, 0)
+            )
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
         items=_item_infos(state, s, results),
         results=out,
-        learn=_learn(state, s.faction, [r for r, o in zip(results, out, strict=True) if _not_learned(o)]),
+        learn=_learn(state, s, [r for r, o in zip(results, out, strict=True) if _not_learned(o)]),
+        then=then,
+        hidden_by_verdict=hidden,
     )
 
 
@@ -1086,13 +1220,38 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         frozenset(body.skill_crafters),
         body.crafter or "",
         body.arcane_salvager,
+        skill_run=engine.SkillRuns() if body.runs and body.copies is None else None,
+        gathered=service.gather_values(s.base, body.gathered) if body.gathered else None,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, s.base, altarmy.crafters(s.chars), s),
+        result=_result_out(
+            r, s.base, altarmy.crafters(s.chars), s, _learn_costs(state, s, [r]).get(r.recipe.id, 0)
+        ),
         items=_item_infos(state, s, [r]),
     )
+
+
+EVENTS = logging.getLogger("altarmy_profit.events")
+# What the front end may say happened: whether Next up, the skill checklist and gathering get used decides
+# what is built next. Nothing about who: no user, realm or character.
+EventName = Literal[
+    "aim_chosen", "next_up_shown", "row_opened", "copy_steps", "gather_toggled", "coach_shown"
+]
+
+
+class EventIn(BaseModel):
+    name: EventName
+    # a few words of context (the profession, the aim); never anything about the user
+    props: dict[Annotated[str, Field(max_length=32)], str | int | bool] = Field(default={}, max_length=8)
+
+
+@router.post("/events", status_code=204)
+def post_event(state: State, user: CurrentUser, body: EventIn) -> None:
+    """Note that something happened in the front end: one JSON log line, anonymous."""
+    props = {k: v[:64] if isinstance(v, str) else v for k, v in body.props.items()}
+    EVENTS.info(json.dumps({**props, "event": body.name, "game_version": state.key}))
 
 
 @dataclass(frozen=True)
@@ -1109,6 +1268,11 @@ class Selected:
     cities: list[timing.CityMap]
     faction: str = ""  # the selection's (Horde, Alliance); "" without one
     watched: float = 0.0  # `prices.watched_hours` of the auction house
+    disenchant_verified: bool = False  # the version's (`GameVersion.disenchant_verified`)
+
+
+def _verdict(r: engine.Result, s: Selected) -> service.Verdict:
+    return service.verdict(r, s.listings, s.watched, s.base, s.disenchant_verified)
 
 
 def _selected(state: AppState, user: auth.User, price_version: int | None = None) -> Selected:
@@ -1131,31 +1295,49 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         service.faction_cities(state.cities, faction),
         faction,
         priced.watched,
+        state.version.disenchant_verified,
     )
 
 
-def _item_infos(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, ItemInfo]:
-    """Tooltip details for every item the results mention."""
+def _item_infos(
+    state: AppState, s: Selected, results: Sequence[engine.Result], more: Collection[int] = ()
+) -> dict[int, ItemInfo]:
+    """Tooltip details for every item the results mention, and `more`."""
     item_ids = (
         {s.item_id for r in results for s in r.steps}
         | {i for r in results for i, _ in r.recipe.reagents}
         | {m.item_id for r in results for e in r.exits for m in e.materials}
+        | {r.overtaken_by_item for r in results if r.overtaken_by_item}
+        | set(more)
     )
     with _connect(state) as conn:
         return _item_details(state, conn, store.Priced(s.base, dict(s.listings), s.watched), item_ids)
 
 
 def _not_learned(r: RankResult) -> bool:
-    """The results table's "not learned": a profession's recipe the plan has someone learn."""
-    return r.kind in ("craft", "enchant") and not r.crafters and bool(r.crafter)
+    """The results table's "not learned": a profession's recipe the plan has someone learn (nobody knows
+    it, or only another character than the one skilled up who crafts it)."""
+    return r.kind in ("craft", "enchant") and bool(r.crafter) and r.crafter not in r.crafters
 
 
-def _learn(state: AppState, faction: str, results: Sequence[engine.Result]) -> dict[int, LearnOut]:
+def _learn_costs(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, int | None]:
+    """What learning each result's recipe costs its crafter (`service.learn_cost`), by recipe id; the
+    patterns are looked up only for the recipes a crafter must learn."""
+    unknown = [r for r in results if service.learn_cost(r, s.chars, {}, {}, s.faction) is None]
+    if not unknown:
+        return {}
+    with _connect(state) as conn:
+        taught = store.load_recipe_items(conn, state.key, {r.recipe.spell_id for r in unknown})
+    return {r.recipe.id: service.learn_cost(r, s.chars, taught, s.base.prices, s.faction) for r in unknown}
+
+
+def _learn(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, LearnOut]:
     """Where to learn each result's recipe, leaving out places that serve only the other faction."""
     if not results:
         return {}
     with _connect(state) as conn:
         taught = store.load_recipe_items(conn, state.key, {r.recipe.spell_id for r in results})
+    faction = s.faction
     other = {"horde": "alliance", "alliance": "horde"}.get(faction.lower(), "")
     return {
         r.recipe.id: LearnOut(
@@ -1167,6 +1349,8 @@ def _learn(state: AppState, faction: str, results: Sequence[engine.Result]) -> d
                     item_id=i.item_id,
                     name=i.name,
                     places=[PlaceOut(**asdict(p)) for p in i.places if not other or p.side != other],
+                    price=service.pattern_price([i], s.base.prices, faction),
+                    limited=any(p.kind == "vendor" and p.limited and p.side != other for p in i.places),
                 )
                 for i in taught.get(r.recipe.spell_id, [])
             ],
@@ -1184,16 +1368,33 @@ def _item_details(
     for i, d in details.items():
         listing = priced.listings.get(i)
         counted = {lv.price for lv in base.books.get(i, ())}
+        item = base.items.get(i)
         out[i] = ItemInfo(
             **asdict(d),
             ah_price=listing.min_buyout if listing else None,
             ah_sell_price=base.sell_prices.get(i),
             ah_quantity=listing.quantity if listing else None,
             ah_levels=[
-                LevelOut(price=lv.price, quantity=lv.quantity, counted=lv.price in counted, more=lv.tail)
-                for lv in (listing.ladder[:LEVELS_SHOWN] if listing else ())
+                LevelOut(
+                    price=lv.price,
+                    quantity=lv.quantity,
+                    counted=lv.price in counted,
+                    more=lv.tail,
+                    listings=lv.listings,
+                    age=lv.age,
+                )
+                for lv in (listing.ladder if listing else ())
             ],
             vendor_price=_vendor_price(base, i),
+            market_price=listing.market_price if listing else None,
+            median_7d=listing.median_7d if listing else None,
+            scans_7d=listing.scans_7d if listing else None,
+            sale_price=listing.sale_price if listing else None,
+            sold_7d=round((listing.sale_rate or 0.0) * prices.SALES_DAYS) if listing else 0,
+            sold_pairs_7d=listing.sold_pairs_7d if listing else None,
+            listed=listing.listed if listing else None,
+            seen_at=listing.seen_at if listing else None,
+            stack_size=item.stack_size if item else 1,
         )
     return out
 
@@ -1272,11 +1473,17 @@ def _best_city(cities: Sequence[CityTimingOut]) -> str | None:
 
 
 def _result_out(
-    r: engine.Result, base: engine.Market, crafters: dict[int, list[str]], s: Selected
+    r: engine.Result,
+    base: engine.Market,
+    crafters: dict[int, list[str]],
+    s: Selected,
+    learn_cost: int | None = 0,
 ) -> RankResult:
     listings = s.listings
     per_city = _cities_out(r, base, s.cities)
     sure = service.price_confidence(r, listings, s.watched)
+    likely = service.likely(r, listings, base.sell_prices.get(r.recipe.output_item_id))
+    judged = _verdict(r, s)
     t = r.timing
 
     def faction(who: str, item_id: int, percent: int) -> str:
@@ -1327,7 +1534,7 @@ def _result_out(
         reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
         steps=[
             StepOut(
-                action=cast(Literal["buy", "craft", "mail", "sell"], s.action),
+                action=cast(Literal["buy", "gather", "craft", "mail", "sell"], s.action),
                 item_id=s.item_id,
                 name=s.name,
                 quantity=s.quantity,
@@ -1348,6 +1555,23 @@ def _result_out(
             for s in r.steps
         ],
         tree=_node_out(r.tree, faction),
+        learn_cost=learn_cost,
+        verdict=judged.level,
+        verdict_reasons=list(judged.reasons),
+        buy_flags=list(judged.buy_flags),
+        likely_profit=likely.profit,
+        likely_exit=likely.exit,
+        depth_units=likely.depth_units,
+        excess_units=likely.excess_units,
+        learn_skill=r.recipe.learn_skill,
+        trivial_low=r.recipe.trivial_low,
+        trivial_high=r.recipe.trivial_high,
+        stop_skill=r.stop_skill,
+        stop_reason=r.stop_reason,
+        overtaken_by=r.overtaken_by,
+        overtaken_by_item=r.overtaken_by_item,
+        crafts_p80=r.crafts_p80,
+        reach_chances=[round(c, 4) for c in r.reach_chances],
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
         timing=None
         if t is None or r.time_model is None
@@ -1735,6 +1959,7 @@ def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
             last_scan_items=c.last_scan_items,
             scans_7d=c.scans_7d,
             uploaders_7d=c.uploaders_7d,
+            watched_hours=c.watched_hours,
         )
         for c in found
     ]
@@ -1783,7 +2008,15 @@ def get_versions(request: Request) -> list[VersionOut]:
     for state in _states(request).values():
         with _connect(state) as conn:
             build, recipes = db.get_build(conn, state.key), db.count_rows(conn, "recipes", state.key)
-        out.append(VersionOut(key=state.version.key, label=state.version.label, build=build, recipes=recipes))
+        out.append(
+            VersionOut(
+                key=state.version.key,
+                label=state.version.label,
+                build=build,
+                recipes=recipes,
+                ah_cut=state.version.ah_cut,
+            )
+        )
     return out
 
 

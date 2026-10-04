@@ -8,6 +8,7 @@ from altarmy_profit import book, engine, timing
 from altarmy_profit.engine import (
     ALL_EXITS,
     ALL_SOURCES,
+    KEEP_EXIT,
     MAIL_POSTAGE,
     Crafter,
     DisenchantRow,
@@ -29,8 +30,10 @@ from altarmy_profit.engine import (
     ah_net,
     can_learn,
     can_skill_up,
+    crafts_quantile,
     expected_skill_ups,
     plan_steps,
+    reach_chances,
     recipes_for_characters,
     recipes_for_professions,
     skill_up_chance,
@@ -593,6 +596,8 @@ def maul_market(
     extra_items: Sequence[Item] = (),
     time: TimeModel | None = None,
     skill_crafters: frozenset[str] = frozenset(),
+    unlearned: Learning | Unlearned = "none",
+    exits: frozenset[str] = ALL_EXITS,
 ) -> Market:
     items = {
         SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
@@ -610,6 +615,8 @@ def maul_market(
         include_trivial=include_trivial,
         time=time,
         skill_crafters=skill_crafters,
+        unlearned=unlearned,
+        exits=exits,
     )
 
 
@@ -901,6 +908,163 @@ def test_a_recipe_that_skills_up_none_of_the_chosen_characters_is_dropped() -> N
         skill_crafters=frozenset({"Veteran", "Smithy"}),
     )
     assert must_evaluate(m, GREY_AT_60).crafter == "Smithy"
+
+
+def test_a_character_skilled_up_can_learn_what_an_alt_already_knows() -> None:
+    # Veteran knows the maul; Novice, skilled up, doesn't but could train it
+    trained = replace(GREY_AT_60, learn_skill=40)
+    novice = crafter("Novice", ("Blacksmithing", 45))
+    train = Learning("train")
+    m = maul_market(
+        VETERAN, novice, recipes=(CURE, trained), skill_crafters=frozenset({"Novice"}), unlearned=train
+    )
+    assert must_evaluate(m, trained).crafter == "Novice"
+    # nobody else gets it just for being able to learn it
+    m = maul_market(VETERAN, novice, recipes=(CURE, trained), unlearned=train)
+    assert must_evaluate(m, trained).crafter == "Veteran"
+    # nor does a skill crafter who can't train it yet, or when nothing unlearned counts
+    later = replace(trained, learn_skill=60)
+    m = maul_market(
+        VETERAN, novice, recipes=(CURE, later), skill_crafters=frozenset({"Novice"}), unlearned=train
+    )
+    assert m.evaluate(later) is None
+    m = maul_market(VETERAN, novice, recipes=(CURE, trained), skill_crafters=frozenset({"Novice"}))
+    assert m.evaluate(trained) is None
+
+
+def test_a_character_skilled_up_may_learn_a_sub_craft_an_alt_knows() -> None:
+    smith = crafter("Smith", ("Blacksmithing", 50), ("Leatherworking", 1), known=frozenset({951}))
+    m = maul_market(
+        smith,
+        LEATHERY,
+        skill_crafters=frozenset({"Smith"}),
+        unlearned=Learning("train", 0, frozenset({"trainer"})),
+    )
+    res = must_evaluate(m, MAUL_RECIPE)
+    assert res.crafter == "Smith"
+    assert res.tree.inputs[0].crafter == "Smith"  # cured at home: no postage
+
+
+def _smith(rank: int, cap: int = 375) -> Crafter:
+    return Crafter("Smith", (("Blacksmithing", rank, cap),), frozenset())
+
+
+def _recipe(i: int, low: int, high: int) -> Recipe:
+    return Recipe(i, f"R{i}", 100 + i, 1, ((COPPER, 1),), "Blacksmithing", trivial_low=low, trivial_high=high)
+
+
+# GREY_AT_60: orange below 40, then a point at (60 - skill) / 20 a craft
+def test_a_run_lasts_until_a_recipe_it_was_beating_gives_a_cheaper_point() -> None:
+    # 100 a craft against another's 150, orange until 50: once the chance falls under 2/3 (past 46.7), the
+    # other wins
+    rival = engine.Rival(_recipe(2, 50, 70), 150.0)
+    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [rival])
+    assert (run.crafts, run.reason, run.rival, run.stop_skill) == (18, "rival", rival.recipe, 47)
+    assert run.crafts_p80 >= run.crafts
+    assert len(run.reach) >= run.crafts_p80 + 20 and run.reach[run.crafts_p80 - 1] >= 0.8
+    # one it never beat doesn't end it: alone, the run goes on until it is about to turn grey
+    beaten = engine.Rival(_recipe(3, 50, 70), 50.0)
+    alone = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [beaten])
+    assert (alone.crafts, alone.reason, alone.rival, alone.stop_skill) == (69, "trivial", None, 59)
+
+
+def test_a_run_ends_at_the_cap_or_the_ceiling() -> None:
+    capped = engine.run_until_cheaper(GREY_AT_60, _smith(30, cap=35), 100.0, [])
+    assert (capped.crafts, capped.reason, capped.stop_skill) == (5, "cap", 35)
+    short = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [], ceiling=12)
+    assert (short.crafts, short.reason) == (12, "ceiling")
+    unknown = replace(GREY_AT_60, trivial_low=0, trivial_high=0)  # a point every craft, for ever
+    assert engine.run_until_cheaper(unknown, _smith(30), 100.0, []).reason == "ceiling"
+
+
+def test_a_recipe_learned_on_the_way_can_end_a_run() -> None:
+    # cheaper than anything, but only learnable from 45: the run stops once the expected skill gets there
+    later = engine.Rival(_recipe(4, 50, 70), 10.0, from_skill=45)
+    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [later])
+    assert (run.crafts, run.reason, run.rival) == (16, "rival", later.recipe)
+    assert run.stop_skill == 45
+
+
+def test_a_profitable_run_is_beaten_only_by_one_more_profitable_per_point() -> None:
+    rival = engine.Rival(_recipe(2, 50, 70), 150.0)
+    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), -100.0, [rival])
+    assert run.reason == "trivial"  # earning gold per point beats spending it
+
+
+def test_crafts_quantile_buys_for_unlucky_runs() -> None:
+    smith = Crafter("Smith", (("Blacksmithing", 30, 375),), frozenset())
+    assert crafts_quantile(GREY_AT_60, smith, 10, q=0.8) == 10  # orange: every craft a point
+    yellow = Crafter("Smith", (("Blacksmithing", 40, 375),), frozenset())
+    assert crafts_quantile(GREY_AT_60, yellow, 10, q=0.8) > 14  # the expected crafts from 40 to 50
+    assert crafts_quantile(GREY_AT_60, yellow, 10, q=0.8, ceiling=12) == 12
+    assert crafts_quantile(GREY_AT_60, yellow, 0) == 1
+
+
+def test_reach_chances_give_the_odds_of_getting_there_after_each_craft() -> None:
+    smith = Crafter("Smith", (("Blacksmithing", 30, 375),), frozenset())
+    assert reach_chances(GREY_AT_60, smith, 3, 5) == (0.0, 0.0, 1.0, 1.0, 1.0)  # orange: every craft a point
+    yellow = Crafter("Smith", (("Blacksmithing", 40, 375),), frozenset())
+    odds = reach_chances(GREY_AT_60, yellow, 10, 40)
+    assert list(odds) == sorted(odds) and odds[-1] < 1
+    n = crafts_quantile(GREY_AT_60, yellow, 10, q=0.8)
+    assert odds[n - 2] < 0.8 <= odds[n - 1]
+    assert reach_chances(GREY_AT_60, yellow, 0, 2) == (1.0, 1.0)
+
+
+def test_a_ranking_of_runs_plans_each_until_another_gets_cheaper() -> None:
+    # Novice at 45 skilling up blacksmithing, keeping what nobody buys: the maul (70 a craft, a point at
+    # (60 - skill) / 20) against a belt (120 a craft) that stays orange until 50. Past 48.3 the belt's point
+    # is cheaper.
+    belt = Recipe(
+        22,
+        "Copper Belt",
+        10,
+        1,
+        ((COPPER, 12),),
+        "Blacksmithing",
+        spell_id=952,
+        trivial_low=50,
+        trivial_high=70,
+    )
+    novice = replace(NOVICE_SMITH, known_spells=frozenset({951, 952}))
+    unsold = (Item(10, "Copper Belt"), Item(MAUL, "Heavy Copper Maul", class_id=2, sell_price=0))
+    m = maul_market(
+        novice,
+        LEATHERY,
+        recipes=(CURE, GREY_AT_60, belt),
+        skill_crafters=frozenset({"Novice"}),
+        extra_items=unsold,
+        exits=frozenset({"vendor", KEEP_EXIT}),
+    )
+    one = must_evaluate(m, GREY_AT_60)
+    run = m.evaluate(GREY_AT_60, skill_run=engine.SkillRuns())
+    assert run is not None
+    assert (run.stop_reason, run.overtaken_by, run.overtaken_by_item) == ("rival", "Copper Belt", 10)
+    assert 1 < run.crafts < 20
+    assert run.skill_ups == pytest.approx(expected_skill_ups(GREY_AT_60, novice, run.crafts))
+    assert run.crafts_p80 >= run.crafts
+    assert one.crafts == 1
+    ranked = {r.recipe.name: r for r in m.rank(min_profit=-(10**9), skill_run=engine.SkillRuns())}
+    assert ranked["Heavy Copper Maul"].crafts == run.crafts  # the same plan as evaluated alone
+    assert ranked["Copper Belt"].stop_reason in ("trivial", "rival")
+    assert m.evaluate(GREY_AT_60, crafts=3).crafts == 3  # type: ignore[union-attr]  # without runs: as asked
+
+
+def test_keep_exit_ranks_a_craft_nobody_buys_when_skilling_up() -> None:
+    worthless = Item(MAUL, "Heavy Copper Maul", class_id=2, sell_price=0)
+    keep = frozenset({"vendor", KEEP_EXIT})
+    m = maul_market(
+        SMITHY, LEATHERY, extra_items=(worthless,), exits=keep, skill_crafters=frozenset({"Smithy"})
+    )
+    res = must_evaluate(m, MAUL_RECIPE)
+    assert (res.best_exit, res.revenue, res.profit) == (KEEP_EXIT, 0, -res.cost)
+    # only while skilling up, and only when asked for
+    assert maul_market(SMITHY, LEATHERY, extra_items=(worthless,), exits=keep).evaluate(MAUL_RECIPE) is None
+    without = maul_market(SMITHY, LEATHERY, extra_items=(worthless,), skill_crafters=frozenset({"Smithy"}))
+    assert without.evaluate(MAUL_RECIPE) is None
+    # a vendor who pays wins
+    paid = maul_market(SMITHY, LEATHERY, exits=keep, skill_crafters=frozenset({"Smithy"}))
+    assert must_evaluate(paid, MAUL_RECIPE).best_exit == "vendor"
 
 
 def test_a_final_crafter_picked_by_the_user_makes_it_even_if_grey() -> None:
@@ -1916,3 +2080,19 @@ def test_an_enchant_is_timed_without_a_sale() -> None:
     res = must_evaluate(enchant_market(exits=SKILL_ONLY, time=model), ENCHANT)
     assert res.sell_seconds == 0
     assert res.timing is not None and res.timing.total_seconds > 0
+
+
+def test_a_gathered_reagent_costs_what_selling_it_would_have_made() -> None:
+    m = make_market({LINEN: 20, THREAD: 100})
+    gathered = Market(m.items, m.recipes, m.prices, gathered={LINEN: 4})
+    res = must_evaluate(gathered, gathered.recipes[0])
+    linen = res.tree.inputs[0]
+    assert (linen.source, linen.cost, linen.option) == ("gather", 40, "gather")
+    assert [o.key for o in linen.options] == ["gather", "ah"]
+    assert res.cost == 40 + 100
+    gather = next(s for s in res.steps if s.item_id == LINEN)
+    assert (gather.action, gather.quantity, gather.value) == ("gather", 10, -40)
+    # a vendor selling it cheaper still wins
+    cheap = make_market({THREAD: 100}, thread_vendor_price=11)
+    by_vendor = Market(cheap.items, cheap.recipes, cheap.prices, gathered={THREAD: 50, LINEN: 4})
+    assert must_evaluate(by_vendor, by_vendor.recipes[0]).tree.inputs[1].source == "vendor"
