@@ -177,11 +177,12 @@ def load_market(
 
 @dataclass(frozen=True)
 class Priced:
-    """A market and what its auction house lists of each item (for thin-market flags, which the engine
-    doesn't need)."""
+    """A market and what its auction house lists of each item, and how long it was watched lately (for
+    the price confidence and slow-sale flags, which the engine doesn't need)."""
 
     market: Market
     listings: dict[int, prices.Listing]
+    watched: float = 0.0  # `prices.watched_hours`
 
 
 def load_priced(
@@ -192,9 +193,11 @@ def load_priced(
     ah_cut: float = AH_CUT,
     mail_postage: int = MAIL_POSTAGE,
 ) -> Priced:
-    """`load_market` and the auction house's listings, read together."""
+    """`load_market`, the auction house's listings and its watched hours, read together."""
     market = load_market(conn, game_version, auction_house_id, ah_cut=ah_cut, mail_postage=mail_postage)
-    return Priced(market, prices.load_listings(conn, auction_house_id))
+    return Priced(
+        market, prices.load_listings(conn, auction_house_id), prices.watched_hours(conn, auction_house_id)
+    )
 
 
 def load_cities(folder: Path) -> dict[str, timing.CityMap]:

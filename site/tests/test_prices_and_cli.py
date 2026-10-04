@@ -24,7 +24,7 @@ from altarmy_profit import (
 from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.prices import Observation
 
-from .conftest import FOREVER, SV_DIR, set_prices
+from .conftest import FOREVER, SV_DIR, book_scan, set_prices
 from .test_auth import FakeRoster
 from .test_signals import FakeSignals
 
@@ -262,8 +262,54 @@ def test_load_prices_sells_at_the_lower_of_now_and_the_median(conn: Connection) 
 def test_listings_say_how_many_are_up(conn: Connection) -> None:
     ah = prices.unnamed_auction_house(conn, FOREVER)
     prices.record_snapshot(conn, ah, "auctionator", T0, [Observation(1, 30, T0, 50), Observation(2, 9, T0)])
-    assert prices.load_listings(conn, ah) == {1: prices.Listing(30, 50), 2: prices.Listing(9, None)}
+    got = prices.load_listings(conn, ah)
+    assert {i: (g.min_buyout, g.quantity, g.source, g.listed) for i, g in got.items()} == {
+        1: (30, 50, "auctionator", None),
+        2: (9, None, "auctionator", None),
+    }
+    assert got[1].seen_at == T0
     assert prices.load_listings(conn, None) == {}
+
+
+def test_watched_hours_add_up_back_to_back_scans(conn: Connection) -> None:
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "Horde")
+    gap = prices.SALES_GAP
+    at = [T0, T0 + gap, T0 + 3 * gap, T0 + 3 * gap + timedelta(minutes=6)]  # 30 min + 6 min watched
+    for t in at:
+        prices.record_book(conn, ah, book_scan({1: [(10, 5)]}, t))
+    now = T0 + timedelta(hours=2)
+    assert prices.watched_hours(conn, ah, now) == pytest.approx(0.6)
+    # a quarantined scan in between watches nothing; other houses and older weeks don't count
+    snap = schema.price_snapshots
+    conn.execute(snap.update().where(snap.c.scanned_at == T0 + gap).values(status="quarantined"))
+    assert prices.watched_hours(conn, ah, now) == pytest.approx(0.1)
+    assert prices.watched_hours(conn, ah, now + timedelta(days=prices.SALES_DAYS)) == 0.0
+    assert prices.watched_hours(conn, None) == 0.0
+
+
+def test_price_confidence_rests_on_sales_seen() -> None:
+    def sure(listing: prices.Listing, units: int = 1, watched: float = 0.0) -> tuple[str, str]:
+        got = prices.confidence(listing, units, watched)
+        return got.level, got.reason
+
+    known = prices.Listing(900, 50, source="altarmy", listed=True, median_7d=900, scans_7d=5)
+    sold = replace(known, sale_rate=1.0, sale_price=880)  # 7 sold this week
+    assert sure(sold, 7) == ("high", "sold")
+    assert sure(sold, 8) == ("medium", "few_sold")
+    assert sure(replace(sold, listed=False, quantity=0), 7) == ("high", "sold")  # sold, though none up
+    unlisted = replace(known, listed=False, quantity=0, seen_at=T0)
+    assert sure(unlisted) == ("low", "unlisted")
+    assert prices.confidence(unlisted, 1, 0.0).unlisted_since == T0
+    assert prices.confidence(known, 1, 0.0).unlisted_since is None
+    assert sure(replace(known, scans_7d=prices.CONFIDENT_SCAN_DAYS - 1)) == ("low", "few_days")
+    assert sure(replace(known, median_7d=None, scans_7d=None)) == ("low", "few_days")
+    # watched long enough to have seen sales, and too few came
+    assert sure(replace(known, sale_rate=3 / 7), watched=prices.WATCHED_ENOUGH_HOURS) == ("low", "unsold")
+    assert sure(known) == ("medium", "unwatched")
+    assert sure(replace(known, quantity=prices.THIN_UNITS - 1)) == ("low", "thin")
+    assert sure(known, 60) == ("low", "thin")  # sells more than is listed
+    assert sure(replace(known, quantity=None)) == ("medium", "unwatched")  # unknown: not thin
+    assert sure(prices.Listing(500, 1, source="manual")) == ("high", "hand_set")
 
 
 def test_price_rules() -> None:

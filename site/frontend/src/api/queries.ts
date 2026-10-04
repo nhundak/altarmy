@@ -106,6 +106,8 @@ export type RankParams = {
   maxProfit: number | null
   minRoi: number | null
   maxRoi: number | null
+  /** only AH sales whose sell price is trusted at least this much (sales off the AH all pass); null for any */
+  minConfidence: Confidence | null
   /** only recipes of these professions; empty for every one */
   professions: string[]
   /** best profit per session first, or cheapest expected skill point (the API's `rate`, per hour of play, is not
@@ -113,6 +115,10 @@ export type RankParams = {
   sort: 'profit' | 'skill'
   top: number
 }
+
+/** How far a sell price can be trusted, least first. */
+export const CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const
+export type Confidence = (typeof CONFIDENCE_LEVELS)[number]
 
 const orUndefined = <T>(v: T | null) => v ?? undefined
 
@@ -148,6 +154,7 @@ export function useRank(params: RankParams) {
               max_profit: orUndefined(params.maxProfit),
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
+              min_confidence: orUndefined(params.minConfidence),
               professions: params.professions.length ? params.professions : undefined,
               sort: params.sort === 'profit' ? undefined : params.sort,
               top: params.top,

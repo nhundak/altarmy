@@ -417,13 +417,26 @@ def as_crafters(chars: Sequence[Character]) -> list[Crafter]:
     ]
 
 
-def thin_market(r: Result, listings: Mapping[int, prices.Listing]) -> bool:
-    """Whether the result's sale on the AH rests on a thin market: fewer units listed than
-    `prices.THIN_UNITS` or than the plan sells. Informational: the ranking doesn't use it."""
+def price_confidence(
+    r: Result, listings: Mapping[int, prices.Listing], watched: float
+) -> prices.Confidence | None:
+    """How far the result's AH sell price can be trusted (`prices.confidence`); None when it is not sold
+    on the AH or nothing is known of the item there."""
     listing = listings.get(r.recipe.output_item_id)
     if r.best_exit != "ah" or listing is None:
-        return False
-    return prices.thin_market(listing.quantity, r.recipe.output_count * r.crafts)
+        return None
+    return prices.confidence(listing, r.recipe.output_count * r.crafts, watched)
+
+
+CONFIDENCE_RANK: dict[prices.ConfidenceLevel, int] = {"low": 0, "medium": 1, "high": 2}
+
+
+def confident(
+    r: Result, listings: Mapping[int, prices.Listing], watched: float, least: prices.ConfidenceLevel
+) -> bool:
+    """Whether the result's sell price is trusted at least `least`. A sale off the AH always is."""
+    c = price_confidence(r, listings, watched)
+    return c is None or CONFIDENCE_RANK[c.level] >= CONFIDENCE_RANK[least]
 
 
 def days_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> float | None:
@@ -438,11 +451,10 @@ def days_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: 
 
 
 def slow_to_sell(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> bool:
-    """Whether the result's AH sale may take over SLOW_DAYS (`days_to_sell`), or, where nothing says how
-    fast the item sells, rests on a thin market (`thin_market`). Informational: the ranking doesn't use
-    it."""
+    """Whether the result's AH sale may take over SLOW_DAYS (`days_to_sell`). Informational: the ranking
+    doesn't use it. Where nothing says how fast it sells, `price_confidence` says what is known."""
     days = days_to_sell(r, listings, sell_price)
-    return thin_market(r, listings) if days is None else days > SLOW_DAYS
+    return days is not None and days > SLOW_DAYS
 
 
 def by_rate(results: Iterable[Result]) -> list[Result]:

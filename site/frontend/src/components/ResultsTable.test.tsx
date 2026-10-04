@@ -1,7 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { Learn, RankResult } from '../api/client'
+import type { Learn, PriceConfidence, RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
 import { bought, robeResult as robe, timedRobe } from '../test/results'
 import { mockApi, renderWithProviders, shown } from '../test/utils'
@@ -48,6 +48,17 @@ type Place = Learn['items'][number]['places'][number]
 const place: Place = { kind: 'drop', name: '', zone: '', side: '', chance: 0, count: 0, levels: '', limited: false, area: 0, map_x: 0, map_y: 0 }
 const vendor: Place = { ...place, kind: 'vendor', area: 1637, map_x: 40, map_y: 60.5 }
 
+const trusted: PriceConfidence = {
+  level: 'high',
+  reason: 'sold',
+  sold: 9,
+  units: 1,
+  listed: 4,
+  scan_days: 4,
+  watched_hours: 2,
+  unlisted_since: null,
+}
+
 describe('ResultsTable slow sales and short books', () => {
   it('says how long a slow sale may take', async () => {
     const slow = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true, days_to_sell: 3.2 }
@@ -55,18 +66,21 @@ describe('ResultsTable slow sales and short books', () => {
     expect(await flagText('Slow to sell')).toBe('May take about 3 days to sell at the rate it sold lately')
   })
 
-  it('falls back to the units listed when nothing says how fast it sells', async () => {
-    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
-    renderWithProviders(<ResultsTable results={[thin]} items={{ ...items, '3': { ...robeItem, ah_quantity: 3 } }} />)
-    expect(await flagText('Slow to sell')).toBe('Sell price rests on 3 listed units')
+  it('flags a sell price trusted little, saying why, and flags nothing else', async () => {
+    const confidence = { ...trusted, level: 'low' as const, reason: 'unlisted' as const, listed: 0 }
+    const unsure = { ...robe, recipe_id: 102, best_exit: 'ah', confidence }
+    renderWithProviders(<ResultsTable results={[unsure, robe]} items={items} />)
+    expect(screen.getAllByLabelText('Low price confidence')).toHaveLength(1)
+    expect(screen.queryByLabelText('Slow to sell')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Not enough listed')).not.toBeInTheDocument()
+    expect(await flagText('Low price confidence')).toBe(
+      'Low confidence in the sell price: None listed, and none seen selling: priced from what it was listed for before',
+    )
   })
 
-  it('says few units when the quantity is unknown, and flags nothing else', async () => {
-    const thin = { ...robe, recipe_id: 102, best_exit: 'ah', slow: true }
-    renderWithProviders(<ResultsTable results={[thin, robe]} items={items} />)
-    expect(screen.getAllByLabelText('Slow to sell')).toHaveLength(1)
-    expect(screen.queryByLabelText('Not enough listed')).not.toBeInTheDocument()
-    expect(await flagText('Slow to sell')).toBe('Sell price rests on few listed units')
+  it('flags nothing for a sell price trusted well', () => {
+    renderWithProviders(<ResultsTable results={[{ ...robe, confidence: trusted }]} items={items} />)
+    expect(screen.queryByLabelText(/price confidence/)).not.toBeInTheDocument()
   })
 
   it('flags a plan that buys more than the auction house lists', async () => {

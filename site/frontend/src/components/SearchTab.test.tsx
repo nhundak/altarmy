@@ -501,9 +501,11 @@ describe('SearchTab', () => {
     localStorage.setItem('altarmy-profit.search.maxCost', JSON.stringify(20))
     localStorage.setItem('altarmy-profit.search.minRoi', 'null')
     localStorage.setItem('altarmy-profit.search.maxRoi', JSON.stringify(250))
+    localStorage.setItem('altarmy-profit.search.minConfidence', '"medium"')
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByLabelText('Min cost (gold)')).toHaveValue('0.5')
+    expect(screen.getByLabelText('Minimum price confidence', { selector: 'input' })).toHaveValue('Medium or high')
     expect(screen.getByLabelText('Max cost (gold)')).toHaveValue('20')
     expect(screen.getByLabelText('Min profit (gold)')).toHaveValue('0.0001')
     expect(screen.getByLabelText('Min ROI (%)')).toHaveValue('')
@@ -529,7 +531,7 @@ describe('SearchTab', () => {
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'game_version=forever&unlearned=train&look_ahead=15&sources=trainer&sources=bop&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50&price_version=0',
+      'game_version=forever&unlearned=train&look_ahead=15&sources=trainer&sources=bop&include_trivial=false&exits=vendor&exits=ah&arcane_salvager=false&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&min_confidence=medium&top=50&price_version=0',
     )
   })
 

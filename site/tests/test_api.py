@@ -816,16 +816,34 @@ def test_rank_buys_at_the_cheapest_listing_and_says_how_many_are_listed(
     assert buy["value"] == -(3 * 20 + (buy["quantity"] - 3) * 25)
 
 
-@pytest.mark.parametrize(("listed", "thin"), [(2, True), (50, False)])
-def test_rank_flags_a_sale_resting_on_a_thin_market(
-    client: TestClient, priced: Connection, listed: int, thin: bool
+@pytest.mark.parametrize(("listed", "level", "reason"), [(2, "low", "thin"), (50, "medium", "unwatched")])
+def test_rank_says_how_far_an_ah_sell_price_can_be_trusted(
+    client: TestClient, priced: Connection, listed: int, level: str, reason: str
 ) -> None:
     one_craft(client)
-    scanned(priced, {3: [(1000, listed)]})
+    scanned_robe(priced, 1000, 1000)
+    scanned(priced, {3: [(1000, listed)]}, db.utcnow() + timedelta(hours=1))
     body = client.get("/api/rank").json()
     (r,) = body["results"]
-    assert (r["best_exit"], r["slow"], r["days_to_sell"], r["short"]) == ("ah", thin, None, 0)
+    assert (r["best_exit"], r["slow"], r["days_to_sell"], r["short"]) == ("ah", False, None, 0)
+    assert (r["confidence"]["level"], r["confidence"]["reason"]) == (level, reason)
+    assert (r["confidence"]["listed"], r["confidence"]["units"]) == (listed, 1)
     assert body["items"]["3"]["ah_quantity"] == listed
+
+
+def test_rank_narrows_to_sell_prices_trusted_enough(client: TestClient, priced: Connection) -> None:
+    one_craft(client)
+    scanned_robe(priced, 1000, 1000)
+    scanned(priced, {1: [(20, 3)]}, db.utcnow() + timedelta(hours=1))  # the robe is gone
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["best_exit"] == "ah"  # at what it went for
+    assert (r["confidence"]["level"], r["confidence"]["reason"]) == ("low", "unlisted")
+    assert r["confidence"]["unlisted_since"] is not None
+    assert client.get("/api/rank", params={"min_confidence": "low"}).json()["total"] == 1
+    assert client.get("/api/rank", params={"min_confidence": "medium"}).json()["total"] == 0
+    vendored = client.get("/api/rank", params={"min_confidence": "high", "exits": ["vendor"]}).json()
+    assert vendored["total"] == 1  # a sale off the AH always passes
+    assert vendored["results"][0]["confidence"] is None
 
 
 def test_rank_pages_through_one_search(

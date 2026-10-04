@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import type { ItemMap, Learn, RankResult } from '../api/client'
 import { useEvaluations, type EvaluateParams } from '../api/queries'
 import { choose, type Choices } from '../lib/choices'
+import { confidenceTitle } from '../lib/confidence'
 import { formatRoi } from '../lib/money'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { type PlanEditing } from './ChoiceMenu'
@@ -154,15 +155,10 @@ const DOTS = (
   </svg>
 )
 
-/** Why a row's sale is flagged: how long it may take, or else how few units its price rests on. */
-function slowTitle(result: RankResult, output: ItemMap[string] | undefined): string {
-  if (result.days_to_sell != null) {
-    const days = Math.round(result.days_to_sell)
-    return `May take about ${days} ${days === 1 ? 'day' : 'days'} to sell at the rate it sold lately`
-  }
-  const listed = output?.ah_quantity
-  if (listed == null) return 'Sell price rests on few listed units'
-  return `Sell price rests on ${listed} listed ${listed === 1 ? 'unit' : 'units'}`
+/** Why a row's sale is flagged as slow: how long it may take. */
+function slowTitle(daysToSell: number): string {
+  const days = Math.round(daysToSell)
+  return `May take about ${days} ${days === 1 ? 'day' : 'days'} to sell at the rate it sold lately`
 }
 
 /** Why a row is flagged as buying more than the auction house lists. */
@@ -363,8 +359,17 @@ export function ResultsTable({
                           ★
                         </Flag>
                       )}
-                      {r.slow && (
-                        <Flag color="orange" label="Slow to sell" why={slowTitle(r, items[r.output_item_id])}>
+                      {r.confidence && r.confidence.level !== 'high' && (
+                        <Flag
+                          color={r.confidence.level === 'low' ? 'orange' : 'yellow'}
+                          label={`${r.confidence.level === 'low' ? 'Low' : 'Medium'} price confidence`}
+                          why={confidenceTitle(r.confidence)}
+                        >
+                          ?
+                        </Flag>
+                      )}
+                      {r.slow && r.days_to_sell != null && (
+                        <Flag color="orange" label="Slow to sell" why={slowTitle(r.days_to_sell)}>
                           ⚠
                         </Flag>
                       )}

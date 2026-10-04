@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import Literal
 
 from sqlalchemy import ColumnElement, Connection, bindparam, case, delete, func, select, update
 
@@ -37,6 +38,12 @@ THIN_UNITS = 5  # fewer units listed than this: a sale there rests on a thin mar
 ALTARMY = "altarmy"  # the Alt Army addon's full scans (`record_book`)
 FIRST_PARTY = (ALTARMY, *HAND_SET)  # the sources read where prices are first-party
 SALES_GAP = timedelta(minutes=30)  # scans further apart than this say nothing of what sold between them
+SALES_DAYS = 7  # the calendar days whose inferred sales count (the merge's `sale_rate`, `confidence`)
+MIN_SALES = 5  # fewer units sold than this say nothing of a price
+# Price confidence (`confidence`): an item's median from fewer days than this is a guess, and this many
+# hours of back-to-back scans (`watched_hours`) without a sale say it doesn't sell
+CONFIDENT_SCAN_DAYS = 3
+WATCHED_ENOUGH_HOURS = 3.0
 MIN_LEVELS = 50  # fewer price levels in the scan before than this: too few to judge a scan's continuity by
 MIN_SHARED = 0.25  # quarantine a scan that has under this share of the price levels of one SALES_GAP before
 STRAY = 0.5  # a level first seen in the newest scan under this share of the usual price is not counted on
@@ -867,22 +874,117 @@ class Listing:
     quantity: int | None
     ladder: book.Ladder = ()
     sale_rate: float | None = None
+    # what says how far its price can be trusted (`confidence`)
+    source: str = ""
+    listed: bool | None = None  # False: the newest scan had none (since `seen_at`); None: not a scan's
+    seen_at: datetime | None = None
+    median_7d: int | None = None
+    scans_7d: int | None = None  # the days that median is from
+    sale_price: int | None = None
 
 
 def load_listings(conn: Connection, auction_house_id: int | None) -> dict[int, Listing]:
     """{item_id: Listing} for the auction house; empty for None."""
     if auction_house_id is None:
         return {}
-    pc = schema.price_current
+    pc, snap = schema.price_current, schema.price_snapshots
     rows = conn.execute(
-        select(pc.c.item_id, pc.c.price, pc.c.quantity, pc.c.ladder, pc.c.sale_rate).where(
-            pc.c.auction_house_id == auction_house_id
-        )
+        select(pc.c.item_id, pc.c.price, pc.c.quantity, pc.c.ladder, pc.c.sale_rate, snap.c.source)
+        .add_columns(pc.c.listed, pc.c.seen_at, pc.c.median_7d, pc.c.scans_7d, pc.c.sale_price)
+        .join(snap, snap.c.id == pc.c.snapshot_id)
+        .where(pc.c.auction_house_id == auction_house_id)
     )
     return {
-        r.item_id: Listing(r.price, r.quantity, book.decode(r.ladder) if r.ladder else (), r.sale_rate)
+        r.item_id: Listing(
+            r.price,
+            r.quantity,
+            book.decode(r.ladder) if r.ladder else (),
+            r.sale_rate,
+            r.source,
+            r.listed,
+            db.utc(r.seen_at),
+            r.median_7d,
+            r.scans_7d,
+            r.sale_price,
+        )
         for r in rows
     }
+
+
+def watched_hours(conn: Connection, auction_house_id: int | None, now: datetime | None = None) -> float:
+    """How long the auction house was watched over the last SALES_DAYS days: the hours between its
+    accepted Alt Army scans taken at most SALES_GAP apart, the only stretches whose sales are seen."""
+    if auction_house_id is None:
+        return 0.0
+    snap = schema.price_snapshots
+    now = db.utc(now or db.utcnow())
+    rows = conn.execute(
+        select(snap.c.scanned_at)
+        .where(
+            snap.c.auction_house_id == auction_house_id,
+            snap.c.source == ALTARMY,
+            snap.c.status == "accepted",
+            snap.c.scanned_at > now - timedelta(days=SALES_DAYS),
+        )
+        .order_by(snap.c.scanned_at)
+    )
+    times = [db.utc(r.scanned_at) for r in rows]
+    gaps = (b - a for a, b in zip(times, times[1:], strict=False))
+    return sum((g for g in gaps if g <= SALES_GAP), timedelta()) / timedelta(hours=1)
+
+
+ConfidenceLevel = Literal["high", "medium", "low"]
+# Why: `hand_set` a price set by hand; `sold` enough sales seen; `few_sold` fewer than the plan sells;
+# `unlisted` none listed and no sales seen; `few_days` its median is from too few days; `unsold` watched
+# long enough to see sales and too few came; `unwatched` listed in depth but sales unknown; `thin` it
+# rests on few listed units
+ConfidenceReason = Literal[
+    "hand_set", "sold", "few_sold", "unlisted", "few_days", "unsold", "unwatched", "thin"
+]
+
+
+@dataclass(frozen=True)
+class Confidence:
+    """How far an item's AH sell price can be trusted, and why."""
+
+    level: ConfidenceLevel
+    reason: ConfidenceReason
+    sold: int  # units seen sold over the last SALES_DAYS days
+    units: int  # what the plan sells
+    listed: int | None  # units listed now (None: unknown)
+    scan_days: int  # the days its median is from
+    watched_hours: float
+    unlisted_since: datetime | None  # when it was last seen gone, if the newest scan had none
+
+
+def confidence(listing: Listing, units: int, watched: float) -> Confidence:
+    """How far `listing`'s sell price can be trusted for a sale of `units`, the auction house watched
+    `watched` hours lately (`watched_hours`). Sales seen say most: enough to cover the plan is high,
+    fewer medium. Without them a price is low when nothing is listed, its median is from under
+    CONFIDENT_SCAN_DAYS days, the house was watched WATCHED_ENOUGH_HOURS with too few sales, or it rests
+    on a thin market (`thin_market`); else medium. A price set by hand is high."""
+    sold = round((listing.sale_rate or 0.0) * SALES_DAYS)
+    unlisted = listing.listed is False
+    listed = 0 if unlisted else listing.quantity
+    days = listing.scans_7d or 0
+
+    def says(level: ConfidenceLevel, reason: ConfidenceReason) -> Confidence:
+        since = listing.seen_at if unlisted else None
+        return Confidence(level, reason, sold, units, listed, days, round(watched, 1), since)
+
+    if listing.source in HAND_SET:
+        return says("high", "hand_set")
+    if listing.sale_price is not None:
+        return says("high", "sold") if sold >= units else says("medium", "few_sold")
+    if unlisted:
+        return says("low", "unlisted")
+    if listing.median_7d is None or days < CONFIDENT_SCAN_DAYS:
+        return says("low", "few_days")
+    if watched >= WATCHED_ENOUGH_HOURS:
+        return says("low", "unsold")
+    if thin_market(listed, units):
+        return says("low", "thin")
+    return says("medium", "unwatched")
 
 
 def thin_market(quantity: int | None, sold: int) -> bool:

@@ -219,26 +219,35 @@ def test_market_cache_keeps_the_listings_with_its_market(
     cache = service.MarketCache(database, FOREVER)
     priced = cache.get_priced(ah)
     assert priced.market is cache.get(ah)  # the one rankings are cached on
-    assert priced.listings == {1: prices.Listing(20, 3, (book.Level(20, 3, 1),))}
+    first = priced.listings[1]
+    assert (first.min_buyout, first.quantity, first.ladder) == (20, 3, (book.Level(20, 3, 1),))
+    assert priced.watched == 0.0
     later = now + timedelta(minutes=1)
     scanned(conn, {1: [(20, 7)]}, later)
     cache.invalidate()
-    assert cache.get_priced(ah).listings == {1: prices.Listing(20, 7, (book.Level(20, 7, 1, age=1),))}
+    again = cache.get_priced(ah)
+    assert (again.listings[1].quantity, again.listings[1].ladder) == (7, (book.Level(20, 7, 1, age=1),))
+    assert round(again.watched * 60) == 1  # the two scans a minute apart
     assert cache.get_priced(None).listings == {}
 
 
-def test_a_thin_market_is_an_ah_sale_resting_on_few_listed_units() -> None:
-    recipe = engine.Recipe(1, "Green Robe", 3, output_count=1)
+def test_price_confidence_is_for_the_plans_ah_sale() -> None:
+    recipe = engine.Recipe(1, "Green Robe", 3, output_count=2)
     tree = engine.Node(3, "Green Robe", 1, 100)
-    sale = engine.Result(recipe, 100, 500, "ah", tree, crafts=1)
-    assert service.thin_market(sale, {3: prices.Listing(900, 2)})
-    assert not service.thin_market(sale, {3: prices.Listing(900, 50)})
-    assert service.thin_market(
-        replace(sale, crafts=60), {3: prices.Listing(900, 50)}
-    )  # sells more than listed
-    assert not service.thin_market(sale, {3: prices.Listing(900, None)})  # unknown
-    assert not service.thin_market(sale, {})  # nobody lists it: no market to rest on
-    assert not service.thin_market(replace(sale, best_exit="vendor"), {3: prices.Listing(900, 2)})
+    sale = engine.Result(recipe, 100, 500, "ah", tree, crafts=5)
+    # 10 seen sold over the week, the plan sells 2 x 5
+    sold = {3: prices.Listing(900, 50, sale_rate=10 / 7, sale_price=900, median_7d=900, scans_7d=5)}
+    got = service.price_confidence(sale, sold, 1.0)
+    assert got is not None and (got.level, got.units, got.sold) == ("high", 10, 10)
+    more = service.price_confidence(replace(sale, crafts=6), sold, 1.0)
+    assert more is not None and more.level == "medium"  # sells 12
+    assert service.price_confidence(replace(sale, best_exit="vendor"), sold, 1.0) is None
+    assert service.price_confidence(sale, {}, 1.0) is None  # nothing known of it on the AH
+    unlisted = {3: prices.Listing(900, 0, listed=False, median_7d=900, scans_7d=5)}
+    assert service.confident(sale, sold, 1.0, "high")
+    assert not service.confident(sale, unlisted, 1.0, "medium")
+    assert service.confident(sale, unlisted, 1.0, "low")
+    assert service.confident(replace(sale, best_exit="vendor"), unlisted, 1.0, "high")  # off the AH
 
 
 def test_a_sale_is_slow_when_what_is_listed_ahead_outlasts_two_days() -> None:
@@ -255,10 +264,10 @@ def test_a_sale_is_slow_when_what_is_listed_ahead_outlasts_two_days() -> None:
     assert service.days_to_sell(sale, listed(20.0), 900) == 3.0
     assert service.slow_to_sell(sale, listed(20.0), 900)
     assert service.days_to_sell(sale, listed(20.0), 799) == 0.5  # undercutting everyone
-    # nothing known of its sales: the thin market rule
+    # nothing known of its sales: not flagged slow (the price confidence says so)
     assert service.days_to_sell(sale, listed(None), 900) is None
     assert not service.slow_to_sell(sale, listed(None), 900)
-    assert service.slow_to_sell(sale, {3: prices.Listing(800, 2)}, 900)
+    assert not service.slow_to_sell(sale, {3: prices.Listing(800, 2)}, 900)
     vendored = replace(sale, best_exit="vendor")
     assert service.days_to_sell(vendored, listed(1.0), 900) is None
     assert not service.slow_to_sell(vendored, listed(1.0), 900)

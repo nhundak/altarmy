@@ -551,6 +551,34 @@ export interface components {
             /** Total Seconds */
             total_seconds: number;
         };
+        /**
+         * ConfidenceOut
+         * @description How far a result's AH sell price can be trusted (`prices.confidence`), and the numbers behind it.
+         */
+        ConfidenceOut: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "high" | "medium" | "low";
+            /** Listed */
+            listed: number | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "hand_set" | "sold" | "few_sold" | "unlisted" | "few_days" | "unsold" | "unwatched" | "thin";
+            /** Scan Days */
+            scan_days: number;
+            /** Sold */
+            sold: number;
+            /** Units */
+            units: number;
+            /** Unlisted Since */
+            unlisted_since: string | null;
+            /** Watched Hours */
+            watched_hours: number;
+        };
         /** ConfigOut */
         ConfigOut: {
             firebase: components["schemas"]["FirebaseOut"];
@@ -1163,6 +1191,7 @@ export interface components {
              * @default []
              */
             cities: components["schemas"]["CityTimingOut"][];
+            confidence?: components["schemas"]["ConfidenceOut"] | null;
             /** Cost */
             cost: number;
             /** Crafter */
@@ -2106,6 +2135,8 @@ export interface operations {
                 min_roi?: number | null;
                 /** @description profit / cost (0.5 = 50%) */
                 max_roi?: number | null;
+                /** @description only AH sales whose sell price is trusted at least this much (others all pass) */
+                min_confidence?: ("high" | "medium" | "low") | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
                 /** @description profit per session (the batch), per hour of play, or cheapest skill point */

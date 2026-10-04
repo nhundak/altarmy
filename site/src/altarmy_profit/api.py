@@ -341,15 +341,14 @@ class RankResult(BaseModel):
     profit: int
     roi: float
     best_exit: str
-    # the AH sale may take over service.SLOW_DAYS, or (nothing known of how fast it sells) rests on fewer
-    # listed units than prices.THIN_UNITS or than the plan sells (informational)
-    slow: bool
+    slow: bool  # the AH sale may take over service.SLOW_DAYS at the rate it sold lately (informational)
     days_to_sell: float | None  # how long that sale may take; None if unknown or not sold on the AH
     short: int  # units the plan buys on the AH beyond what is listed (counted at the dearest price)
     postage: int  # copper to mail the output to whoever sells it (included in cost)
     mail_to: str  # who the output is mailed to; "" if the crafter sells it
     bonus_output: float = 0.0  # expected extra units from the crafter's talents (Master Chef), all crafts
     skill_chance: float  # that the first craft gives the crafter a skill point (1 without characters)
+    confidence: ConfidenceOut | None = None  # how far the AH sell price can be trusted; None off the AH
     # the skill points the crafter can expect from all crafts, each craft's chance falling as the skill rises
     skill_ups: float
     skill_ups_bonus: float = 0.0  # the part of `skill_ups` owed to Working Overtime
@@ -364,6 +363,19 @@ class RankResult(BaseModel):
     best_city: str | None = None
     crafts: int = 1  # what cost, revenue, profit, steps and tree are for: a session (the user's batch)
     details: list[DetailOut] = []  # the steps with where to go in between
+
+
+class ConfidenceOut(BaseModel):
+    """How far a result's AH sell price can be trusted (`prices.confidence`), and the numbers behind it."""
+
+    level: prices.ConfidenceLevel
+    reason: prices.ConfidenceReason
+    sold: int  # units seen sold over the last prices.SALES_DAYS days
+    units: int  # what the plan sells
+    listed: int | None  # units listed now; None if unknown
+    scan_days: int  # the days its 7-day median is from
+    watched_hours: float  # hours of back-to-back scans of the auction house lately, when sales are seen
+    unlisted_since: datetime | None  # set when the newest scan had none: since when
 
 
 class PlaceOut(BaseModel):
@@ -970,6 +982,10 @@ def get_rank(
     max_profit: Annotated[int | None, Query(description="copper")] = None,
     min_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
     max_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
+    min_confidence: Annotated[
+        prices.ConfidenceLevel | None,
+        Query(description="only AH sales whose sell price is trusted at least this much (others all pass)"),
+    ] = None,
     professions: Annotated[
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
@@ -1030,6 +1046,8 @@ def get_rank(
         matches = ordered
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = [r for r in matches if filters.accepts(r)]
+    if min_confidence is not None:
+        matches = [r for r in matches if service.confident(r, s.listings, s.watched, min_confidence)]
     if professions:
         wanted = {p.lower() for p in professions}
         matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
@@ -1037,7 +1055,7 @@ def get_rank(
         matches = service.favorites_first(matches, s.favorites)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
-    out = [_result_out(r, base, crafters, s.listings, s.cities) for r in results]
+    out = [_result_out(r, base, crafters, s) for r in results]
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
@@ -1072,7 +1090,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
     return EvaluateResponse(
-        result=_result_out(r, s.base, altarmy.crafters(s.chars), s.listings, s.cities),
+        result=_result_out(r, s.base, altarmy.crafters(s.chars), s),
         items=_item_infos(state, s, [r]),
     )
 
@@ -1083,13 +1101,14 @@ class Selected:
     never-on-the-AH items, the user's time model and the cities the selection's faction crafts in."""
 
     base: engine.Market
-    listings: Mapping[int, prices.Listing]  # what the auction house lists, for thin-market flags
+    listings: Mapping[int, prices.Listing]  # what the auction house lists, for the sale flags
     chars: list[altarmy.Character]
     no_ah: frozenset[int]
     favorites: frozenset[int]  # recipe ids
     time: engine.TimeModel
     cities: list[timing.CityMap]
     faction: str = ""  # the selection's (Horde, Alliance); "" without one
+    watched: float = 0.0  # `prices.watched_hours` of the auction house
 
 
 def _selected(state: AppState, user: auth.User, price_version: int | None = None) -> Selected:
@@ -1111,6 +1130,7 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         model,
         service.faction_cities(state.cities, faction),
         faction,
+        priced.watched,
     )
 
 
@@ -1122,7 +1142,7 @@ def _item_infos(state: AppState, s: Selected, results: Sequence[engine.Result]) 
         | {m.item_id for r in results for e in r.exits for m in e.materials}
     )
     with _connect(state) as conn:
-        return _item_details(state, conn, store.Priced(s.base, dict(s.listings)), item_ids)
+        return _item_details(state, conn, store.Priced(s.base, dict(s.listings), s.watched), item_ids)
 
 
 def _not_learned(r: RankResult) -> bool:
@@ -1252,13 +1272,11 @@ def _best_city(cities: Sequence[CityTimingOut]) -> str | None:
 
 
 def _result_out(
-    r: engine.Result,
-    base: engine.Market,
-    crafters: dict[int, list[str]],
-    listings: Mapping[int, prices.Listing],
-    cities: Sequence[timing.CityMap] = (),
+    r: engine.Result, base: engine.Market, crafters: dict[int, list[str]], s: Selected
 ) -> RankResult:
-    per_city = _cities_out(r, base, cities)
+    listings = s.listings
+    per_city = _cities_out(r, base, s.cities)
+    sure = service.price_confidence(r, listings, s.watched)
     t = r.timing
 
     def faction(who: str, item_id: int, percent: int) -> str:
@@ -1293,6 +1311,7 @@ def _result_out(
         mail_to=r.mail_to,
         bonus_output=r.bonus_output,
         skill_chance=r.skill_chance,
+        confidence=ConfidenceOut(**asdict(sure)) if sure else None,
         skill_ups=r.skill_ups,
         skill_ups_bonus=r.skill_ups_bonus,
         exits=[

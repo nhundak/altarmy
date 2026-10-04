@@ -20,6 +20,8 @@ import {
 import { z } from 'zod'
 import {
   ALL_SOURCES,
+  CONFIDENCE_LEVELS,
+  type Confidence,
   type Exit,
   MAX_LOOK_AHEAD,
   type RankParams,
@@ -256,6 +258,13 @@ const scaled = (v: number | null, f: (v: number) => number) => (v === null ? nul
 
 type Filters = Omit<RankParams, 'top'>
 
+const ANY_CONFIDENCE = 'any'
+const CONFIDENCE_OPTIONS = [
+  { value: ANY_CONFIDENCE, label: 'Any' },
+  { value: 'medium', label: 'Medium or high' },
+  { value: 'high', label: 'High' },
+]
+
 /**
  * `value` once it has stopped changing for `wait` ms (typing a bound re-ranks once, not per key), except that a new
  * `flush` (a setup question just answered) takes it at once, so the results never show a request with the filters of
@@ -430,6 +439,11 @@ export function SearchTab() {
   const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
+  const [minConfidence, setMinConfidence] = useStoredState<Confidence | null>(
+    'altarmy-profit.search.minConfidence',
+    z.enum(CONFIDENCE_LEVELS).nullable(),
+    null,
+  )
   const groups = characters.data?.groups ?? []
   // Show the realm being switched to while the server imports its prices.
   const selection = select.isPending ? select.variables : status.data?.selection
@@ -458,11 +472,12 @@ export function SearchTab() {
       maxProfit: scaled(maxProfit, goldToCopper),
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
+      minConfidence,
       professions: profession === null ? [] : [profession],
       skillCrafters: skilled ? skilled.split(',') : [],
       sort,
     }),
-    [unlearned, lookAhead, sources, includeTrivial, exits, skilling, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, sort, profession, skilled],
+    [unlearned, lookAhead, sources, includeTrivial, exits, skilling, arcaneSalvager, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi, minConfidence, sort, profession, skilled],
   )
   const [picks, setPicks] = useState(0)
   // Flushed once the characters load too: the Arcane Salvager's default comes from them.
@@ -662,6 +677,14 @@ export function SearchTab() {
                           step={0.5}
                         />
                         <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
+                        <Select
+                          label="Minimum price confidence"
+                          description="For auction house sales: how far their sell price is backed by sales seen"
+                          data={CONFIDENCE_OPTIONS}
+                          value={minConfidence ?? ANY_CONFIDENCE}
+                          onChange={(v) => setMinConfidence(CONFIDENCE_LEVELS.find((level) => level === v) ?? null)}
+                          allowDeselect={false}
+                        />
                       </SimpleGrid>
                     </Stack>
                   </Accordion.Panel>
