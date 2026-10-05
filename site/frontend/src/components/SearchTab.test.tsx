@@ -1149,49 +1149,24 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
     })
   const exitsSent = (fetch: ReturnType<typeof mockApi>) => urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')
 
-  it('is offered while Enchanting is skilled up, unchecked, and then ranks enchants', async () => {
-    withSetup({ aim: 'skill', profession: 'Enchanting' })
-    const fetch = api()
-    renderWithProviders(<SearchTab />)
-    const box = await screen.findByRole('checkbox', { name: NAME })
-    expect(box).not.toBeChecked()
-    expect(box).toHaveAccessibleDescription(
-      'Sometimes to level up enchanting, you just need to repeatedly enchant stuff. This is a dead loss unless you ' +
-        'can find someone to pay you for it, but you do what you got to do.',
-    )
-    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep']))
-    await userEvent.click(box)
-    expect(box).toBeChecked()
-    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep', 'skill']))
-    expect(localStorage.getItem('altarmy-profit.search.skill.skillOnly')).toBe('true')
-    await userEvent.click(box)
-    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep']))
-  })
+  it.each([['Enchanting'], ['Engineering']])(
+    'always ranks casts for the skill point while %s is skilled up, with nothing to tick',
+    async (profession) => {
+      withSetup({ aim: 'skill', profession })
+      const fetch = api()
+      renderWithProviders(<SearchTab />)
+      await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep', 'skill']))
+      expect(screen.queryByRole('checkbox', { name: NAME })).not.toBeInTheDocument()
+    },
+  )
 
-  it('is offered for Engineering too, whose tinkers make no item either', async () => {
-    withSetup({ aim: 'skill', profession: 'Engineering' })
-    const fetch = api()
-    renderWithProviders(<SearchTab />)
-    const box = await screen.findByRole('checkbox', { name: NAME })
-    expect(box).not.toBeChecked()
-    expect(box).toHaveAccessibleDescription(
-      'Sometimes to level up engineering, you just need to repeatedly tinker with your gear. This is a dead loss ' +
-        'unless you can find someone to pay you for it, but you do what you got to do.',
-    )
-    await userEvent.click(box)
-    await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep', 'skill']))
-  })
-
-  it.each([
-    ['another profession', { aim: 'skill', profession: 'Tailoring' }],
-  ])('is neither offered nor sent for %s, even if it was ticked before', async (_, setup) => {
-    withSetup(setup)
+  it('never sends them for another profession, even if the old option was ticked', async () => {
+    withSetup({ aim: 'skill', profession: 'Tailoring' })
     localStorage.setItem('altarmy-profit.search.skill.skillOnly', 'true')
     const fetch = api()
     renderWithProviders(<SearchTab />)
     await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep']))
     expect(screen.queryByRole('checkbox', { name: NAME })).not.toBeInTheDocument()
-    expect(localStorage.getItem('altarmy-profit.search.skill.skillOnly')).toBe('true') // left alone
   })
 
   it('is never offered when making gold', async () => {

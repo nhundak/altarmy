@@ -83,18 +83,10 @@ const EXITS: {
     warning: 'You will need to take an active role in figuring out what sells reliably.',
   },
 ]
-const DEAD_LOSS = 'This is a dead loss unless you can find someone to pay you for it, but you do what you got to do.'
-/** The professions with spells that enhance an item and make none (enchants, Engineering's tinkers), each with how
- * the tooltip puts it. Only while one of them is skilled up is the option offered: such casts sell nothing, so they
- * rank at a dead loss. */
-const SKILL_ONLY_WHY: Readonly<Record<string, string>> = {
-  enchanting: `Sometimes to level up enchanting, you just need to repeatedly enchant stuff. ${DEAD_LOSS}`,
-  engineering: `Sometimes to level up engineering, you just need to repeatedly tinker with your gear. ${DEAD_LOSS}`,
-}
-const SKILL_ONLY = {
-  value: 'skill',
-  label: 'Enhance item for skill up only',
-} as const
+/** The professions with spells that enhance an item and make none (enchants, Engineering's tinkers). Skilling one of
+ * them up always ranks such casts for the skill point alone: they sell nothing, so they rank at a dead loss, and the
+ * climb takes one only where nothing gives the point cheaper. */
+const ENHANCING: ReadonlySet<string> = new Set(['enchanting', 'engineering'])
 /** The Arcane Salvager checkbox is hidden for now: while it is, disenchants never count on a salvager. */
 export const SHOW_ARCANE_SALVAGER = false
 
@@ -454,8 +446,6 @@ export function AimSearch({
   const [stored, setOpen] = useFilter(aim, 'open', z.array(z.string()), NONE_OPEN)
   const open = SECTIONS.filter((s) => stored.includes(s))
   const [exits, setExits] = useFilter<Exit[]>(aim, 'exits', exitList, EVERY_EXIT)
-  // Kept apart from the ways to sell: it only counts (and shows) while Enchanting is being skilled up.
-  const [skillOnly, setSkillOnly] = useFilter(aim, 'skillOnly', z.boolean(), false)
   // null until the user ticks or unticks it: then it follows whether any character can make an Arcane Salvager.
   const [salvagerPick, setSalvagerPick] = useFilter<boolean | null>(aim, 'arcaneSalvager', z.boolean().nullable(), null)
   const arcaneSalvager = SHOW_ARCANE_SALVAGER && (salvagerPick ?? salvagerDefault)
@@ -481,10 +471,8 @@ export function AimSearch({
   // By value, not the stored object: a new but equal setup must not count as new filters (that resets paging).
   const sort = skill ? rankSort(setup) : goldSort
   const [profession = null] = rankProfessions(setup)
-  const skillOnlyWhy = skill ? SKILL_ONLY_WHY[profession?.toLowerCase() ?? ''] : undefined
-  const enhancing = skillOnlyWhy !== undefined
-  // Whether casts made for the skill point alone are ranked: only while such a profession is the one skilled up.
-  const skilling = enhancing && skillOnly
+  // Whether casts made for the skill point alone are ranked: whenever such a profession is the one skilled up.
+  const skilling = skill && ENHANCING.has(profession?.toLowerCase() ?? '')
   // Joined, for the same reason (character names never hold a comma).
   const skilled = skillCrafters(setup, professions).join(',')
   const filters = useMemo<Filters>(
@@ -595,15 +583,6 @@ export function AimSearch({
             </Checkbox.Group>
             <Stack gap="md">
               <ReachTarget value={reach} onChange={setReach} />
-              {skillOnlyWhy !== undefined && (
-                <Checkbox.Group
-                  aria-label="Casts for the skill point alone"
-                  value={skilling ? [SKILL_ONLY.value] : []}
-                  onChange={(v) => setSkillOnly(v.includes(SKILL_ONLY.value))}
-                >
-                  <SellVia {...SKILL_ONLY} description={skillOnlyWhy} />
-                </Checkbox.Group>
-              )}
               {salvager}
             </Stack>
           </SimpleGrid>
