@@ -239,6 +239,13 @@ AC.MANIFEST = {
     { area = "Quests", label = "GetNumQuestChoices", candidates = { "GetNumQuestChoices" } },
     { area = "Quests", label = "GetNumQuestRewards", candidates = { "GetNumQuestRewards" } },
     { area = "Quests", label = "SelectQuestLogEntry", candidates = { "SelectQuestLogEntry" } },
+    -- The quest log, read for Craftsman's Writ orders (Data/Economy/WritOrders.lua).
+    { area = "Quests", label = "GetNumQuestLogEntries",
+      candidates = { "C_QuestLog.GetNumQuestLogEntries", "GetNumQuestLogEntries" } },
+    { area = "Quests", label = "GetQuestLogInfo", candidates = { "C_QuestLog.GetInfo", "GetQuestLogTitle" } },
+    { area = "Quests", label = "GetQuestObjectives",
+      candidates = { "C_QuestLog.GetQuestObjectives", "GetQuestLogLeaderBoard" } },
+    { area = "Quests", label = "GetNumQuestLeaderBoards", candidates = { "GetNumQuestLeaderBoards" } },
 
     -- Misc UI
     { area = "Misc UI", label = "CreateFrame", candidates = { "CreateFrame" } },

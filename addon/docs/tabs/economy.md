@@ -1,10 +1,10 @@
 # Economy tab
 
-Every character's currencies side by side, auction-house economics (what each Waylaid Crate costs to buy and fill), and Alt Army's crafting planner on alt-army.com.
+Every character's currencies side by side, auction-house economics (what each Waylaid Crate costs to buy and fill; what each Craftsman's Writ's order costs to buy or to craft), and Alt Army's crafting planner on alt-army.com.
 
 ## Purpose
 
-See how much of each currency every alt holds. Find the cheapest way to earn Merchant's Favor from Waylaid Crates, using the auction house scan Alt Army already takes. Learn what alt-army.com does with that data and how to upload it automatically.
+See how much of each currency every alt holds. Find the cheapest way to earn Merchant's Favor from Waylaid Crates, and reputation from Craftsman's Writs, using the auction house scan Alt Army already takes and what the army's characters can craft. Learn what alt-army.com does with that data and how to upload it automatically.
 
 ## Availability
 
@@ -12,7 +12,7 @@ See how much of each currency every alt holds. Find the cheapest way to earn Mer
 
 ## Sub-views
 
-Three sub-views (two while Supply Chain is behind its feature flag), switched with the tabs that hang above the panel in the toolbar row (`UI/TopTabs.lua`, same as Gear and Cooldowns). Currency is first and is the default. The last one used is remembered (`AltArmyTBC_Options.economy.activeView`).
+Four sub-views (three while Supply Chain is behind its feature flag), switched with the tabs that hang above the panel in the toolbar row (`UI/TopTabs.lua`, same as Gear and Cooldowns). Currency is first and is the default. The last one used is remembered (`AltArmyTBC_Options.economy.activeView`).
 
 ### Currency
 
@@ -63,6 +63,30 @@ Early reading: the sealed crate keeps the Waylaid Crate's quality, and within th
 
 **No scan yet** for this realm and faction: the table is replaced by a message to visit an auction house and use the Alt Army scan button, plus a **Scan the auction house automatically when it opens** checkbox. It is the same setting as Options → General → Auction House.
 
+### Craftsman's Writs
+
+A Craftsman's Writ ("Craftsman's Writ: Lesser Wizard's Robe", a rare item that drops from monsters, or comes out of a Sealed Journeyman's / Expert's / Artisan's Writ) starts a quest asking for that crafted item, delivered somewhere for reputation with Azeroth Commerce Authority (Alliance) or Durotar Supply and Logistics (Horde). The table lists all 150 writs, whether or not any is listed or held, with what its order costs to **buy** on the auction house and what it costs to **craft** the cheapest way with the characters of the current realm and faction.
+
+| Column | Meaning |
+|--------|---------|
+| Craftsman's Writ | The writ (icon, blue) named by what it wants, with "(2 held)" when the realm's characters hold any |
+| Rep | Reputation for delivering it: 75 / 125 / 200 by tier (Journeyman / Expert / Artisan, named in the tooltip). Community-reported, not in the game data |
+| Writ price | The writ itself, its cheapest listing on the auction house (writs are tradeable) |
+| Fulfill via AH | The order's units bought cheapest-first up the auction house's listings |
+| Fulfill via craft | The order crafted: every reagent from a vendor, the auction house or a craft, whichever is cheapest, recursively |
+| Total cost / Rep | Copper per point of reputation: (the cheaper of the two ways to fulfill it + the writ price) / Rep. A dash when the writ isn't listed or the order can't be fulfilled |
+
+- Default order: Total cost / Rep, cheapest first. Every column header sorts, and the choice is saved (`AltArmyTBC_Options.economy.writsSortKey`, `writsSortAscending`; a saved sort on a column that no longer exists falls back to Total cost / Rep). Craftsman's Writ sorts by tier, then name. Rows missing the value sorted on (a dash) come last in either direction.
+- Who does the final craft is named in the tooltip ("Fulfill via craft on …"), in their class colour.
+- **The order.** The game data names the item but not how many, so each writ is assumed to want one craft's output (one potion, one robe, 200 Crafted Solid Shot) until a character holds its quest: the quest log's objective ("Lesser Wizard's Robe: 0/2") is then read and kept account-wide (`AltArmyTBC_Data.WritOrders[questID] = { item, count, t }`, `Data/Economy/WritOrders.lua`, on `QUEST_ACCEPTED` and `QUEST_LOG_UPDATE`). Where two items share the order's name (Golden Scale Gauntlets), the cheaper is priced.
+- **The craft route** (`Data/Economy/CraftPlan.lua`): each reagent is got the cheapest way among a vendor (where one sells it), the auction house (never for a bind-on-pickup reagent) and a craft by any character on the realm and faction who knows a recipe for it (the highest skilled, then A-Z, when several do), the same again for that recipe's reagents, up to 8 crafts deep. Casts are whole; what a cast makes beyond the order isn't credited. When several branches buy the same item on the auction house, their buys walk one ladder, so the plan's cost can end up over the buy it beat. Mail, travel and time are not costed.
+- **Vendor discounts.** A vendor buy is priced for the character who will use it (the crafter of the recipe it goes into; the current character when the order is bought outright): Bartering's 5% a rank, plus a flat 10% once that character is Honored with any city faction (Stormwind, Ironforge, Gnomeregan Exiles, Darnassus, Orgrimmar, Darkspear Trolls, Thunder Bluff, Undercity), whoever the vendor is. Vendors aren't checked one by one; the view doesn't say where to go.
+- **Marks.** A `~` before a cost means an estimate: units the auction house is short of are priced at its dearest listing (the tooltip says how many), or the scan folded the dearer listings together. A summary scan's costs (count × each item's cheapest price, so the real cost can only be higher) are not marked: only the "(summary)" after the scan's age says so. A dash means no way to price it: nothing listed, nobody can craft it, or a reagent has no source (Gordok Ogre Suit needs the bind-on-pickup Ogre Tannin, so it can only be bought).
+- **Filter** dropdown in the toolbar row (top right, shown only on this view): **Only writs my characters can craft** (saved as `writsOnlyCraftable`) hides the rows nobody can craft.
+- Hovering a row shows the writ's tooltip, the order ("Wants 1 x Lesser Wizard's Robe"), tier and reputation, the writ's price and both ways to fulfill it, then the steps to craft it: vendor buys per character, auction house buys (each with its cost), then the crafts bottom up ("Craft Bolt of Silk Cloth 2 times on Tailorname", no cost). Character names are in their class colour, and a cost there is none of reads "n/a" in grey. With Auctionator at the auction house, clicking a row searches a temporary shopping list for the writ, the item its order wants (at the order's count) and, when a character can craft it, every reagent the craft plan buys (vendor ones too, each at its quantity), as the Waylaid view does.
+- The row below the table is the Waylaid view's (one shared builder, `CreateScanFooter` in `Tabs/TabEconomy.lua`): the scan's age on the left, the **Scan now** button in the middle while the auction house is open, the **Auto scan when opening AH** checkbox on the right. **Without a scan** the table still shows: vendor-only reagents and crafts from them are priced, the rest shows a dash, and the left of the row says "No scan yet: vendor and craft routes only".
+- **Dev dumps** (while `/altarmy debug on`): every quest-log scan writes `writOrders` (the raw objectives of the writ quests held) and `writTooltips` (the tooltip lines of the writs in the character's bags), so the formats can be checked from the SavedVariables file and the parsing tightened. The quest APIs used are listed under Quests in `/altarmy debug apicheck`.
+
 ### Supply Chain
 
 **Hidden for now** behind `AltArmy.FeatureFlags.economySupplyChain` (`Core.lua`, currently `false`). While it is off, the Supply Chain top tab and panel are not created, and a remembered `activeView` of `supply` falls back to Currency.
@@ -81,5 +105,7 @@ A scrolling page about alt-army.com's crafting planner:
 - Crates and bundles: `Data/Economy/WaylaidCrates.lua`, generated from WoW Forever's game data by `python scripts/generate-waylaid-crates.py` (`npm run crates:generate`). It reads the item table in the site's development database (`../site/data/altarmy-profit.sqlite` in the monorepo). Keeping it current:
   - altarmy-profit's `ingest` reruns the generator whenever it loads Forever data into that SQLite file, so a changed crate list shows up here as an uncommitted change.
   - The pre-commit hook (`.githooks/pre-commit`, enabled by `npm install` or `npm run hooks:install`) runs `--check` (`npm run crates:check`) and blocks a commit while the file is out of date. It skips when the database or Python isn't there.
-- Costs and sorting: `Data/Economy/WaylaidCosts.lua` (pure, unit-tested).
+- Costs and sorting: `Data/Economy/WaylaidCosts.lua` (pure, unit-tested; also the Economy tab's saved options for every view).
+- Writs and their crafting trees: `Data/Economy/Writs.lua`, generated by `python scripts/generate-writs.py` (`npm run writs:generate`; `--check` as `npm run writs:check`, in the pre-commit hook beside the crates'): the 150 writs (quest id and tier from the wago.tools ItemSparse and ItemNameDescription exports of the pinned build, cached by the site's `gamedata.py`; the wanted item matched by name among the items craft recipes make; reputation per tier as constants), every item their reagent trees touch (vendor price, bind on pickup) and every craft recipe in them (output, units a cast, reagents), from the site's development database. `ingest` reruns it with the crates generator (`site/src/altarmy_profit/addon_crates.py`).
+- The craft route: `Data/Economy/CraftPlan.lua` (pure, unit-tested). Rows and sorting: `Data/Economy/WritCosts.lua` (pure, unit-tested). Orders read from the quest log: `Data/Economy/WritOrders.lua` (parsing pure and unit-tested). Who knows which recipe, each character's discount and the writs held come from the DataStore (`Tabs/TabEconomyWrits.lua`'s `BuildContext`).
 - Screenshots: `Textures/Economy/*.tga`, converted from PNGs by `python scripts/convert-economy-screenshots.py`.

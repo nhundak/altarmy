@@ -28,6 +28,9 @@ Data\Auctions\AuctionBook.lua
 Data\Auctions\AuctionScan.lua
 Data\Economy\WaylaidCrates.lua
 Data\Economy\WaylaidCosts.lua
+Data\Economy\Writs.lua
+Data\Economy\CraftPlan.lua
+Data\Economy\WritCosts.lua
 Data\Economy\CurrencyGrid.lua
 Data\DataStore\DataStore.lua
 Data\DataStore\DataStoreItemSpellCompat.lua
@@ -63,6 +66,7 @@ Data\Integrations\AuctionatorScans.lua
 Data\Integrations\AuctionatorSearch.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
+Data\Economy\WritOrders.lua
 Data\MailAlerts.lua
 Data\DataStore\DataStoreAuctions.lua
 Data\Characters\SummaryData.lua
@@ -106,6 +110,7 @@ Tabs\TabGear.lua
 Tabs\TabEconomy.lua
 Tabs\TabEconomySupplyChain.lua
 Tabs\TabEconomyCurrency.lua
+Tabs\TabEconomyWrits.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabCooldownsRaids.lua

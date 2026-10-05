@@ -8,7 +8,8 @@ AltArmy.WaylaidCosts = AltArmy.WaylaidCosts or {}
 local W = AltArmy.WaylaidCosts
 
 W.SORT_KEYS = { "crate", "price", "bundle", "bundleCost", "total" }
-W.VIEWS = { currency = true, waylaid = true, supply = true }
+W.VIEWS = { currency = true, waylaid = true, writs = true, supply = true }
+W.WRITS_SORT_KEYS = { "writ", "rep", "writPrice", "buy", "craft", "perRep" } -- WritCosts.Compare's keys
 
 local TIER_ORDER = { Apprentice = 1, Journeyman = 2, Expert = 3, Artisan = 4 }
 
@@ -34,6 +35,19 @@ function W.EnsureOptions()
     end
     if type(o.waylaidSortAscending) ~= "boolean" then
         o.waylaidSortAscending = true
+    end
+    local validWritKey = false
+    for _, k in ipairs(W.WRITS_SORT_KEYS) do
+        if o.writsSortKey == k then validWritKey = true end
+    end
+    if not validWritKey then
+        o.writsSortKey = "perRep"
+    end
+    if type(o.writsSortAscending) ~= "boolean" then
+        o.writsSortAscending = true
+    end
+    if type(o.writsOnlyCraftable) ~= "boolean" then
+        o.writsOnlyCraftable = false
     end
     return o
 end

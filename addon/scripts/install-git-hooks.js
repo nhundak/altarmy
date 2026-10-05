@@ -19,7 +19,9 @@ if (!root || !fs.existsSync(path.join(root, ".githooks"))) {
 }
 try {
   execFileSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: root, stdio: "inherit" });
-  console.log("Git hooks enabled from .githooks/ (pre-commit: Waylaid Crates data check for addon/).");
+  console.log(
+    "Git hooks enabled from .githooks/ (pre-commit: Waylaid Crates and Craftsman's Writs data checks for addon/)."
+  );
 } catch (err) {
   console.warn(`Could not enable git hooks: ${err.message}`);
 }

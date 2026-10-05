@@ -224,7 +224,22 @@ describe("WaylaidCosts", function()
             assert.equals("currency", o.activeView)
             assert.equals("total", o.waylaidSortKey)
             assert.is_true(o.waylaidSortAscending)
+            assert.equals("perRep", o.writsSortKey)
+            assert.is_true(o.writsSortAscending)
+            assert.is_false(o.writsOnlyCraftable)
             assert.equals(o, AltArmyTBC_Options.economy)
+        end)
+
+        it("keeps the writs view and its choices", function()
+            _G.AltArmyTBC_Options = { economy = { activeView = "writs", writsSortKey = "rep",
+                writsSortAscending = false, writsOnlyCraftable = true } }
+            local o = W.EnsureOptions()
+            assert.equals("writs", o.activeView)
+            assert.equals("rep", o.writsSortKey)
+            assert.is_false(o.writsSortAscending)
+            assert.is_true(o.writsOnlyCraftable)
+            _G.AltArmyTBC_Options.economy.writsSortKey = "who" -- a column that is gone
+            assert.equals("perRep", W.EnsureOptions().writsSortKey)
         end)
 
         it("keeps saved choices and repairs bad ones", function()

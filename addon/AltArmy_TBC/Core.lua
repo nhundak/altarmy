@@ -390,6 +390,19 @@ function AltArmy.PlaceInToolbarSearchSlot(edit, parent)
     Theme.MatchSearchBoxFont(edit, headerSearchEdit)
 end
 
+--- Put a tab's own control (e.g. a Filter dropdown button) at the right end of the toolbar slot the header
+--- search occupies, its natural width kept, `offsetX` pixels further right (negative: left). parent should be
+--- the tab's (or view's) frame so it hides with it.
+function AltArmy.PlaceInToolbarRight(widget, parent, offsetX)
+    if not widget then return end
+    if parent then
+        widget:SetParent(parent)
+        widget:SetFrameLevel(parent:GetFrameLevel() + 50)
+    end
+    widget:ClearAllPoints()
+    widget:SetPoint("RIGHT", headerSearchEdit, "RIGHT", offsetX or 0, 0)
+end
+
 settingsBtn:SetScript("OnClick", function()
     local settings, key = activeSettings()
     if not settings then return end

@@ -58,6 +58,7 @@ local VIEW = {
         -- Forever's CharacterFrame Currency side-tab icon.
         { name = "currency", label = "Currency", icon = "Interface\\Icons\\INV_SideTab_Currency_c60" },
         { name = "waylaid", label = "Waylaid Crates", icon = "Interface\\Icons\\INV_Crate_01" },
+        { name = "writs", label = "Craftsman's Writs", icon = "Interface\\Icons\\INV_Scroll_03" },
     },
 }
 UI.supplyEnabled = AltArmy.FeatureFlags and AltArmy.FeatureFlags.economySupplyChain and true or false
@@ -105,71 +106,105 @@ if UI.supplyEnabled then
     supplyPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
     supplyPanel:Hide()
 end
+local writsPanel = Theme.CreateMainContentPanel(frame)
+writsPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", Theme.TAB_SECTION_INSET, -Theme.TAB_SECTION_INSET)
+writsPanel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -Theme.TAB_SECTION_INSET, Theme.TAB_SECTION_INSET)
 waylaidPanel:Hide()
+writsPanel:Hide()
 frame.CurrencyView = currencyPanel
 frame.WaylaidView = waylaidPanel
+frame.WritsView = writsPanel -- filled by Tabs/TabEconomyWrits.lua, which exports frame.RefreshWrits
 frame.SupplyChainView = supplyPanel
 
 local inner = Theme.CreatePanelInnerContent(waylaidPanel)
 
--- Bottom row: scan age on the left (colored by how stale the prices are), the scan button centered while
--- the auction house is open, the automatic scan checkbox on the right.
-local statusLabel = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-statusLabel:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 0, 0)
-statusLabel:SetHeight(UI.STATUS_HEIGHT)
-statusLabel:SetJustifyH("LEFT")
+--- The bottom row the auction house views share (Waylaid Crates, Craftsman's Writs), built on `parent`: scan
+--- age on the left (the view sets and colours it), the scan button centred while the auction house is open,
+--- the automatic scan checkbox on the right. The button shows only while the age label is shown.
+local function CreateScanFooter(parent)
+    local footer = {}
+    local status = parent:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+    status:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 0, 0)
+    status:SetHeight(UI.STATUS_HEIGHT)
+    status:SetJustifyH("LEFT")
+    footer.status = status
 
--- Same setting as Options → General → Auction House. CreateLabeledCheckbox stretches its row to its
--- parent's right edge: a holder sized to the checkbox and label keeps it right-aligned.
-UI.autoScanHolder = CreateFrame("Frame", nil, inner)
-UI.autoScanHolder:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", 0, 0)
-UI.autoScanHolder:SetHeight(UI.STATUS_HEIGHT)
-UI.autoScanCheck = Theme.CreateLabeledCheckbox(UI.autoScanHolder, {
-    point = "LEFT",
-    relativeTo = UI.autoScanHolder,
-    relativePoint = "LEFT",
-    text = "Auto scan when opening AH",
-    onClick = function(checked)
+    -- Same setting as Options → General → Auction House. CreateLabeledCheckbox stretches its row to its
+    -- parent's right edge: a holder sized to the checkbox and label keeps it right-aligned.
+    local holder = CreateFrame("Frame", nil, parent)
+    holder:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", 0, 0)
+    holder:SetHeight(UI.STATUS_HEIGHT)
+    local check = Theme.CreateLabeledCheckbox(holder, {
+        point = "LEFT",
+        relativeTo = holder,
+        relativePoint = "LEFT",
+        text = "Auto scan when opening AH",
+        onClick = function(checked)
+            local S = AltArmy.AuctionScan
+            if S and S.SetAutoScanEnabled then S.SetAutoScanEnabled(checked) end
+        end,
+    })
+    holder:SetWidth(Theme.CHAR_LIST_CHECKBOX_SIZE + 2 + check.label:GetStringWidth() + 4)
+    footer.autoScanHolder, footer.autoScanCheck = holder, check
+
+    -- While the auction house is open: scan now, or the cooldown left (same text as the auction house button).
+    local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    btn:SetSize(110, UI.STATUS_HEIGHT)
+    btn:SetPoint("BOTTOM", parent, "BOTTOM", 0, 0)
+    btn:SetMotionScriptsWhileDisabled(true)
+    Theme.SkinButton(btn)
+    btn:Hide()
+    footer.scanBtn = btn
+
+    function footer.UpdateScanButton()
         local S = AltArmy.AuctionScan
-        if S and S.SetAutoScanEnabled then S.SetAutoScanEnabled(checked) end
-    end,
-})
-UI.autoScanHolder:SetWidth(Theme.CHAR_LIST_CHECKBOX_SIZE + 2 + UI.autoScanCheck.label:GetStringWidth() + 4)
+        local Btn = AltArmy.AuctionScanButton
+        local show = S and S.HasApi() and S.IsOpen() and Btn and Btn.Label and status:IsShown()
+        btn:SetShown(show and true or false)
+        if not show then return end
+        local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft(), S.NextKind() ~= nil)
+        btn:SetText(enabled and "Scan now" or text)
+        btn:SetEnabled(enabled)
+    end
 
--- While the auction house is open: scan now, or the cooldown left (same text as the auction house button).
-UI.scanBtn = CreateFrame("Button", nil, inner, "UIPanelButtonTemplate")
-UI.scanBtn:SetSize(110, UI.STATUS_HEIGHT)
-UI.scanBtn:SetPoint("BOTTOM", inner, "BOTTOM", 0, 0)
-UI.scanBtn:SetMotionScriptsWhileDisabled(true)
-Theme.SkinButton(UI.scanBtn)
-UI.scanBtn:Hide()
+    --- Show the age label and the checkbox (synced with the setting) and update the button.
+    function footer.Show()
+        status:Show()
+        holder:Show()
+        local S = AltArmy.AuctionScan
+        check.check:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
+        footer.UpdateScanButton()
+    end
 
-local function UpdateScanButton()
-    local S = AltArmy.AuctionScan
-    local Btn = AltArmy.AuctionScanButton
-    local show = S and S.HasApi() and S.IsOpen() and Btn and Btn.Label and statusLabel:IsShown()
-    UI.scanBtn:SetShown(show and true or false)
-    if not show then return end
-    local text, enabled = Btn.Label(S.State(), S.Progress(), S.CooldownLeft(), S.NextKind() ~= nil)
-    UI.scanBtn:SetText(enabled and "Scan now" or text)
-    UI.scanBtn:SetEnabled(enabled)
-end
+    function footer.Hide()
+        status:Hide()
+        btn:Hide()
+        holder:Hide()
+    end
 
-UI.scanBtn:SetScript("OnClick", function()
-    local S = AltArmy.AuctionScan
-    if S then S.Start() end
-    UpdateScanButton()
-end)
-do
+    btn:SetScript("OnClick", function()
+        local S = AltArmy.AuctionScan
+        if S then S.Start() end
+        footer.UpdateScanButton()
+    end)
     local elapsed = 0
-    UI.scanBtn:SetScript("OnUpdate", function(_, dt) -- the cooldown's countdown
+    btn:SetScript("OnUpdate", function(_, dt) -- the cooldown's countdown
         elapsed = elapsed + dt
         if elapsed >= 1 then
             elapsed = 0
-            UpdateScanButton()
+            footer.UpdateScanButton()
         end
     end)
+    return footer
 end
+frame.CreateScanFooter = CreateScanFooter
+
+local footer = CreateScanFooter(inner)
+local statusLabel = footer.status
+UI.scanBtn = footer.scanBtn
+UI.autoScanHolder = footer.autoScanHolder
+UI.autoScanCheck = footer.autoScanCheck
+local UpdateScanButton = footer.UpdateScanButton
 
 local headerRow = CreateFrame("Frame", nil, inner)
 headerRow:SetHeight(UI.HEADER_HEIGHT)
@@ -457,6 +492,7 @@ local function SetActiveEconomyView(which)
     end
     currencyPanel:SetShown(which == "currency")
     waylaidPanel:SetShown(which == "waylaid")
+    writsPanel:SetShown(which == "writs")
     if supplyPanel then supplyPanel:SetShown(which == "supply") end
     if VIEW.tabs then
         VIEW.tabs:SetSelected(which)
@@ -465,6 +501,8 @@ local function SetActiveEconomyView(which)
         if frame.RefreshCurrency then frame.RefreshCurrency() end
     elseif which == "waylaid" then
         RefreshWaylaid()
+    elseif which == "writs" then
+        if frame.RefreshWrits then frame.RefreshWrits() end
     elseif frame.LayoutSupplyChain then
         frame.LayoutSupplyChain()
     end
@@ -494,7 +532,16 @@ do
     if S and S.OnChange then
         S.OnChange(function(state)
             -- Idle also follows the auction house opening or closing (the scan button comes and goes).
-            if not (frame:IsShown() and waylaidPanel:IsShown()) then return end
+            if not frame:IsShown() then return end
+            if writsPanel:IsShown() then
+                if state == "idle" then
+                    if frame.RefreshWrits then frame.RefreshWrits() end
+                elseif frame.UpdateWritsScanButton then
+                    frame.UpdateWritsScanButton()
+                end
+                return
+            end
+            if not waylaidPanel:IsShown() then return end
             if state == "idle" then
                 RefreshWaylaid()
             else
