@@ -1,5 +1,6 @@
 import itertools
 import math
+import random
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
@@ -35,6 +36,7 @@ from altarmy_profit.engine import (
     crafts_quantile,
     expected_skill_ups,
     plan_steps,
+    profession_closure,
     reach_chances,
     recipes_for_characters,
     recipes_for_professions,
@@ -2419,3 +2421,146 @@ def test_a_gathered_reagent_costs_what_selling_it_would_have_made() -> None:
     cheap = make_market({THREAD: 100}, thread_vendor_price=11)
     by_vendor = Market(cheap.items, cheap.recipes, cheap.prices, gathered={THREAD: 50, LINEN: 4})
     assert must_evaluate(by_vendor, by_vendor.recipes[0]).tree.inputs[1].source == "vendor"
+
+
+def test_given_flips_are_the_ones_the_market_would_make() -> None:
+    m = flip_market()
+    made = flips(m)
+    assert len(made) == 1 and m.flips == tuple(made)
+    # a market given them (from one with the same items and prices) has the very same recipes and plans
+    again = flip_market(flips=m.flips)
+    assert again.recipes == m.recipes
+    assert must_evaluate(again, made[0]) == must_evaluate(m, made[0])
+    # whatever flips `recipes` held are dropped for the given ones
+    assert flips(Market(m.items, m.recipes, m.prices, m.disenchant, books=m.books, flips=())) == []
+
+
+def test_a_crafters_skill_is_their_first_listing_of_the_profession_in_any_case() -> None:
+    c = Crafter("Dup", (("Tailoring", 10, 75), ("tailoring", 99, 300), ("Mining", 5, 75)), frozenset())
+    assert c.skill("TAILORING") == (10, 75) and c.skill("mining") == (5, 75) and c.skill("Cooking") is None
+    assert replace(c, professions=(("Cooking", 3, 75),)).skill("Tailoring") is None  # follows a replace
+    assert c == Crafter("Dup", c.professions, frozenset()) and hash(c) == hash(replace(c))
+
+
+def test_recipes_for_characters_keeps_the_given_order() -> None:
+    trainer: frozenset[Source] = frozenset({"trainer"})
+    recipes = [
+        Recipe(1, "Robe", GREEN, 1, ((LINEN, 1),), "Tailoring", spell_id=901, trivial_low=40),
+        Recipe(2, "Bar", BOLT, 1, ((LINEN, 1),), "Mining", spell_id=902, trivial_low=1),
+        Recipe(3, "Known", BOLT, 1, ((LINEN, 1),), "Cooking", spell_id=903),
+        Recipe(4, "Vest", GREEN, 1, ((LINEN, 1),), "tailoring", spell_id=904, trivial_low=60),
+        Recipe(5, "Flip", GREEN, 1, ((GREEN, 1),), kind="flip"),
+        Recipe(6, "Shirt", GREEN, 1, ((LINEN, 1),), "Tailoring", spell_id=906, trivial_low=5),
+    ]
+    tailor = crafter("T", ("Tailoring", 50), known=frozenset({903}))
+    miner = crafter("M", ("Mining", 1))
+    for unlearned in ("none", "all", Learning("train", 0, trainer), Learning("train", 20, trainer)):
+        naive = [
+            r
+            for r in recipes
+            if r.anyone
+            or r.spell_id in tailor.known_spells
+            or any(can_learn(r, c, unlearned) for c in (tailor, miner))
+        ]
+        assert recipes_for_characters(recipes, [tailor, miner], unlearned) == naive
+    assert [r.id for r in recipes_for_characters(recipes, [tailor, miner], "all")] == [1, 2, 3, 4, 5, 6]
+    now = recipes_for_characters(recipes, [tailor, miner], Learning("train", 0, trainer))
+    assert [r.id for r in now] == [1, 2, 3, 5, 6]
+
+
+def test_markets_of_the_same_prices_share_their_climbs() -> None:
+    m, belt = _maul_and_belt()
+    runs = engine.SkillRuns()
+    store = engine.ClimbStore()
+    first, second = (
+        engine.Market(
+            m.items,
+            m.recipes,
+            m.prices,
+            crafters=m.crafters,
+            exits=m.exits,
+            skill_crafters=m.skill_crafters,
+            climbs=store,
+        )
+        for _ in range(2)
+    )
+    smith = m._by_name["Novice"]
+    climb = first._climb("Blacksmithing", smith, runs, {})
+    assert second._climb("Blacksmithing", smith, runs, {}) is climb
+    # a ban is another climb, the same as worked out afresh without the recipe
+    no_belt = replace(runs, banned=frozenset({belt.id}))
+    without = second._climb("Blacksmithing", smith, no_belt, {})
+    assert without is not climb
+    kept = [c for c in first._candidates("Blacksmithing", smith, {}) if c.recipe.id != belt.id]
+    fresh = engine.plan_climb(smith, "Blacksmithing", kept, runs.ceiling)
+    assert without.best == fresh.best and without._finish == fresh._finish
+
+
+def test_the_climbs_inner_loop_costs_runs_as_a_run_costs_them() -> None:
+    """`Climb._cheapest_from` inlines `_Usable.cost` and `_cheaper`: it picks what they pick, to the bit."""
+
+    def reference(climb: engine.Climb, u: Any, start: int) -> Any:
+        found: Any = None
+        for stop in range(u.hi, start, -1):
+            run, (rest, _) = u.cost(start, stop), climb._finish[stop]
+            total = (run[0] + rest[0], run[1] + rest[1])
+            if found is None or engine._cheaper(total, found[0]):
+                found = (total, (u, stop))
+        return found
+
+    rng = random.Random(1234)
+    for _ in range(150):
+        rank, cap = rng.randint(1, 40), rng.randint(45, 90)
+        smith = replace(_smith(rank, cap), skill_bonus=rng.choice((0.0, 0.0, 0.08, 0.2)))
+        candidates = []
+        for i in range(rng.randint(2, 9)):
+            low = rng.randint(0, 70)
+            recipe = replace(_recipe(i, low, low + rng.randint(1, 30)), id=900 + i)
+            # few distinct costs, so plans tie
+            cost = float(rng.choice((-30, -5, 0, 5, 12, 12, 40, 75, 200))) / rng.choice((1, 3, 7))
+            learn = rng.choice((0, 0, 0, 150.0, None))
+            candidates.append(engine.Candidate(recipe, cost, rng.choice((0, 0, rng.randint(1, 60))), learn))
+        climb = engine.plan_climb(smith, "Blacksmithing", candidates, rng.choice((5, 20, 1000)))
+        for u in climb._usable:
+            for start in range(u.lo, min(u.hi, climb.end)):  # the levels the climb finishes from
+                got, want = climb._cheapest_from(u, start), reference(climb, u, start)
+                assert (got is None) == (want is None)
+                if got is not None:
+                    assert (got[0][0], got[0][1].hex(), got[1]) == (want[0][0], want[0][1].hex(), want[1])
+
+
+def test_a_market_of_a_professions_closure_plans_its_recipes_as_the_whole_game_does() -> None:
+    """`profession_closure` is all a market needs to plan a profession: random recipe graphs across
+    professions (chains, shared reagents, cycles, unpriced items), each profession's every recipe planned
+    on a market of its closure exactly as on the whole one."""
+    professions = ("Tailoring", "Mining", "Blacksmithing", "Alchemy")
+    for seed in range(40):
+        rng = random.Random(seed)
+        items = {i: Item(i, f"I{i}", sell_price=rng.randint(0, 50), stack_size=20) for i in range(1, 41)}
+        recipes = []
+        for rid in range(1, 31):
+            out = rng.randint(1, 40)
+            reagents = tuple(
+                (i, rng.randint(1, 3)) for i in rng.sample(range(1, 41), rng.randint(1, 3)) if i != out
+            )
+            if reagents:
+                skill = rng.choice(professions)
+                recipes.append(
+                    Recipe(rid, f"R{rid}", out, rng.randint(1, 2), reagents, skill, spell_id=1000 + rid)
+                )
+        prices = {i: rng.randint(5, 200) for i in range(1, 41) if rng.random() < 0.7}
+        crafter = Crafter(
+            "C", tuple((p, 50, 300) for p in professions), frozenset(r.spell_id for r in recipes)
+        )
+        whole = Market(items, recipes, prices, crafters=[crafter])
+        for profession in professions:
+            closure = profession_closure(recipes, profession)
+            scoped = Market(items, closure, prices, crafters=[crafter], flips=whole.flips)
+            for r in recipes:
+                if r.skill_name == profession:
+                    assert r in closure
+                    for crafts in (1, 5):
+                        assert scoped.evaluate(r, crafts=crafts) == whole.evaluate(r, crafts=crafts), (
+                            seed,
+                            r,
+                        )

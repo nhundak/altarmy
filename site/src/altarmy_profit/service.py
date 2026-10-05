@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import threading
 import time
+import weakref
 from collections import OrderedDict
 from collections.abc import Callable, Hashable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from concurrent.futures import Future
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from sqlalchemy import Connection
 
@@ -39,7 +41,9 @@ from .engine import (
     Unlearned,
     ah_net,
     can_learn,
+    can_start_climb,
     city_prices,
+    profession_closure,
     recipes_for_characters,
     recipes_using,
     useful_crafts,
@@ -47,6 +51,30 @@ from .engine import (
 from .versions import GameVersion
 
 STAMP_TTL = 10.0  # seconds a cached market is trusted before its stamp is checked again
+RANK_CACHE_SIZE = 64  # rankings kept per game version (`RankCache`)
+DERIVED_SIZE = 1024  # what `_derived` keeps per base market (small: ids and recipe lists)
+
+T = TypeVar("T")
+# what is worked out from a base market (and what else its key says), kept as long as the market lives
+_DERIVED: weakref.WeakKeyDictionary[Market, OrderedDict[Hashable, object]] = weakref.WeakKeyDictionary()
+_DERIVED_LOCK = threading.Lock()
+
+
+def _derived(base: Market, key: Hashable, make: Callable[[], T]) -> T:
+    """`make()`, worked out once for `base` and `key` (the newest `DERIVED_SIZE` kept per market): what
+    depends only on the base market and the key's inputs. Gone with the market, when prices move."""
+    with _DERIVED_LOCK:
+        entries = _DERIVED.get(base)
+        if entries is not None and key in entries:
+            entries.move_to_end(key)
+            return entries[key]  # type: ignore[return-value]
+    value = make()
+    with _DERIVED_LOCK:
+        entries = _DERIVED.setdefault(base, OrderedDict())
+        entries[key] = value
+        while len(entries) > DERIVED_SIZE:
+            entries.popitem(last=False)
+    return value
 
 
 @dataclass
@@ -54,6 +82,30 @@ class _Cached:
     priced: store.Priced
     stamp: store.MarketStamp
     checked: float  # clock time of the last stamp check
+
+
+@dataclass
+class _House:
+    """One auction house's market, the lock its rebuilds take, and how often it was invalidated (a rebuild
+    that began before an invalidate is not kept: what it read may already be stale)."""
+
+    current: _Cached | None = None
+    generation: int = 0
+    building: threading.Lock = field(default_factory=threading.Lock)
+
+
+@dataclass(frozen=True)
+class Held:
+    """A market as the MarketCache hands it out, with what identifies its data: markets with the same
+    `token` (auction house and `store.market_stamp`) were built from the same game data and prices, so what
+    is worked out on one holds for any (`RankCache`)."""
+
+    priced: store.Priced
+    token: Hashable
+
+
+def _held(auction_house_id: int | None, cached: _Cached) -> Held:
+    return Held(cached.priced, (auction_house_id, cached.stamp))
 
 
 def _older(stamp: store.MarketStamp, price_version: int | None) -> bool:
@@ -66,7 +118,9 @@ class MarketCache:
     from the database lazily after invalidate().
 
     Other processes (instances, the ingest job) change the database too, so a market is also rebuilt when
-    its `store.market_stamp` moved, checked at most every STAMP_TTL seconds.
+    its `store.market_stamp` moved, checked at most every STAMP_TTL seconds. A check or rebuild holds only
+    its auction house's lock, never the cache's: other houses are served meanwhile, and so is this one's
+    market to callers that know of no newer prices.
 
     Market is read-only once built, so handing the same instance to several threads is safe.
     """
@@ -85,72 +139,133 @@ class MarketCache:
         self.ah_cut = ah_cut
         self.mail_postage = mail_postage
         self._clock = clock
-        self._lock = threading.Lock()
-        self._markets: dict[int | None, _Cached] = {}
+        self._lock = threading.Lock()  # guards `_houses` and their fields; never held reading the database
+        self._houses: dict[int | None, _House] = {}
 
     def get(self, auction_house_id: int | None, at_least: int | None = None) -> Market:
         """The version's game data priced by the auction house (None: unpriced). `at_least`: a price
         version the caller knows of (a price signal told the front end); a market built on an older one
         is checked now, not after STAMP_TTL."""
-        return self.get_priced(auction_house_id, at_least).market
+        return self.get_held(auction_house_id, at_least).priced.market
 
     def get_priced(self, auction_house_id: int | None, at_least: int | None = None) -> store.Priced:
         """`get`'s market with the auction house's listings, built and cached together."""
+        return self.get_held(auction_house_id, at_least).priced
+
+    def get_held(self, auction_house_id: int | None, at_least: int | None = None) -> Held:
+        """`get_priced`, and its token (`Held`)."""
         with self._lock:
-            cached = self._markets.get(auction_house_id)
-            now = self._clock()
-            if cached is not None and now - cached.checked < STAMP_TTL and not _older(cached.stamp, at_least):
-                return cached.priced
-            with self.database.begin() as conn:
-                stamp = store.market_stamp(conn, self.game_version, auction_house_id)
-                if cached is not None and cached.stamp == stamp:
-                    cached.checked = now
-                    return cached.priced
-                priced = store.load_priced(
-                    conn,
-                    self.game_version,
-                    auction_house_id,
-                    ah_cut=self.ah_cut,
-                    mail_postage=self.mail_postage,
-                )
-            self._markets[auction_house_id] = _Cached(priced, stamp, now)
-            return priced
+            house = self._houses.setdefault(auction_house_id, _House())
+            current = house.current
+            if current is not None and self._fresh(current, at_least):
+                return _held(auction_house_id, current)
+        if current is not None and not _older(current.stamp, at_least):
+            # due a check only: while another request checks or rebuilds, keep the market there is
+            if not house.building.acquire(blocking=False):
+                return _held(auction_house_id, current)
+        else:
+            house.building.acquire()
+        try:
+            return self._refresh(auction_house_id, house, at_least)
+        finally:
+            house.building.release()
+
+    def _fresh(self, cached: _Cached, at_least: int | None) -> bool:
+        return self._clock() - cached.checked < STAMP_TTL and not _older(cached.stamp, at_least)
+
+    def _refresh(self, auction_house_id: int | None, house: _House, at_least: int | None) -> Held:
+        """Check the house's stamp and rebuild its market if it moved; the caller holds `house.building`."""
+        with self._lock:
+            current, generation = house.current, house.generation
+            if current is not None and self._fresh(current, at_least):
+                return _held(auction_house_id, current)  # rebuilt by the request this one waited for
+        now = self._clock()
+        with self.database.begin() as conn:
+            stamp = store.market_stamp(conn, self.game_version, auction_house_id)
+            if current is not None and current.stamp == stamp:
+                with self._lock:
+                    current.checked = now
+                return _held(auction_house_id, current)
+            priced = store.load_priced(
+                conn,
+                self.game_version,
+                auction_house_id,
+                ah_cut=self.ah_cut,
+                mail_postage=self.mail_postage,
+            )
+        fresh = _Cached(priced, stamp, now)
+        with self._lock:
+            if house.generation == generation:  # else invalidated meanwhile: maybe stale, not kept
+                house.current = fresh
+        return _held(auction_house_id, fresh)
 
     def invalidate(self, auction_house_ids: Iterable[int] | None = None) -> None:
-        """Drop the cached markets of these auction houses (default: all)."""
+        """Drop the cached markets of these auction houses (default: all): each is rebuilt on its next use,
+        and a rebuild under way now is not kept."""
+        wanted = None if auction_house_ids is None else set(auction_house_ids)
         with self._lock:
-            if auction_house_ids is None:
-                self._markets.clear()
-            for ah in auction_house_ids or ():
-                self._markets.pop(ah, None)
+            for ah, house in self._houses.items():
+                if wanted is None or ah in wanted:
+                    house.current = None
+                    house.generation += 1
 
 
 class RankCache:
     """The last `size` full rankings (`search` results), so paging through one ("Show more") and refetching
-    it don't rank again. An entry only counts for the very Market it was ranked on: once the MarketCache
-    rebuilds a market (new prices, a merge, new game data), its rankings miss. The key must cover
-    everything else the ranking depends on (user, characters, unlearned/trivial choices, exits, AH
-    blocks); bounds on cost, profit and ROI and the profession filter are applied to a cached ranking."""
+    it don't rank again. An entry counts only for markets with the token of the one it was ranked on
+    (`Held.token`: the same game data and prices): once the MarketCache rebuilds a market on new prices (a
+    merge, new game data), its rankings miss. The key must cover everything else the ranking depends on
+    (user, characters, unlearned/trivial choices, exits, AH blocks); bounds on cost, profit and ROI and the
+    profession filter are applied to a cached ranking."""
 
-    def __init__(self, size: int = 64) -> None:
+    def __init__(self, size: int = RANK_CACHE_SIZE) -> None:
         self.size = size
         self._lock = threading.Lock()
-        self._entries: OrderedDict[Hashable, tuple[Market, list[Result]]] = OrderedDict()
+        self._entries: OrderedDict[tuple[Hashable, Hashable], list[Result]] = OrderedDict()
 
-    def get(self, key: Hashable, base: Market) -> list[Result] | None:
+    def get(self, key: Hashable, token: Hashable) -> list[Result] | None:
         with self._lock:
-            found = self._entries.get(key)
-            if found is None or found[0] is not base:
-                return None
-            self._entries.move_to_end(key)
-            return found[1]
+            found = self._entries.get((key, token))
+            if found is not None:
+                self._entries.move_to_end((key, token))
+            return found
 
-    def put(self, key: Hashable, base: Market, results: list[Result]) -> None:
+    def put(self, key: Hashable, token: Hashable, results: list[Result]) -> None:
         with self._lock:
-            self._entries[key] = (base, results)
-            self._entries.move_to_end(key)
+            self._entries[(key, token)] = results
+            self._entries.move_to_end((key, token))
             while len(self._entries) > self.size:
                 self._entries.popitem(last=False)
+
+
+class Flights:
+    """Identical work under way: the first caller of a key runs it; callers of the same key meanwhile wait
+    for it to finish, then run theirs (which then finds what the first one cached), or get its exception.
+    On one CPU, identical cold rankings at once (several tabs, a refetch) would only stretch each other."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._running: dict[Hashable, Future[None]] = {}
+
+    def run(self, key: Hashable, work: Callable[[], T]) -> T:
+        with self._lock:
+            leading = self._running.get(key)
+            if leading is None:
+                mine: Future[None] = Future()
+                self._running[key] = mine
+        if leading is not None:
+            leading.result()  # raises the first caller's exception
+            return work()
+        try:
+            got = work()
+        except BaseException as e:
+            mine.set_exception(e)
+            raise
+        finally:
+            with self._lock:
+                del self._running[key]
+        mine.set_result(None)
+        return got
 
 
 SLOW_DAYS = 2.0  # an AH sale expected to take longer than this is flagged
@@ -207,6 +322,8 @@ def search(
     if time is not None:
         crafts = time.config.batch
         time = session_model(time, (), None)
+    if skill_run is not None and skill_name and not _climb_starts(base, chars, skill_crafters, skill_name):
+        return []  # every result would be the climber's run, and no climb of theirs gives a first point
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     models, differ = _models(base, chars, time)
     later = later_recipes(
@@ -237,6 +354,7 @@ def search(
             gathered,
             later,
             learn_costs,
+            scope=skill_name if skill_run is not None else None,
         )
         for model in models
     ]
@@ -258,6 +376,23 @@ def search(
     return [r for r in ranked if filters.accepts(r)]
 
 
+def _climb_starts(
+    base: Market, chars: Sequence[Character], skill_crafters: frozenset[str], skill_name: str
+) -> bool:
+    """False only when every run would be the one character skilled up's (they have the profession) and
+    nothing of it can give them a point at their skill (`engine.can_start_climb`): no runs at all."""
+    if len(skill_crafters) != 1:
+        return True
+    (name,) = skill_crafters
+    climber = next((c for c in chars if c.name == name), None)
+    if climber is None:
+        return True
+    (crafter,) = as_crafters([climber])
+    if crafter.skill(skill_name) is None:
+        return True
+    return can_start_climb(skill_scope(base, skill_name), crafter, skill_name)
+
+
 def evaluate(
     base: Market,
     chars: Sequence[Character],
@@ -276,14 +411,17 @@ def evaluate(
     gathered: Mapping[int, int] | None = None,
     learn_costs: Mapping[int, float | None] | None = None,
     stretch: SkillRun | None = None,
+    scope: bool = False,
 ) -> Result | None:
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it), or as a useful run
     (`skill_run` and `learn_costs`, as `search` ranks it then; or the `stretch` of a climb given, planned
     from where it starts); None if the characters can't make or sell it. A `crafter` does the final craft
-    (see `Market`'s `final_crafter`)."""
+    (see `Market`'s `final_crafter`). A run, a stretch or a `scope` (a skill climb's other plans) is
+    planned on markets of its profession alone (`skill_scope`), as `search` ranks runs: the same plan."""
     models, differ = _models(base, chars, time)
     recipe_skill = next((r.skill_name for r in base.recipes if r.id == recipe_id), None)
+    scoped = bool(recipe_skill) and (scope or skill_run is not None or stretch is not None)
     later = (
         later_recipes(
             base,
@@ -301,29 +439,49 @@ def evaluate(
         if stretch is None
         else []
     )
-    markets = [
-        _market(
+    markets = _Markets(
+        len(models),
+        lambda n: _market(
             base,
             chars,
             unlearned,
             exits,
             no_ah,
             include_trivial,
-            model,
+            models[n],
             skill_crafters,
             crafter,
             arcane_salvager,
             gathered,
             later,
             learn_costs,
-        )
-        for model in models
-    ]
+            scope=recipe_skill if scoped else None,
+        ),
+    )
     return _evaluate_in(markets, differ, time, recipe_id, choices, crafts, skill_run, stretch)
 
 
+class _Markets:
+    """The markets of a plan's city groups by index (`_models`), each built when first asked for: a recipe
+    nothing in which is priced differently is planned in the first alone (`_evaluate_in`)."""
+
+    def __init__(self, count: int, make: Callable[[int], Market]):
+        self._count = count
+        self._make = make
+        self._built: dict[int, Market] = {}
+
+    def __len__(self) -> int:
+        return self._count
+
+    def __getitem__(self, n: int) -> Market:
+        market = self._built.get(n)
+        if market is None:
+            market = self._built[n] = self._make(n)
+        return market
+
+
 def _evaluate_in(
-    markets: Sequence[Market],
+    markets: _Markets,
     differ: frozenset[int],
     time: TimeModel | None,
     recipe_id: int,
@@ -336,14 +494,15 @@ def _evaluate_in(
     (`_models`, `differ` the items priced differently): the recipe where it is worth most."""
     found = []
     same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
-    for n, market in enumerate(markets):
+    for n in range(len(markets)):
+        if n > 0 and same:
+            break  # as `search` ranks it: planned once, with the first model (the others never built)
+        market = markets[n]
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
             return None
         if n == 0:
             same = recipe.id not in recipes_using(market.recipes, differ)
-        elif same:
-            break  # as `search` ranks it: planned once, with the first model
         result = market.evaluate(recipe, choices, crafts=crafts, skill_run=skill_run, stretch=stretch)
         if result is not None:
             found.append(result)
@@ -396,24 +555,25 @@ def climb_options(
         gathered,
         models[0],
     )
-    markets = [
-        _market(
+    markets = _Markets(
+        len(models),
+        lambda n: _market(
             base,
             chars,
             unlearned,
             exits,
             no_ah,
             include_trivial,
-            model,
+            models[n],
             skill_crafters,
             "",
             arcane_salvager,
             gathered,
             later,
             learn_costs,
-        )
-        for model in models
-    ]
+            scope=skill_name,
+        ),
+    )
     while len(out) < count:
         runs = replace(skill_run, banned=skill_run.banned | {p.recipe.id for p in out})
         start = markets[0].climb_start(skill_name, runs)
@@ -538,11 +698,15 @@ def _market(
     gathered: Mapping[int, int] | None = None,
     later: Sequence[Candidate] = (),
     learn_costs: Mapping[int, float | None] | None = None,
+    scope: str | None = None,
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
-    characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
+    characters every recipe counts, crafted by one unnamed character (so nothing is mailed). With a `scope`
+    (a profession), only what planning its recipes needs (`skill_scope`): the market then plans those, and
+    nothing else, exactly as the whole one would."""
     crafters = as_crafters(chars)
-    recipes = recipes_for_characters(base.recipes, crafters, unlearned) if chars else list(base.recipes)
+    pool = skill_scope(base, scope) if scope else base.recipes
+    recipes = recipes_for_characters(pool, crafters, unlearned) if chars else list(pool)
     return Market(
         base.items,
         recipes,
@@ -565,7 +729,15 @@ def _market(
         gathered=gathered,
         later_recipes=later,
         learn_costs=learn_costs,
+        flips=base.flips,  # made from the same items, prices, books and disenchant rows
+        climbs=base.climbs,  # a climb depends only on its candidates, priced from the same prices
     )
+
+
+def skill_scope(base: Market, profession: str) -> list[Recipe]:
+    """`profession`'s recipes and all that make their reagents (`engine.profession_closure`), once per base
+    market: what a skill climb's markets plan (a few hundred recipes of the game's thousands)."""
+    return _derived(base, ("scope", profession.lower()), lambda: profession_closure(base.recipes, profession))
 
 
 def knows_arcane_salvager(chars: Sequence[Character]) -> bool:
@@ -892,6 +1064,52 @@ def later_recipes(
     learning = Learning.of(unlearned)
     if skill_run is None or len(skill_crafters) != 1 or learning.unlearned == "none":
         return []
+    # the same for every request with these inputs on this market (a ranking and its options ask alike)
+    key = (
+        "later",
+        tuple(chars),
+        learning,
+        exits,
+        no_ah,
+        skill_crafters,
+        arcane_salvager,
+        skill_name.lower() if skill_name else None,
+        tuple(sorted(gathered.items())) if gathered else (),
+        time.key if time is not None else None,
+    )
+    found = _derived(
+        base,
+        key,
+        lambda: tuple(
+            _later_recipes(
+                base,
+                chars,
+                learning,
+                exits,
+                no_ah,
+                skill_crafters,
+                arcane_salvager,
+                skill_name,
+                gathered,
+                time,
+            )
+        ),
+    )
+    return list(found)
+
+
+def _later_recipes(
+    base: Market,
+    chars: Sequence[Character],
+    learning: Learning,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_name: str | None,
+    gathered: Mapping[int, int] | None,
+    time: TimeModel | None,
+) -> list[Candidate]:
     (name,) = skill_crafters
     climber = next((c for c in chars if c.name == name), None)
     held = {
@@ -917,7 +1135,18 @@ def later_recipes(
     for (profession, level), recipes in sorted(later.items()):
         there = at_skill(chars, name, profession, level)
         market = _market(
-            base, there, unlearned, exits, no_ah, False, time, skill_crafters, "", arcane_salvager, gathered
+            base,
+            there,
+            learning,
+            exits,
+            no_ah,
+            False,
+            time,
+            skill_crafters,
+            "",
+            arcane_salvager,
+            gathered,
+            scope=profession,
         )
         (raised,) = (c for c in market.crafters if c.name == name)
         memo: Memo = {}

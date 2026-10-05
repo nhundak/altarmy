@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Awaitable, Callable, Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Hashable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
@@ -799,6 +799,7 @@ class AppState:
     database: db.Database  # shared by every version
     cache: service.MarketCache
     rank_cache: service.RankCache
+    flights: service.Flights  # rankings under way (`_ranked`)
     signals: price_signals.Signals  # shared by every version
     launcher: launch.Launcher | None  # starts jobs on demand (the Admin page); shared by every version
     _cities: Mapping[str, timing.CityMap] | None = None
@@ -1150,9 +1151,11 @@ def get_rank(
         no_ah,
         s.time.key,
     )
-    matches = state.rank_cache.get(key, base)
-    if matches is None:
-        matches = service.search(
+    matches = _ranked(
+        state,
+        key,
+        s.token,
+        lambda: service.search(
             base,
             chars,
             learning,
@@ -1167,18 +1170,18 @@ def get_rank(
             skill_run=run,
             gathered=gather,
             learn_costs=_climb_learn_costs(state, s, skill_name, skilled) if run is not None else None,
-        )
-        state.rank_cache.put(key, base, matches)
+        ),
+    )
     if sort in ("rate", "skill"):
-        ordered = state.rank_cache.get((key, sort), base)
-        if ordered is None:
+        ranked = matches
+
+        def ordered() -> list[engine.Result]:
             if sort == "rate":
-                ordered = service.by_rate(matches)
-            else:  # what learning each recipe costs counts too
-                costs = _learn_costs(state, s, matches)
-                ordered = service.by_skill(matches, lambda r: costs.get(r.recipe.id, 0))
-            state.rank_cache.put((key, sort), base, ordered)
-        matches = ordered
+                return service.by_rate(ranked)
+            costs = _learn_costs(state, s, ranked)  # what learning each recipe costs counts too
+            return service.by_skill(ranked, lambda r: costs.get(r.recipe.id, 0))
+
+        matches = _ranked(state, (key, sort), s.token, ordered)
     elif sort == "likely":  # cheap: ordered per request
         matches = service.by_likely(matches, s.listings, base)
     elif sort in ("roi", "spend", "profit_each"):
@@ -1212,28 +1215,31 @@ def get_rank(
         # the run starting the cheapest climb, then each the start of the cheapest climb never crafting those
         # before it
         best = matches[0]
-        options_key = (key, "options", best.recipe.id)
-        sides = state.rank_cache.get(options_key, base)
-        if best.climb_cost is None or not best.skill_ups:
-            sides = []
-        elif sides is None:
-            sides = service.climb_options(
-                base,
-                chars,
-                learning,
-                frozenset(exits),
-                no_ah,
-                include_trivial,
-                s.time,
-                skilled,
-                arcane_salvager,
-                run,
-                best,
-                SKILL_OPTIONS,
-                gathered=gather,
-                learn_costs=_climb_learn_costs(state, s, skill_name, skilled),
+        sides = (
+            []
+            if best.climb_cost is None or not best.skill_ups
+            else _ranked(
+                state,
+                (key, "options", best.recipe.id),
+                s.token,
+                lambda: service.climb_options(
+                    base,
+                    chars,
+                    learning,
+                    frozenset(exits),
+                    no_ah,
+                    include_trivial,
+                    s.time,
+                    skilled,
+                    arcane_salvager,
+                    run,
+                    best,
+                    SKILL_OPTIONS,
+                    gathered=gather,
+                    learn_costs=_climb_learn_costs(state, s, skill_name, skilled),
+                ),
             )
-            state.rank_cache.put(options_key, base, sides)
+        )
         if chain_from is None:
             options = list(sides)
         # a pick among the options is its run as the options show it; any other, as ranked
@@ -1250,28 +1256,43 @@ def get_rank(
             # (an ended chain is marked under its own key)
             chain_key = (key, "chain", first.recipe.id, first.climb_without)
             ended_key = (key, "chain-ended", first.recipe.id, first.climb_without)
-            found = state.rank_cache.get(chain_key, base)
-            if found is None or (len(found) < length and state.rank_cache.get(ended_key, base) is None):
-                found = service.skill_chain(
-                    base,
-                    chars,
-                    learning,
-                    frozenset(exits),
-                    no_ah,
-                    include_trivial,
-                    s.time,
-                    skilled,
-                    arcane_salvager,
-                    run,
-                    first=first,
-                    steps=length,
-                    gathered=gather,
-                    done=found or [],
-                )
-                state.rank_cache.put(chain_key, base, found)
-                if len(found) < length:
-                    state.rank_cache.put(ended_key, base, [])
-            return found[:length]
+
+            def short() -> list[engine.Result] | None:
+                # what there is of it when it is too short and may go on, else None
+                found = state.rank_cache.get(chain_key, s.token)
+                if found is None:
+                    return []
+                ended = state.rank_cache.get(ended_key, s.token) is not None
+                return found if len(found) < length and not ended else None
+
+            def work() -> list[engine.Result]:
+                done = short()
+                if done is not None:
+                    found = service.skill_chain(
+                        base,
+                        chars,
+                        learning,
+                        frozenset(exits),
+                        no_ah,
+                        include_trivial,
+                        s.time,
+                        skilled,
+                        arcane_salvager,
+                        run,
+                        first=first,
+                        steps=length,
+                        gathered=gather,
+                        done=done,
+                    )
+                    state.rank_cache.put(chain_key, s.token, found)
+                    if len(found) < length:
+                        state.rank_cache.put(ended_key, s.token, [])
+                return state.rank_cache.get(chain_key, s.token) or []
+
+            if short() is None:
+                return (state.rank_cache.get(chain_key, s.token) or [])[:length]
+            # identical requests at once work it out once
+            return state.flights.run((chain_key, s.token, length), work)[:length]
 
         if first is not None:
             chain = chain_of(first, chain_length)
@@ -1349,6 +1370,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
         skill_run=run,
         gathered=service.gather_values(s.base, body.gathered) if body.gathered else None,
         learn_costs=_climb_learn_costs(state, s, recipe_skill, skilled) if run is not None else None,
+        scope=body.runs and bool(skilled),  # a skill climb's run, planned as /api/rank plans it
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
@@ -1396,6 +1418,26 @@ class Selected:
     faction: str = ""  # the selection's (Horde, Alliance); "" without one
     watched: float = 0.0  # `prices.watched_hours` of the auction house
     disenchant_verified: bool = False  # the version's (`GameVersion.disenchant_verified`)
+    token: Hashable = None  # what the market was built from (`service.Held.token`): the rank cache's key
+
+
+def _ranked(
+    state: AppState, key: Hashable, token: Hashable, make: Callable[[], list[engine.Result]]
+) -> list[engine.Result]:
+    """`make()`, kept in the rank cache under `key` for markets of `token` (`service.Held`); identical
+    requests at once (several tabs, a refetch) make it once, the others waiting for it."""
+    found = state.rank_cache.get(key, token)
+    if found is not None:
+        return found
+
+    def work() -> list[engine.Result]:
+        got = state.rank_cache.get(key, token)
+        if got is None:
+            got = make()
+            state.rank_cache.put(key, token, got)
+        return got
+
+    return state.flights.run((key, token), work)
 
 
 def _verdict(r: engine.Result, s: Selected) -> service.Verdict:
@@ -1411,7 +1453,8 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         favorites = frozenset(i for i, _ in store.load_favorites(conn, user.uid, state.key))
         faction = sel.faction if sel else ""
         model = service.time_model(conn, user.uid, state.key, state.cities, faction)
-    priced = state.cache.get_priced(ah, at_least=price_version)
+    held = state.cache.get_held(ah, at_least=price_version)
+    priced = held.priced
     return Selected(
         priced.market,
         priced.listings,
@@ -1423,6 +1466,7 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         faction,
         priced.watched,
         state.version.disenchant_verified,
+        held.token,
     )
 
 
@@ -2278,6 +2322,7 @@ def create_app(
             database,
             service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
             service.RankCache(),
+            service.Flights(),
             signals,
             launcher,
         )

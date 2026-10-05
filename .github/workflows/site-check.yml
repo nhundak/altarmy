@@ -15,6 +15,7 @@ on:
       - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
       - "addon/AltArmy_TBC/Data/Recipes/**"
       - "addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua"
+      - "addon/AltArmy_TBC/Data/Economy/Writs.lua"
   pull_request:
     paths:
       - "site/**"
@@ -26,6 +27,7 @@ on:
       - "addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua"
       - "addon/AltArmy_TBC/Data/Recipes/**"
       - "addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua"
+      - "addon/AltArmy_TBC/Data/Economy/Writs.lua"
 
 defaults:
   run:

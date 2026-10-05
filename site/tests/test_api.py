@@ -1,5 +1,6 @@
 import gzip
 import json
+import threading
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -641,6 +642,54 @@ def test_a_character_skilled_up_is_told_where_to_learn_what_an_alt_knows(
     (r,) = body["results"]
     assert (r["crafter"], r["crafters"]) == ("Low", ["High"])  # High knows it; Low must learn it
     assert body["learn"][str(r["recipe_id"])]["skill"] == 50
+
+
+def test_rankings_outlive_a_rebuild_on_the_same_prices(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    search = service.search
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", spy)
+    state = client.app.state.wow[FOREVER]  # type: ignore[attr-defined]
+    first = client.get("/api/rank").json()
+    state.cache.invalidate()  # e.g. an upload whose scan was quarantined: nothing a market reads moved
+    assert client.get("/api/rank").json() == first and calls == [1]
+    set_prices(priced, {1: 25, 2: 100})  # new prices
+    state.cache.invalidate()
+    client.get("/api/rank")
+    assert calls == [1, 1]
+
+
+def test_identical_rankings_at_once_are_worked_out_once(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    started, go = threading.Event(), threading.Event()
+    search = service.search
+
+    def slow(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        started.set()
+        go.wait(5)
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", slow)
+    got: list[Any] = []
+    first = threading.Thread(target=lambda: got.append(client.get("/api/rank").json()))
+    first.start()
+    assert started.wait(5)
+    second = threading.Thread(target=lambda: got.append(client.get("/api/rank").json()))
+    second.start()
+    second.join(0.3)  # waiting for the first, not ranking
+    go.set()
+    first.join(10)
+    second.join(10)
+    assert calls == [1] and len(got) == 2 and got[0] == got[1]
 
 
 def test_one_profession_is_ranked_alone(

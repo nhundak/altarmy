@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import itertools
 import math
+import threading
+from collections import OrderedDict
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from functools import cached_property
@@ -137,6 +139,14 @@ class Crafter:
     vendor_discount: int = 0  # percent off what they buy from vendors
     reputations: tuple[tuple[int, int], ...] = ()  # (faction id, standing 1 Hated .. 8 Exalted)
     skill_bonus: float = 0.0  # added to the chance of a skill point from a craft that can give one
+    # `skill`'s lookup by lower-cased profession (the first entry of each name), worked out once
+    _skills: dict[str, tuple[int, int]] = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        skills: dict[str, tuple[int, int]] = {}
+        for p, r, m in self.professions:
+            skills.setdefault(p.lower(), (r, m))
+        object.__setattr__(self, "_skills", skills)
 
     def extra_chance(self, profession: str) -> float:
         """Their chance of one extra result from a `profession` craft."""
@@ -147,7 +157,7 @@ class Crafter:
 
     def skill(self, profession: str) -> tuple[int, int] | None:
         """Their (rank, max rank) in `profession`; None if they don't have it."""
-        return next(((r, m) for p, r, m in self.professions if p.lower() == profession.lower()), None)
+        return self._skills.get(profession.lower())
 
     @property
     def enchanting(self) -> int:
@@ -480,6 +490,9 @@ class Climb:
         self.end = end  # where the climb stops: the cap, or a skill nothing gives a point at
         # from each level: the cheapest finish, as (cost, the run to start it with: (candidate, stop))
         self._finish: dict[int, tuple[_Cost, tuple[_Usable, int] | None]] = {end: ((0, 0.0), None)}
+        # the same costs as plain lists by level, what `_cheapest_from`'s inner loop reads
+        self._finish_unknown: list[int] = [0] * (end + 1)
+        self._finish_copper: list[float] = [0.0] * (end + 1)
         for start in range(end - 1, self.rank - 1, -1):
             found: tuple[_Cost, tuple[_Usable, int]] | None = None
             for u in usable:
@@ -489,17 +502,35 @@ class Climb:
                         found = run
             assert found is not None  # something gives a point at every level below `end`
             self._finish[start] = found
+            self._finish_unknown[start], self._finish_copper[start] = found[0]
         self._runs: dict[tuple[int, int, int, int], SkillRun] = {}
 
     def _cheapest_from(self, u: _Usable, start: int) -> tuple[_Cost, tuple[_Usable, int]] | None:
         """The cheapest climb from `start` that begins with a run of `u` (the longest of equals)."""
-        found: tuple[_Cost, tuple[_Usable, int]] | None = None
+        c = u.candidate
+        unknown = 1 if c.learn is None else 0
+        cost, learn, spare = c.cost, c.learn or 0, max(c.cost, 0.0) * SPARE_Z
+        crafts, variance, grind = u.crafts, u.variance, u.grind
+        a = start - u.lo
+        crafts_a, variance_a, grind_a = crafts[a], variance[a], grind[a]
+        finish_unknown, finish_copper = self._finish_unknown, self._finish_copper
+        best_unknown, best_copper, best_stop = 0, 0.0, -1
         for stop in range(u.hi, start, -1):
-            run, (rest, _) = u.cost(start, stop), self._finish[stop]
-            total = (run[0] + rest[0], run[1] + rest[1])
-            if found is None or _cheaper(total, found[0]):
-                found = (total, (u, stop))
-        return found
+            b = stop - u.lo
+            # as `_Usable.cost` (the same sums in the same order), the finish from `stop` added, and
+            # `_cheaper`, inlined: the climb's inner loop
+            spares = spare * math.sqrt(max(0.0, variance[b] - variance_a))
+            copper = cost * (crafts[b] - crafts_a) + spares + (grind[b] - grind_a) + learn
+            total_unknown = unknown + finish_unknown[stop]
+            total_copper = copper + finish_copper[stop]
+            if best_stop < 0 or (
+                total_unknown < best_unknown
+                or (total_unknown == best_unknown and total_copper < best_copper - _EPSILON)
+            ):
+                best_unknown, best_copper, best_stop = total_unknown, total_copper, stop
+        if best_stop < 0:
+            return None
+        return (best_unknown, best_copper), (u, best_stop)
 
     @property
     def best(self) -> ClimbPlan | None:
@@ -560,11 +591,58 @@ class Climb:
         return run
 
 
+# What a climb is worked out from (`Market._climb`): the climber, the profession (lower case), the ceiling and
+# the candidates, in order
+ClimbKey = tuple["Crafter", str, int, tuple[Candidate, ...]]
+
+
+class ClimbStore:
+    """Climbs by what they are worked out from (`ClimbKey`), shared by the markets narrowed from one base
+    market (`service._market`): city groups that price a climb's candidates alike, a ranking and its options
+    and chains, give the same climb. The `size` used last."""
+
+    def __init__(self, size: int = 64) -> None:
+        self.size = size
+        self._found: OrderedDict[ClimbKey, Climb] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key: ClimbKey) -> Climb | None:
+        with self._lock:
+            found = self._found.get(key)
+            if found is not None:
+                self._found.move_to_end(key)
+            return found
+
+    def put(self, key: ClimbKey, climb: Climb) -> None:
+        with self._lock:
+            self._found[key] = climb
+            self._found.move_to_end(key)
+            while len(self._found) > self.size:
+                self._found.popitem(last=False)
+
+
 def plan_climb(
     crafter: Crafter, profession: str, candidates: Sequence[Candidate], ceiling: int = RUN_CEILING
 ) -> Climb:
     """`crafter`'s cheapest ways up `profession` crafting `candidates` (see `Climb`)."""
     return Climb(crafter, profession, candidates, ceiling)
+
+
+def can_start_climb(recipes: Iterable[Recipe], crafter: Crafter, profession: str) -> bool:
+    """Whether any of `recipes` (the profession's) might give `crafter` a point at their skill now: one
+    they know, or could have learned by now, that isn't grey for them, below their cap. Without one, no
+    `Climb` of theirs goes anywhere (every climb starts at their skill), whatever else it is given."""
+    skill = crafter.skill(profession)
+    if skill is None or skill[0] >= skill[1]:
+        return False
+    rank, wanted = skill[0], profession.lower()
+    return any(
+        not r.anyone
+        and r.skill_name.lower() == wanted
+        and (r.spell_id in crafter.known_spells or r.required_skill <= rank)
+        and _chance_at(r, crafter, rank) > 0
+        for r in recipes
+    )
 
 
 # How far past the crafts that get there four times in five `SkillRun.reach` goes: twice them, at least
@@ -1354,6 +1432,8 @@ class Market:
         gathered: Mapping[int, int] | None = None,
         later_recipes: Sequence[Candidate] = (),
         learn_costs: Mapping[int, float | None] | None = None,
+        flips: Sequence[Recipe] | None = None,
+        climbs: ClimbStore | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. When nobody has learned a recipe, `unlearned` says who
@@ -1413,8 +1493,13 @@ class Market:
         self.time = time
         self._per_second = time.config.time_value / 3600 if time else 0.0  # copper a second of play is worth
         self._trips: dict[str, float] = {}
-        # flips are this market's own: made anew from its items and prices, whatever `recipes` held
-        self.recipes = [r for r in recipes if not r.is_flip] + self._flips()
+        # flips are this market's own: made from its items and prices, whatever `recipes` held; `flips`, when
+        # given, are those of a market with the same items, prices, books and disenchant rows (they depend on
+        # nothing else), so a market narrowed from another doesn't make them again
+        self.flips: tuple[Recipe, ...] = tuple(self._flips() if flips is None else flips)
+        # climbs by what they are worked out from, shared with markets of the same prices (`_climb`)
+        self.climbs = climbs if climbs is not None else ClimbStore()
+        self.recipes = [r for r in recipes if not r.is_flip] + list(self.flips)
         self._by_output: dict[int, list[Recipe]] = {}
         for r in self.recipes:
             if not r.is_flip and not r.is_enchant:  # neither is a way to get an item
@@ -2037,10 +2122,15 @@ class Market:
         key = (skill_name.lower(), crafter.name, runs.ceiling, runs.banned)
         found = self._climb_cache.get(key)
         if found is None:
-            candidates = [
+            candidates = tuple(
                 c for c in self._candidates(skill_name, crafter, memo) if c.recipe.id not in runs.banned
-            ]
-            found = plan_climb(crafter, skill_name, candidates, runs.ceiling)
+            )
+            # a climb depends on nothing else: markets of the same prices (`climbs`) share it
+            shared: ClimbKey = (crafter, skill_name.lower(), runs.ceiling, candidates)
+            found = self.climbs.get(shared)
+            if found is None:
+                found = plan_climb(crafter, skill_name, candidates, runs.ceiling)
+                self.climbs.put(shared, found)
             self._climb_cache[key] = found
         return found
 
@@ -2132,6 +2222,34 @@ def recipes_using(recipes: Sequence[Recipe], items: Collection[int]) -> frozense
     return frozenset(found)
 
 
+def profession_closure(recipes: Sequence[Recipe], profession: str) -> list[Recipe]:
+    """`profession`'s recipes (case-insensitive) and every recipe that makes a reagent of one of them, however
+    deep and in whatever profession (smelting, parts, conversions), in `recipes`' order; never a flip. All a
+    market needs to plan that profession's recipes: `Market._obtain` only reaches recipes through what they
+    make, so a market of these plans them exactly as one of `recipes` does."""
+    wanted = profession.lower()
+    by_output: dict[int, list[Recipe]] = {}
+    for r in recipes:
+        if not r.is_flip and not r.is_enchant:  # neither is a way to get an item
+            by_output.setdefault(r.output_item_id, []).append(r)
+    kept = {r.id for r in recipes if r.skill_name.lower() == wanted and not r.is_flip}
+    todo = [i for r in recipes if r.id in kept for i, _ in r.reagents]
+    seen: set[int] = set()
+    while todo:
+        item_id = todo.pop()
+        if item_id in seen:
+            continue
+        seen.add(item_id)
+        for r in by_output.get(item_id, ()):
+            if r.id not in kept:
+                kept.add(r.id)
+                todo.extend(i for i, _ in r.reagents)
+    out = [r for r in recipes if r.id in kept]
+    if __debug__:  # closed: whatever makes a reagent of a kept recipe is kept
+        assert all(m.id in kept for r in out for i, _ in r.reagents for m in by_output.get(i, ()))
+    return out
+
+
 def recipes_for_professions(recipes: Iterable[Recipe], professions: Iterable[str]) -> list[Recipe]:
     """Recipes from the given professions (case-insensitive). A Market built from these only chains
     through recipes you can craft."""
@@ -2149,11 +2267,25 @@ def recipes_for_characters(
     """
     known = frozenset().union(*(c.known_spells for c in crafters))
     learning = Learning.of(unlearned)
-    return [
-        r
-        for r in recipes
-        if r.anyone or r.spell_id in known or any(can_learn(r, c, learning) for c in crafters)
-    ]
+    # only a character with a recipe's profession can learn it (`can_learn`): each is asked about those alone
+    holders: dict[str, list[Crafter]] = {}
+    for c in crafters:
+        for p in {p.lower() for p, _, _ in c.professions}:
+            holders.setdefault(p, []).append(c)
+    lowered: dict[str, str] = {}
+    out = []
+    for r in recipes:
+        if r.anyone or r.spell_id in known:
+            out.append(r)
+            continue
+        name = lowered.get(r.skill_name)
+        if name is None:
+            name = lowered[r.skill_name] = r.skill_name.lower()
+        for c in holders.get(name, ()):
+            if can_learn(r, c, learning):
+                out.append(r)
+                break
+    return out
 
 
 def crafters_of(

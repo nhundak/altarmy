@@ -34,7 +34,8 @@ GITHUB_REPO=ntower/altarmy
 env_config() {
   case "$1" in
     prod)
-      SERVICE=altarmy DB_NAME=altarmy DB_USER=altarmy SECRET=database-url JOB_PREFIX=altarmy MAX_INSTANCES=2
+      # one instance: every request shares its market and rank caches (identical rankings at once run once)
+      SERVICE=altarmy DB_NAME=altarmy DB_USER=altarmy SECRET=database-url JOB_PREFIX=altarmy MAX_INSTANCES=1
       RUN_SA="$PROD_RUN_SA" FIREBASE_ENV=hosted.env
       ;;
     staging)

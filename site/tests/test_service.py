@@ -1,4 +1,5 @@
 import os
+import threading
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import timedelta
@@ -209,6 +210,144 @@ def test_market_cache_checks_at_once_for_a_newer_price_version(
     prices.set_price(conn, ah, 1, 7)  # as another instance's upload would
     assert cache.get(ah) is first  # within the TTL
     assert cache.get(ah, at_least=known + 1).prices == {1: 7}
+
+
+def test_market_cache_keeps_no_market_a_rebuild_read_before_an_invalidate(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An upload invalidates the house while another request is rebuilding it from what it read before the
+    upload: that request gets its market, but it is not kept, and the next request reads the new prices."""
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = set_prices(conn, {1: 5})
+    cache = service.MarketCache(database, FOREVER)
+    loading, release = threading.Event(), threading.Event()
+    load = store.load_priced
+
+    def slow(*args: Any, **kwargs: Any) -> store.Priced:
+        got = load(*args, **kwargs)
+        loading.set()
+        release.wait(5)
+        return got
+
+    monkeypatch.setattr(store, "load_priced", slow)
+    out: list[engine.Market] = []
+    worker = threading.Thread(target=lambda: out.append(cache.get(ah)))
+    worker.start()
+    assert loading.wait(5)
+    prices.set_price(conn, ah, 1, 7)  # the upload, committed after that rebuild read
+    cache.invalidate([ah])
+    release.set()
+    worker.join(5)
+    assert out[0].prices == {1: 5}  # the request that was rebuilding gets what it read
+    monkeypatch.setattr(store, "load_priced", load)
+    assert cache.get(ah).prices == {1: 7}  # but it was not kept
+
+
+def test_market_cache_serves_the_market_it_has_while_another_request_checks_it(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = set_prices(conn, {1: 5})
+    now = [0.0]
+    cache = service.MarketCache(database, FOREVER, clock=lambda: now[0])
+    first = cache.get(ah)
+    other = cache.get(None)
+    now[0] += service.STAMP_TTL * 2  # due a check
+    house = cache._houses[ah]
+    with house.building:  # another request checking or rebuilding it
+        assert cache.get(ah) is first  # not blocked: the market there is
+        assert cache.get(None) is other  # nor is another house
+        known = prices.price_version(conn, ah)
+        assert known is not None
+        # one who knows of newer prices waits for the rebuild instead (here: times out on the held lock)
+        waiter = threading.Thread(target=lambda: cache.get(ah, at_least=known + 1), daemon=True)
+        waiter.start()
+        waiter.join(0.2)
+        assert waiter.is_alive()
+    waiter.join(5)
+    assert not waiter.is_alive()
+
+
+def test_market_cache_hands_out_a_token_of_what_the_market_was_built_from(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = set_prices(conn, {1: 5})
+    cache = service.MarketCache(database, FOREVER)
+    first = cache.get_held(ah)
+    cache.invalidate()
+    again = cache.get_held(ah)
+    assert again.priced is not first.priced and again.token == first.token  # rebuilt from the same data
+    prices.set_price(conn, ah, 1, 7)
+    cache.invalidate()
+    assert cache.get_held(ah).token != first.token
+    assert cache.get_held(None).token != first.token  # another house
+
+
+def test_flights_run_identical_work_once_at_a_time() -> None:
+    flights = service.Flights()
+    cached: dict[str, int] = {}
+    made: list[int] = []
+    started, go = threading.Event(), threading.Event()
+
+    def work() -> int:
+        if "x" not in cached:  # what the first one leaves, the others find
+            started.set()
+            go.wait(5)
+            made.append(1)
+            cached["x"] = 42
+        return cached["x"]
+
+    got: list[int] = []
+    threads = [threading.Thread(target=lambda: got.append(flights.run("k", work))) for _ in range(5)]
+    threads[0].start()
+    assert started.wait(5)
+    for t in threads[1:]:
+        t.start()
+    go.set()
+    for t in threads:
+        t.join(5)
+    assert got == [42] * 5 and made == [1]
+    assert flights.run("other", lambda: 7) == 7  # another key runs at once
+
+
+def test_flights_pass_the_first_callers_error_to_those_waiting() -> None:
+    flights = service.Flights()
+    started, go = threading.Event(), threading.Event()
+
+    def fails() -> int:
+        started.set()
+        go.wait(5)
+        raise ValueError("no")
+
+    errors: list[str] = []
+
+    def call(work: Any) -> None:
+        try:
+            flights.run("k", work)
+        except ValueError as e:
+            errors.append(str(e))
+
+    first = threading.Thread(target=call, args=(fails,))
+    first.start()
+    assert started.wait(5)
+    waiting = threading.Event()
+    leading = flights._running["k"]
+    real_result = leading.result
+
+    def result(timeout: float | None = None) -> None:
+        waiting.set()  # the second caller is waiting on the first
+        return real_result(timeout)
+
+    leading.result = result  # type: ignore[method-assign]
+    second = threading.Thread(target=call, args=(lambda: 1,))
+    second.start()
+    assert waiting.wait(5)
+    go.set()
+    first.join(5)
+    second.join(5)
+    assert errors == ["no", "no"]  # the waiter got the first caller's error, not its own result
+    assert flights.run("k", lambda: 3) == 3  # nothing left behind: the key runs again
 
 
 def test_market_cache_keeps_the_listings_with_its_market(
@@ -1166,3 +1305,136 @@ def test_the_coach_picks_the_first_sure_profitable_craft_or_says_why_none() -> N
     pick, why = service.coach_pick([thin], seen, 0.0, market, False)
     assert pick is None and why == service.CoachNone("no_watched_sales", None)
     assert service.coach_pick([], {}, WATCHED, market, False) == (None, service.CoachNone("nothing", None))
+
+
+def smelting_ladder() -> tuple[engine.Market, Character]:
+    """`ladder`'s Tailoring, B needing a bar only Mining smelts (from ore), beside a Blacksmithing sword of
+    bars no Tailoring plan needs; the tailor at 1 also mines and smiths."""
+    base, who = ladder()
+    items = {
+        **base.items,
+        2: engine.Item(2, "Ore"),
+        20: engine.Item(20, "Bar"),
+        30: engine.Item(30, "Sword", sell_price=50),
+    }
+    recipes = [replace(r, reagents=((1, 1), (20, 1))) if r.name == "B" else r for r in base.recipes] + [
+        engine.Recipe(200, "Bar", 20, 1, ((2, 2),), "Mining", spell_id=800),
+        engine.Recipe(300, "Sword", 30, 1, ((20, 3),), "Blacksmithing", spell_id=700),
+    ]
+    miner = replace(
+        who,
+        professions=(
+            Profession("Blacksmithing", 1, 300, frozenset({700})),
+            Profession("Mining", 50, 300, frozenset({800})),
+            *who.professions,
+        ),
+    )
+    return engine.Market(items, recipes, {1: 20, 2: 3}), miner
+
+
+def test_skill_markets_plan_one_profession_as_the_whole_game_does() -> None:
+    base, who = smelting_ladder()
+    assert [r.name for r in service.skill_scope(base, "tailoring")] == ["A", "B", "C", "Bar"]
+
+    def market(scope: str | None) -> engine.Market:
+        # every Tailoring recipe at hand, whatever it asks
+        return service._market(
+            base, [who], "all", ALL_EXITS, frozenset(), False, None, frozenset({who.name}), scope=scope
+        )
+
+    def runs(m: engine.Market) -> list[tuple[object, ...]]:
+        ranked = m.rank(min_profit=-(10**9), skill_name="Tailoring", skill_run=engine.SkillRuns())
+        return [
+            (r.recipe.id, r.crafts, r.cost, r.profit, r.stop_skill, r.climb_cost, r.climb_after, r.tree)
+            for r in ranked
+        ]
+
+    whole, scoped = market(None), market("Tailoring")
+    assert [r.name for r in whole.recipes] == ["A", "B", "C", "Bar", "Sword"]
+    assert [r.name for r in scoped.recipes] == ["A", "B", "C", "Bar"]
+    assert runs(scoped) == runs(whole)
+    # A starts the climb (the others ask for more skill), which goes on with B and its smelted bars
+    (only,) = scoped.rank(min_profit=-(10**9), skill_name="Tailoring", skill_run=engine.SkillRuns())
+    assert [s.recipe.name for s in only.climb_after if s.recipe] == ["B", "C", "C"]
+    # as the workspace asks: the ranking and its chain plan the same runs
+    (first,) = service.search(
+        base,
+        [who],
+        "train",
+        Filters(),
+        skill_crafters=frozenset({who.name}),
+        skill_name="Tailoring",
+        skill_run=engine.SkillRuns(),
+    )
+    assert first.recipe.name == "A"
+    assert [r.recipe.name for r in chain_of(base, who, first, steps=8)] == ["B", "C", "C"]
+
+
+def test_no_runs_when_nothing_gives_the_climber_a_first_point() -> None:
+    base, who = ladder()
+    # knowing nothing, and the trainer's first recipe asks for 1: a climb starts
+    novice = replace(who, professions=(Profession("Tailoring", 1, 300, frozenset()),))
+    (crafter,) = service.as_crafters([novice])
+    assert engine.can_start_climb(base.recipes, crafter, "Tailoring")
+    # each recipe asks for more than they have and they know none of them: nothing to start with
+    late = engine.Market(
+        base.items, [replace(r, trivial_low=r.trivial_low + 10) for r in base.recipes], base.prices
+    )
+    (crafter,) = service.as_crafters([novice])
+    assert not engine.can_start_climb(late.recipes, crafter, "Tailoring")
+    assert ranked_runs(late, novice) == []
+    # at the cap, nothing either
+    capped = replace(who, professions=(Profession("Tailoring", 300, 300, frozenset({901})),))
+    assert not engine.can_start_climb(base.recipes, service.as_crafters([capped])[0], "Tailoring")
+
+
+def test_later_recipes_are_worked_out_again_whenever_an_input_moves() -> None:
+    # they are kept per base market by their inputs (`_derived`): each input that changes what they are must
+    # be in the key, or a later request would get another's
+    base, who = ladder()
+    skilled = frozenset({who.name})
+    exits = frozenset({"vendor", engine.KEEP_EXIT})
+    plain = engine.TimeModel(timing.TimeConfig(), timing.ANYWHERE)
+    asked: dict[str, Any] = {
+        "chars": [who],
+        "unlearned": engine.Learning("train", 0, frozenset({"trainer", "recipe"})),
+        "exits": exits,
+        "no_ah": frozenset(),
+        "skill_crafters": skilled,
+        "arcane_salvager": False,
+        "skill_name": "Tailoring",
+        "skill_run": engine.SkillRuns(),
+        "gathered": None,
+        "time": plain,
+    }
+
+    def fresh(a: dict[str, Any]) -> list[engine.Candidate]:
+        learning = engine.Learning.of(a["unlearned"])
+        return service._later_recipes(
+            base, a["chars"], learning, a["exits"], a["no_ah"], a["skill_crafters"], a["arcane_salvager"],
+            a["skill_name"], a["gathered"], a["time"],
+        )  # fmt: skip
+
+    first = service.later_recipes(base, **asked)
+    assert first == fresh(asked) and first  # B and C, learned on the way
+    at30 = replace(who, professions=(Profession("Tailoring", 30, 300, frozenset({901, 902})),))
+    variants: list[dict[str, Any]] = [
+        {"chars": [at30]},
+        {"unlearned": engine.Learning("train", 0, frozenset({"recipe"}))},
+        {"exits": frozenset({"vendor"})},
+        {"no_ah": frozenset({1})},
+        {"gathered": {1: 5}},
+        {"arcane_salvager": True},
+        {"skill_name": "tailoring"},
+        {"time": engine.TimeModel(replace(timing.TimeConfig(), time_value=100_000), timing.ANYWHERE)},
+    ]
+    moved = 0
+    for change in variants:
+        a = {**asked, **change}
+        expected = fresh(a)
+        assert service.later_recipes(base, **a) == expected, change
+        moved += expected != first
+    assert moved >= 2  # the fixture tells some of them apart: the check means something
+    # what is handed out is a copy: changing it changes nothing kept
+    service.later_recipes(base, **asked).clear()
+    assert service.later_recipes(base, **asked) == first

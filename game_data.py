@@ -12,8 +12,8 @@ generators import its package. The daily game-data workflow (.github/workflows/g
                  unchanged), then writes the pins (site/data/game-data.json):
                    addon  data/recipes/<v>/*.csv (build-recipe-server-facts.py),
                           AltArmy_TBC/Data/Recipes/RecipeData_*.lua (generate-recipe-data.py),
-                          AltArmy_TBC/Data/Economy/WaylaidCrates.lua (generate-waylaid-crates.py, from a
-                          throwaway SQLite ingest of Forever)
+                          AltArmy_TBC/Data/Economy/WaylaidCrates.lua (generate-waylaid-crates.py) and
+                          Writs.lua (generate-writs.py), both from a throwaway SQLite ingest of Forever
                    site   data/<v>/vendor_items.csv, vendor_recipes.csv, recipe_item_sources.csv
                           (build_vendor_items.py), data/forever/cities/*.json (build_cities.py),
                           frontend/public/maps/ (fetch_zone_maps.py: new areas only)
@@ -49,8 +49,9 @@ RECIPE_DATA = {
     "forever": ADDON / "AltArmy_TBC" / "Data" / "Recipes" / "RecipeData_Forever.lua",
 }
 CRATES = ADDON / "AltArmy_TBC" / "Data" / "Economy" / "WaylaidCrates.lua"
+WRITS = ADDON / "AltArmy_TBC" / "Data" / "Economy" / "Writs.lua"
 # What release-addon may ship unattended: the files this script generates into the addon
-GENERATED = {p.relative_to(ROOT).as_posix() for p in (*RECIPE_DATA.values(), CRATES)}
+GENERATED = {p.relative_to(ROOT).as_posix() for p in (*RECIPE_DATA.values(), CRATES, WRITS)}
 SHIPPED = "addon/AltArmy_TBC"
 
 
@@ -208,7 +209,8 @@ def cmd_update(args: argparse.Namespace) -> None:
     )
     run(py, "scripts/fetch_zone_maps.py", cwd=SITE)
 
-    # Waylaid Crates: from a throwaway ingest of Forever (its own run below, so a failure fails this)
+    # Waylaid Crates and Craftsman's Writs: from a throwaway ingest of Forever (its own run below, so a
+    # failure fails this)
     db = tmp / "forever.sqlite"
     env = {**os.environ, "ALTARMY_ADDON_DIR": str(tmp / "no-addon")}  # the ingest's own regenerate stays out
     run(
@@ -228,6 +230,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         env=env,
     )
     run(py, "scripts/generate-waylaid-crates.py", "--db", db, cwd=ADDON)
+    run(py, "scripts/generate-writs.py", "--db", db, "--build", new["forever"].build, cwd=ADDON)
 
     gamedata.write_pins(new, PINS)
 
@@ -263,8 +266,9 @@ def cmd_update(args: argparse.Namespace) -> None:
         body.append("")
     skip = GENERATED | {PINS.relative_to(ROOT).as_posix()}
     others = [f for f in changed if not f.endswith(".csv") and f not in skip]
-    if CRATES.relative_to(ROOT).as_posix() in changed:
-        others.insert(0, CRATES.relative_to(ROOT).as_posix())
+    for generated in (WRITS, CRATES):  # the generated Lua worth naming, first
+        if generated.relative_to(ROOT).as_posix() in changed:
+            others.insert(0, generated.relative_to(ROOT).as_posix())
     if others:
         body += ["## Other files", ""] + [f"- `{f}`" for f in others] + [""]
     if not changed:
@@ -280,6 +284,8 @@ def cmd_update(args: argparse.Namespace) -> None:
             notes.append(f"Recipe data for {labels[key]} build {new[key].build}{detail}.")
     if CRATES.relative_to(ROOT).as_posix() in changed:
         notes.append("Waylaid Crates updated from the game data.")
+    if WRITS.relative_to(ROOT).as_posix() in changed:
+        notes.append("Craftsman's Writs updated from the game data.")
     if args.notes:
         Path(args.notes).write_text("".join(n + "\n" for n in notes), encoding="utf-8")
     print("\n".join(body))

@@ -199,3 +199,24 @@ def test_sales_that_age_out_are_forgotten(conn: Connection) -> None:
     merge.merge_auction_house(conn, ah, TODAY + timedelta(days=7))
     assert sales(conn, ah, 1) == (None, None)
     assert sold_pairs(conn, ah, 1) is None
+
+
+def test_a_quarantined_snapshot_leaves_the_market_stamp_alone(conn: Connection) -> None:
+    # it changes nothing a market reads, so cached markets and their rankings stay
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    prices.record_snapshot(conn, ah, "manual", NOON, [Observation(1, 50, NOON)])
+    before = store.market_stamp(conn, FOREVER, ah)
+    snap = schema.price_snapshots
+    conn.execute(
+        snap.insert().values(
+            auction_house_id=ah,
+            source="altarmy",
+            scanned_at=NOON,
+            received_at=NOON,
+            item_count=1,
+            status="quarantined",
+        )
+    )
+    assert store.market_stamp(conn, FOREVER, ah) == before
+    prices.record_snapshot(conn, ah, "manual", NOON, [Observation(1, 60, NOON)])
+    assert store.market_stamp(conn, FOREVER, ah) != before  # an accepted one moves it

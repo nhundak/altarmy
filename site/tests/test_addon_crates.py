@@ -43,6 +43,18 @@ def test_really_runs_the_script(tmp_path: Path) -> None:
     assert note == "Alt Army Waylaid Crates: wrote WaylaidCrates.lua: 31 crates"
 
 
+def test_runs_the_writs_generator_too_when_it_is_there(tmp_path: Path) -> None:
+    addon = fake_addon(tmp_path)
+    (addon / addon_crates.WRITS_SCRIPT).write_text(
+        "import sys\nassert sys.argv[1] == '--db'\nprint('wrote Writs.lua: 150 writs')\n", encoding="utf-8"
+    )
+    note = addon_crates.regenerate(sqlite(tmp_path), "forever", addon=addon)
+    assert note == (
+        "Alt Army Waylaid Crates: wrote WaylaidCrates.lua: 31 crates\n"
+        "Alt Army Craftsman's Writs: wrote Writs.lua: 150 writs"
+    )
+
+
 def test_reports_a_failing_script_without_raising(tmp_path: Path) -> None:
     addon = fake_addon(tmp_path, "sys.exit('expected 31 Waylaid Crates, found 0')")
     note = addon_crates.regenerate(sqlite(tmp_path), "forever", addon=addon)

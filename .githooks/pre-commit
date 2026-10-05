@@ -1,8 +1,9 @@
 #!/bin/sh
 # Alt Army pre-commit hook (enabled by `npm install` in addon/, or `npm run hooks:install` there).
-# When the commit touches addon/, blocks it if addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua is out of
-# date with the site's game data (site/data/altarmy-profit.sqlite). Skips when that database or Python isn't
-# there, and does nothing for a commit that leaves addon/ alone.
+# When the commit touches addon/, blocks it if the addon's tables generated from the site's game data
+# (addon/AltArmy_TBC/Data/Economy/WaylaidCrates.lua and Writs.lua) are out of date with
+# site/data/altarmy-profit.sqlite. Skips when that database or Python isn't there, and does nothing for a
+# commit that leaves addon/ alone.
 
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
@@ -19,11 +20,13 @@ for cand in python3 python py; do
     fi
 done
 if [ -z "$PY" ]; then
-    echo "pre-commit: Python not found, skipping the Waylaid Crates check."
+    echo "pre-commit: Python not found, skipping the Waylaid Crates and Craftsman's Writs checks."
     exit 0
 fi
 
-"$PY" scripts/generate-waylaid-crates.py --check || {
-    echo "pre-commit: commit blocked. (Bypass once with git commit --no-verify.)"
-    exit 1
-}
+for script in scripts/generate-waylaid-crates.py scripts/generate-writs.py; do
+    "$PY" "$script" --check || {
+        echo "pre-commit: commit blocked. (Bypass once with git commit --no-verify.)"
+        exit 1
+    }
+done

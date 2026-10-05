@@ -15,7 +15,7 @@ Conventions for AI agents working in the `altarmy` monorepo: Alt Army, one produ
   `npm run check` on Ubuntu, the Lua tools cached), `addon-release` (`addon-v*` tags: CurseForge, Wago and a
   GitHub Release) and `game-data` (daily: `game_data.py`, below; its `GAME_DATA_TOKEN` secret pushes, so the
   workflows a push or tag starts still run).
-- `.githooks/pre-commit` – the addon's Waylaid Crates check, run only for commits touching `addon/` (enabled by
+- `.githooks/pre-commit` – the addon's Waylaid Crates and Craftsman's Writs checks, run only for commits touching `addon/` (enabled by
   `npm install` in `addon/`, which sets `core.hooksPath` at this root).
 - `.claude/skills/` – the addon's skills (paths inside them are relative to `addon/`).
 
@@ -37,8 +37,10 @@ The addon writes what the site reads, and the golden files live with the addon:
   the site unchanged.
 - The TOC's `## Interface:` lists exactly the interfaces of `site/src/altarmy_profit/versions.py`'s versions
   (`site/tests/test_versions.py`): a game patch moving one updates both.
-- `addon/scripts/generate-waylaid-crates.py` reads the site's development database (`site/data/altarmy-profit.sqlite`),
-  and `site`'s ingest regenerates the addon's Waylaid Crates table (`site/src/altarmy_profit/addon_crates.py`).
+- `addon/scripts/generate-waylaid-crates.py` and `generate-writs.py` read the site's development database
+  (`site/data/altarmy-profit.sqlite`; the writs one also the pinned build's cached ItemSparse and ItemNameDescription
+  tables), and `site`'s ingest regenerates the addon's Waylaid Crates and Craftsman's Writs tables
+  (`site/src/altarmy_profit/addon_crates.py`).
 - **Game data is on one pin**: `site/data/game-data.json` names each version's wago.tools build and emulator release.
   The site loads exactly that build (locally, and in prod after each deploy), and the addon's `RecipeData_*.lua`
   are made at it (`site/tests/test_versions.py`). `site/src/altarmy_profit/gamedata.py` (stdlib only) downloads
@@ -50,7 +52,7 @@ The addon writes what the site reads, and the golden files live with the addon:
 halves' generated data on the pin:
 
 - `status`: the pinned and newest builds and releases.
-- `update [--to latest|pinned]`: regenerates the addon's server facts, recipe data and Waylaid Crates and the site's
+- `update [--to latest|pinned]`: regenerates the addon's server facts, recipe data, Waylaid Crates and Craftsman's Writs and the site's
   vendor, recipe source and city files and zone maps, then writes the pins. `--to pinned` on a clean checkout must
   change nothing.
 - `release-addon`: `release.py addon --patch` when only generated data changed in `addon/AltArmy_TBC/` since the

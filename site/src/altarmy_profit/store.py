@@ -69,14 +69,17 @@ MarketStamp = tuple[str | None, int, int | None, int | None]
 
 def market_stamp(conn: Connection, game_version: str, auction_house_id: int | None) -> MarketStamp:
     """What a cached market was built from: the version's game data build and load count (a build loaded
-    again counts too), the auction house's newest snapshot (every price write adds one) and its price
-    version (every merge that changed something bumps it). If any moved, the market is stale."""
+    again counts too), the auction house's newest accepted snapshot (every price write adds one; a
+    quarantined one changes nothing a market reads) and its price version (every merge that changed
+    something bumps it). If any moved, the market is stale."""
     build, loads = db.get_loaded(conn, game_version)
     if auction_house_id is None:
         return build, loads, None, None
     snap = schema.price_snapshots
     newest = conn.execute(
-        select(func.max(snap.c.id)).where(snap.c.auction_house_id == auction_house_id)
+        select(func.max(snap.c.id)).where(
+            snap.c.auction_house_id == auction_house_id, snap.c.status == "accepted"
+        )
     ).scalar_one_or_none()
     return build, loads, newest, prices.price_version(conn, auction_house_id)
 
