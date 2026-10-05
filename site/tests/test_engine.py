@@ -1297,6 +1297,61 @@ def test_a_ranking_of_runs_plans_each_as_the_first_run_of_the_cheapest_climb() -
     assert m.evaluate(GREY_AT_60, crafts=3).crafts == 3  # type: ignore[union-attr]  # without runs: as asked
 
 
+def _maul_and_belt() -> tuple[Market, Recipe]:
+    """Novice at 45 skilling up blacksmithing, keeping what nobody buys: the maul (a point at
+    (60 - skill) / 20 from 40) is the cheaper start, until the belt (orange until 50, grey at 70) takes
+    over."""
+    belt = Recipe(
+        22,
+        "Copper Belt",
+        10,
+        1,
+        ((COPPER, 20),),
+        "Blacksmithing",
+        spell_id=952,
+        trivial_low=50,
+        trivial_high=70,
+    )
+    novice = replace(NOVICE_SMITH, known_spells=frozenset({951, 952}))
+    unsold = (Item(10, "Copper Belt"), Item(MAUL, "Heavy Copper Maul", class_id=2, sell_price=0))
+    m = maul_market(
+        novice,
+        LEATHERY,
+        recipes=(CURE, GREY_AT_60, belt),
+        skill_crafters=frozenset({"Novice"}),
+        extra_items=unsold,
+        exits=frozenset({"vendor", KEEP_EXIT}),
+    )
+    return m, belt
+
+
+def test_a_climb_never_crafts_a_banned_recipe() -> None:
+    m, belt = _maul_and_belt()
+    unbanned = m.evaluate(GREY_AT_60, skill_run=engine.SkillRuns())
+    assert unbanned is not None and unbanned.stop_reason == "rival" and unbanned.climb_without == frozenset()
+    # without the belt the maul's run goes on until it is about to turn grey, and nothing follows it
+    no_belt = engine.SkillRuns(banned=frozenset({belt.id}))
+    alone = m.evaluate(GREY_AT_60, skill_run=no_belt)
+    assert alone is not None
+    assert (alone.stop_reason, alone.stop_skill, alone.overtaken_by) == ("trivial", 60, "")
+    assert alone.crafts > unbanned.crafts and alone.climb_after == ()
+    assert alone.climb_without == frozenset({belt.id})
+    # the belt's climb never comes back to a banned maul, and the banned recipe gets no run of its own
+    no_maul = engine.SkillRuns(banned=frozenset({GREY_AT_60.id}))
+    belt_run = m.evaluate(belt, skill_run=no_maul)
+    assert belt_run is not None
+    assert all(r.recipe != GREY_AT_60 for r in belt_run.climb_after)
+    assert m.evaluate(GREY_AT_60, skill_run=no_maul) is None
+    ranked = m.rank(min_profit=-(10**9), skill_run=no_maul)
+    assert [r.recipe.name for r in ranked] == ["Copper Belt"]
+    # each set of bans has its climb: asking again without any gives the run as before
+    again = m.evaluate(GREY_AT_60, skill_run=engine.SkillRuns())
+    assert again is not None and (again.crafts, again.climb_cost) == (unbanned.crafts, unbanned.climb_cost)
+    # a later run given as it is ignores the bans: it was planned already
+    given = engine.SkillRun(7, 52, "rival", None, 9, (0.5,) * 29, GREY_AT_60, 45)
+    assert m.evaluate(GREY_AT_60, skill_run=no_maul, stretch=given) is not None
+
+
 def test_a_given_run_is_planned_as_it_is() -> None:
     novice = replace(NOVICE_SMITH, known_spells=frozenset({951}))
     m = maul_market(novice, LEATHERY, recipes=(CURE, GREY_AT_60), skill_crafters=frozenset({"Novice"}))

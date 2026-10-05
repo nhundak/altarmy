@@ -20,6 +20,8 @@ export type ItemMap = Readonly<Record<string, ItemInfo>>
 export type Characters = components['schemas']['Characters']
 /** Which game's data a request is about: `tbc` or `forever`. */
 export type GameVersion = components['schemas']['VersionOut']['key']
+/** A rank a profession trainer teaches: from `train_at` skill and character `level`, up to `cap`. */
+export type ProfessionRank = components['schemas']['ProfessionRankOut']
 export type CharacterGroup = components['schemas']['GroupOut']
 export type Selection = components['schemas']['SelectionModel']
 /** Items never sold on the AH, with tooltip details. */

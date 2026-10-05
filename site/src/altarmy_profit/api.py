@@ -419,6 +419,9 @@ class RankResult(BaseModel):
     # bought for each run, patterns); None for a later run of a climb, without a run, or when a pattern the
     # climb buys has no known price
     climb_cost: int | None = None
+    # the recipes (ids) this run's climb never crafts: the options before it, passed over (`climb_options`);
+    # send them as /api/evaluate's `climb_without` to plan the run again
+    climb_without: list[int] = []
 
 
 class ConfidenceOut(BaseModel):
@@ -485,6 +488,8 @@ class RankResponse(BaseModel):
     # as `chain` (without `chain_from`): the `SKILL_OPTIONS` runs starting the cheapest climbs, cheapest
     # first, each what picking it gives
     options: list[RankResult] = []
+    # each option's `chain` (`SKILL_CHAIN` runs at most), in the options' order: the first is `chain`'s start
+    option_chains: list[list[RankResult]] = []
     hidden_by_verdict: int = 0  # matches left out by `min_verdict`
 
 
@@ -505,6 +510,7 @@ class EvaluateRequest(BaseModel):
     # that many crafts at once; None: the user's batch, as ranked (or the run, with `runs`)
     copies: int | None = Field(default=None, ge=1, le=1000)
     runs: bool = False  # as /api/rank's: plan the run, unless `copies` is given
+    climb_without: list[int] = []  # with `runs`: recipes the climb never crafts (`RankResult.climb_without`)
     gathered: list[int] = []  # as /api/rank's
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
@@ -628,6 +634,15 @@ class Characters(BaseModel):
     arcane_salvager: bool = False
 
 
+class ProfessionRankOut(BaseModel):
+    """A profession rank: taught from `train_at` skill and character `level`, the skill goes up to `cap`."""
+
+    name: str
+    train_at: int
+    level: int
+    cap: int
+
+
 class VersionOut(BaseModel):
     """A game version the app serves; pass its `key` as `game_version` to the other routes."""
 
@@ -636,6 +651,8 @@ class VersionOut(BaseModel):
     build: str | None  # the DB2 build loaded, None before the first game data download
     recipes: int
     ah_cut: float  # the auction house's cut of a sale (0.05: 5%)
+    # the ranks a profession trainer teaches, lowest first (`versions.ProfessionRank`)
+    profession_ranks: list[ProfessionRankOut]
 
 
 class FirebaseOut(BaseModel):
@@ -1117,6 +1134,7 @@ def get_rank(
     # One profession is ranked alone (most of the work skipped); several are narrowed from the full ranking.
     skill_name = professions[0] if professions and len(professions) == 1 else None
     run = engine.SkillRuns() if runs and skilled else None
+    chars = _trained_up(state, chars, skilled, skill_name, runs)
     gather = service.gather_values(base, gathered) if gathered else None
     key = (
         whose,
@@ -1188,26 +1206,52 @@ def get_rank(
     chain: list[engine.Result] = []
     start: engine.Result | None = None
     options: list[engine.Result] = []
+    option_chains: list[list[engine.Result]] = []
 
     if sort == "skill" and skill_name and run is not None and len(skilled) == 1 and matches:
-        if chain_from is None:  # the runs starting the cheapest climbs
-            for r in matches[:SKILL_OPTIONS]:
-                if r.climb_cost is None or not r.skill_ups:
-                    break
-                options.append(r)
+        # the runs starting the cheapest climbs, each planned again never to craft those before it
+        leaders: list[engine.Result] = []
+        for r in matches[:SKILL_OPTIONS]:
+            if r.climb_cost is None or not r.skill_ups:
+                break
+            leaders.append(r)
+        options_key = (key, "options", tuple(r.recipe.id for r in leaders))
+        sides = state.rank_cache.get(options_key, base)
+        if sides is None:
+            sides = service.climb_options(
+                base,
+                chars,
+                learning,
+                frozenset(exits),
+                no_ah,
+                include_trivial,
+                s.time,
+                skilled,
+                arcane_salvager,
+                run,
+                leaders,
+                gathered=gather,
+                learn_costs=_climb_learn_costs(state, s, skill_name, skilled),
+            )
+            state.rank_cache.put(options_key, base, sides)
+        if chain_from is None:
+            options = list(sides)
+        # a pick among the options is its run as the options show it; any other, as ranked
         first = (
             matches[0]
             if chain_from is None
-            else next((r for r in matches if r.recipe.id == chain_from), None)
+            else next((r for r in sides if r.recipe.id == chain_from), None)
+            or next((r for r in matches if r.recipe.id == chain_from), None)
         )
         start = first
-        if first is not None:
+
+        def chain_of(first: engine.Result, length: int) -> list[engine.Result]:
             # the longest chain worked out yet, continued when a longer one is asked for and it didn't end
             # (an ended chain is marked under its own key)
-            chain_key = (key, "chain", first.recipe.id)
-            ended_key = (key, "chain-ended", first.recipe.id)
+            chain_key = (key, "chain", first.recipe.id, first.climb_without)
+            ended_key = (key, "chain-ended", first.recipe.id, first.climb_without)
             found = state.rank_cache.get(chain_key, base)
-            if found is None or (len(found) < chain_length and state.rank_cache.get(ended_key, base) is None):
+            if found is None or (len(found) < length and state.rank_cache.get(ended_key, base) is None):
                 found = service.skill_chain(
                     base,
                     chars,
@@ -1220,18 +1264,27 @@ def get_rank(
                     arcane_salvager,
                     run,
                     first=first,
-                    steps=chain_length,
+                    steps=length,
                     gathered=gather,
                     done=found or [],
                 )
                 state.rank_cache.put(chain_key, base, found)
-                if len(found) < chain_length:
+                if len(found) < length:
                     state.rank_cache.put(ended_key, base, [])
-            chain = found[:chain_length]
-    chain_costs = _learn_costs(state, s, chain)
-    chain_out = [_result_out(r, base, crafters, s, chain_costs.get(r.recipe.id, 0)) for r in chain]
-    if start is not None:
-        _learned_on_the_way(start.recipe.id, chain_out)
+            return found[:length]
+
+        if first is not None:
+            chain = chain_of(first, chain_length)
+        option_chains = [chain[:SKILL_CHAIN] if o is first else chain_of(o, SKILL_CHAIN) for o in options]
+
+    def chain_out_of(first: engine.Result, runs: list[engine.Result]) -> list[RankResult]:
+        costs = _learn_costs(state, s, runs)
+        got = [_result_out(r, base, crafters, s, costs.get(r.recipe.id, 0)) for r in runs]
+        _learned_on_the_way(first.recipe.id, got)
+        return got
+
+    chain_out = chain_out_of(start, chain) if start is not None else []
+    option_chains_out = [chain_out_of(o, c) for o, c in zip(options, option_chains, strict=True)]
     start_out = None
     if chain_from is not None and start is not None:
         start_out = _result_out(
@@ -1244,8 +1297,14 @@ def get_rank(
         *(_result_out(r, base, crafters, s, options_costs.get(r.recipe.id, 0)) for r in options[1:]),
     ][: len(options)]
     start_extra = [start] if start is not None and start_out is not None else []
-    shown = [*results, *chain, *start_extra, *options[1:]]
-    shown_out = [*out, *chain_out, *([start_out] if start_out is not None else []), *options_out[1:]]
+    shown = [*results, *chain, *start_extra, *options[1:], *(r for c in option_chains for r in c)]
+    shown_out = [
+        *out,
+        *chain_out,
+        *([start_out] if start_out is not None else []),
+        *options_out[1:],
+        *(r for c in option_chains_out for r in c),
+    ]
     return RankResponse(
         total=len(matches),
         classes={c.name: c.class_file for c in chars},
@@ -1255,6 +1314,7 @@ def get_rank(
         chain=chain_out,
         chain_start=start_out,
         options=options_out,
+        option_chains=option_chains_out,
         hidden_by_verdict=hidden,
     )
 
@@ -1266,12 +1326,15 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     s = _selected(state, user, body.price_version)
     with _http_errors():
         time = service.session_model(s.time, s.cities, body.city)
-    run = engine.SkillRuns() if body.runs and body.copies is None else None
+    run = (
+        engine.SkillRuns(banned=frozenset(body.climb_without)) if body.runs and body.copies is None else None
+    )
     recipe_skill = next((r.skill_name for r in s.base.recipes if r.id == body.recipe_id), None)
     skilled = frozenset(body.skill_crafters)
     r = service.evaluate(
         s.base,
-        s.chars,
+        # a run planned for its crafts too: its skill points are the run's, past the uploaded cap
+        _trained_up(state, s.chars, skilled, recipe_skill, body.runs),
         engine.Learning(body.unlearned, body.look_ahead, frozenset(body.sources)),
         frozenset(body.exits),
         body.recipe_id,
@@ -1393,6 +1456,22 @@ def _learned_on_the_way(first: int, chain: Sequence[RankResult]) -> None:
             r.learn_cost = 0
             r.crafters = sorted({*r.crafters, r.crafter})
         seen.add(r.recipe_id)
+
+
+def _trained_up(
+    state: AppState,
+    chars: list[altarmy.Character],
+    skilled: frozenset[str],
+    skill_name: str | None,
+    climbing: bool,
+) -> list[altarmy.Character]:
+    """For a climb (`runs` asked for, one character skilled up; planned for some copies too), `chars` with
+    the climber's profession capped at the version's highest skill: they are assumed to train each rank as
+    they come to it (the skill workspace reminds them where, from `/api/versions`' `profession_ranks`)."""
+    if not climbing or len(skilled) != 1:
+        return chars
+    (name,) = skilled
+    return service.trained_up(chars, name, skill_name, state.version.max_skill)
 
 
 def _climb_learn_costs(
@@ -1672,6 +1751,7 @@ def _result_out(
         crafts_p80=r.crafts_p80,
         reach_chances=[round(c, 4) for c in r.reach_chances],
         climb_cost=round(r.climb_cost) if r.climb_cost is not None and not r.climb_unknown else None,
+        climb_without=sorted(r.climb_without),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
         timing=None
         if t is None or r.time_model is None
@@ -2115,6 +2195,10 @@ def get_versions(request: Request) -> list[VersionOut]:
                 build=build,
                 recipes=recipes,
                 ah_cut=state.version.ah_cut,
+                profession_ranks=[
+                    ProfessionRankOut(name=r.name, train_at=r.train_at, level=r.level, cap=r.cap)
+                    for r in state.version.profession_ranks
+                ],
             )
         )
     return out

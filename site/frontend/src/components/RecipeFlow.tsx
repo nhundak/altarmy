@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { createContext, useContext, useMemo } from 'react'
 import { useComputedColorScheme } from '@mantine/core'
 import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
 import type { ItemMap, RankResult } from '../api/client'
@@ -23,7 +23,18 @@ import classes from './RecipeFlow.module.css'
 const MAX_HEIGHT = 480
 const PADDING = 32
 
-function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap }) {
+/** What the nodes show beside their own data: the result charted and the item details. Through a context, so the
+ * node types stay the same objects and a new plan or item map never remounts the nodes (closing a menu open on one). */
+const FlowContext = createContext<{ result: RankResult; items: ItemMap } | null>(null)
+
+function useFlow() {
+  const flow = useContext(FlowContext)
+  if (!flow) throw new Error('a flow node outside RecipeFlow')
+  return flow
+}
+
+function ItemNode({ data }: NodeProps<ItemFlowNode>) {
+  const { items } = useFlow()
   const {
     itemId,
     name,
@@ -99,11 +110,8 @@ function MailNode({ data: { to, postage, quantity } }: NodeProps<MailFlowNode>) 
   )
 }
 
-function SellNode({
-  data: { exit, revenue, profit, bonus, seller, options },
-  result,
-  items,
-}: NodeProps<SellFlowNode> & { result: RankResult; items: ItemMap }) {
+function SellNode({ data: { exit, revenue, profit, bonus, seller, options } }: NodeProps<SellFlowNode>) {
+  const { result, items } = useFlow()
   const text = SELL_TEXT[exit] ?? `Sell via ${exit}`
   return (
     <div className={`${classes.node} ${classes.sell}`}>
@@ -133,41 +141,38 @@ function SellNode({
   )
 }
 
+const NODE_TYPES: NodeTypes = { item: ItemNode, mail: MailNode, sell: SellNode }
+
 /** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, mailing, then the sale. With
  * `editing`, nodes with alternatives get a menu of them (Reset and progress are the caller's to show). */
 export function RecipeFlow({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: PlanEditing }) {
   const colorScheme = useComputedColorScheme('light')
   const flow = useMemo(() => buildFlow(result), [result])
-  const nodeTypes = useMemo<NodeTypes>(
-    () => ({
-      item: (props: NodeProps<ItemFlowNode>) => <ItemNode {...props} items={items} />,
-      mail: MailNode,
-      sell: (props: NodeProps<SellFlowNode>) => <SellNode {...props} result={result} items={items} />,
-    }),
-    [result, items],
-  )
+  const shown = useMemo(() => ({ result, items }), [result, items])
   return (
-    <ChooseContext.Provider value={editing?.onChoose}>
-      <div style={{ height: Math.min(flow.height + PADDING * 2, MAX_HEIGHT) }}>
-        <ReactFlow
-          nodes={flow.nodes}
-          edges={flow.edges}
-          nodeTypes={nodeTypes}
-          colorMode={colorScheme}
-          style={{ background: 'transparent' }}
-          fitView
-          fitViewOptions={{ padding: `${PADDING}px`, maxZoom: 1 }}
-          minZoom={0.3}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          zoomOnScroll={false}
-          preventScrolling={false}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Controls showInteractive={false} />
-        </ReactFlow>
-      </div>
-    </ChooseContext.Provider>
+    <FlowContext.Provider value={shown}>
+      <ChooseContext.Provider value={editing?.onChoose}>
+        <div style={{ height: Math.min(flow.height + PADDING * 2, MAX_HEIGHT) }}>
+          <ReactFlow
+            nodes={flow.nodes}
+            edges={flow.edges}
+            nodeTypes={NODE_TYPES}
+            colorMode={colorScheme}
+            style={{ background: 'transparent' }}
+            fitView
+            fitViewOptions={{ padding: `${PADDING}px`, maxZoom: 1 }}
+            minZoom={0.3}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            zoomOnScroll={false}
+            preventScrolling={false}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Controls showInteractive={false} />
+          </ReactFlow>
+        </div>
+      </ChooseContext.Provider>
+    </FlowContext.Provider>
   )
 }

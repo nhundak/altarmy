@@ -6,6 +6,7 @@ import {
   call,
   client,
   type Evaluation,
+  type ProfessionRank,
   type Selection,
   type Status,
   type TimeConfig,
@@ -203,7 +204,13 @@ export function useRank(
 export type EvaluateParams = Pick<
   RankParams,
   'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
-> & { runs?: boolean; gathered?: number[]; version?: string }
+> & {
+  runs?: boolean
+  gathered?: number[]
+  version?: string
+  /** with `runs`: the recipes the run's climb never crafts (its `climb_without`), when no `copies` are planned */
+  climbWithout?: number[]
+}
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -234,6 +241,7 @@ export function useEvaluations(
               runs: runs ?? false,
               gathered: gathered ?? [],
               choices: choices[id] ?? {},
+              climb_without: [], // the results table's rows: none left out
               price_version: priceVersion,
             },
           }),
@@ -255,16 +263,18 @@ export function useEvaluations(
  * until they move: never stale. */
 function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climbWithout }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
   crafter: string | null,
   priceVersion: number | undefined,
 ) {
+  // a run planned for some copies is those crafts whatever its climb leaves out
+  const without = runs && copies === null ? (climbWithout ?? []) : []
   return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter, without],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -282,6 +292,7 @@ function sessionPlanQuery(
             gathered: gathered ?? [],
             choices: choices ?? {},
             copies: copies ?? undefined,
+            climb_without: without,
             city: city ?? undefined,
             crafter: crafter ?? undefined,
             price_version: priceVersion,
@@ -348,6 +359,13 @@ export function useVersions() {
 /** The auction house's cut of a sale for this game version (5% until the versions load). */
 export function useAhCut(): number {
   return useVersions().data?.find((v) => v.key === GAME_VERSION)?.ah_cut ?? 0.05
+}
+
+const NO_RANKS: ProfessionRank[] = []
+
+/** The ranks a profession trainer teaches in this game version, lowest first (none until the versions load). */
+export function useProfessionRanks(): ProfessionRank[] {
+  return useVersions().data?.find((v) => v.key === GAME_VERSION)?.profession_ranks ?? NO_RANKS
 }
 
 /** Keep retrying a query the app can't do without (signing in), backing off to every 30 s. */

@@ -686,6 +686,11 @@ export interface components {
             };
             /** City */
             city?: string | null;
+            /**
+             * Climb Without
+             * @default []
+             */
+            climb_without: number[];
             /** Copies */
             copies?: number | null;
             /** Crafter */
@@ -1241,6 +1246,20 @@ export interface components {
             /** Recipes */
             recipes: number;
         };
+        /**
+         * ProfessionRankOut
+         * @description A profession rank: taught from `train_at` skill and character `level`, the skill goes up to `cap`.
+         */
+        ProfessionRankOut: {
+            /** Cap */
+            cap: number;
+            /** Level */
+            level: number;
+            /** Name */
+            name: string;
+            /** Train At */
+            train_at: number;
+        };
         /** RankResponse */
         RankResponse: {
             /**
@@ -1269,6 +1288,11 @@ export interface components {
             learn: {
                 [key: string]: components["schemas"]["LearnOut"];
             };
+            /**
+             * Option Chains
+             * @default []
+             */
+            option_chains: components["schemas"]["RankResult"][][];
             /**
              * Options
              * @default []
@@ -1302,6 +1326,11 @@ export interface components {
             cities: components["schemas"]["CityTimingOut"][];
             /** Climb Cost */
             climb_cost?: number | null;
+            /**
+             * Climb Without
+             * @default []
+             */
+            climb_without: number[];
             confidence?: components["schemas"]["ConfidenceOut"] | null;
             /** Cost */
             cost: number;
@@ -1798,6 +1827,8 @@ export interface components {
             key: "tbc" | "forever";
             /** Label */
             label: string;
+            /** Profession Ranks */
+            profession_ranks: components["schemas"]["ProfessionRankOut"][];
             /** Recipes */
             recipes: number;
         };

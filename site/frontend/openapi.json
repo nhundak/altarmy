@@ -622,6 +622,14 @@
             ],
             "title": "City"
           },
+          "climb_without": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Climb Without",
+            "type": "array"
+          },
           "copies": {
             "anyOf": [
               {
@@ -2039,6 +2047,35 @@
         "title": "ProfessionOut",
         "type": "object"
       },
+      "ProfessionRankOut": {
+        "description": "A profession rank: taught from `train_at` skill and character `level`, the skill goes up to `cap`.",
+        "properties": {
+          "cap": {
+            "title": "Cap",
+            "type": "integer"
+          },
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "train_at": {
+            "title": "Train At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "train_at",
+          "level",
+          "cap"
+        ],
+        "title": "ProfessionRankOut",
+        "type": "object"
+      },
       "RankResponse": {
         "properties": {
           "chain": {
@@ -2085,6 +2122,17 @@
             "default": {},
             "title": "Learn",
             "type": "object"
+          },
+          "option_chains": {
+            "default": [],
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/RankResult"
+              },
+              "type": "array"
+            },
+            "title": "Option Chains",
+            "type": "array"
           },
           "options": {
             "default": [],
@@ -2163,6 +2211,14 @@
               }
             ],
             "title": "Climb Cost"
+          },
+          "climb_without": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Climb Without",
+            "type": "array"
           },
           "confidence": {
             "anyOf": [
@@ -3300,6 +3356,13 @@
             "title": "Label",
             "type": "string"
           },
+          "profession_ranks": {
+            "items": {
+              "$ref": "#/components/schemas/ProfessionRankOut"
+            },
+            "title": "Profession Ranks",
+            "type": "array"
+          },
           "recipes": {
             "title": "Recipes",
             "type": "integer"
@@ -3310,7 +3373,8 @@
           "label",
           "build",
           "recipes",
-          "ah_cut"
+          "ah_cut",
+          "profession_ranks"
         ],
         "title": "VersionOut",
         "type": "object"

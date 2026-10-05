@@ -328,9 +328,12 @@ class Candidate:
 @dataclass(frozen=True)
 class SkillRuns:
     """Rank each recipe as the first run of the cheapest climb that starts with it (`plan_climb`), no run
-    asking for more than `ceiling` crafts: a longer one goes on as another of the same recipe."""
+    asking for more than `ceiling` crafts: a longer one goes on as another of the same recipe. The climbs
+    never craft the `banned` recipes (ids), which get no run: what the user passed over (the skill
+    workspace's other options)."""
 
     ceiling: int = RUN_CEILING
+    banned: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -736,6 +739,8 @@ class Result:
     climb_cost: float | None = field(default=None, compare=False)
     climb_unknown: int = field(default=0, compare=False)
     climb_after: tuple[SkillRun, ...] = field(default=(), compare=False, repr=False)
+    # the recipes (ids) the climb never crafts (`SkillRuns.banned`); empty unless the first run of a climb
+    climb_without: frozenset[int] = field(default=frozenset(), compare=False)
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
     # seconds of the sale and of mailing the output to whoever sells it
     seconds: float = field(default=0.0, compare=False)
@@ -1389,7 +1394,7 @@ class Market:
         self.later_recipes = tuple(later_recipes)
         self.learn_costs: Mapping[int, float | None] = dict(learn_costs or {})
         self._candidate_cache: dict[tuple[str, str], list[Candidate]] = {}
-        self._climb_cache: dict[tuple[str, str, int], Climb] = {}
+        self._climb_cache: dict[tuple[str, str, int, frozenset[int]], Climb] = {}
         self.recipes = recipes
         self.prices = prices
         self.books = books or {}
@@ -1924,6 +1929,8 @@ class Market:
                 and not recipe.anyone
                 and crafter.skill(recipe.skill_name) is not None
             )
+            if climbs and stretch is None and skill_run is not None and recipe.id in skill_run.banned:
+                continue  # passed over: no run of it
             plan = (
                 self._climb(recipe.skill_name, crafter, skill_run, memo).first(recipe.id)
                 if climbs and stretch is None and crafter is not None and skill_run is not None
@@ -2000,6 +2007,9 @@ class Market:
                     climb_cost=plan.cost if plan is not None else None,
                     climb_unknown=plan.unknown if plan is not None else 0,
                     climb_after=plan.runs[1:] if plan is not None else (),
+                    climb_without=skill_run.banned
+                    if plan is not None and skill_run is not None
+                    else frozenset(),
                 )
         if not by_exit:
             return None
@@ -2010,11 +2020,15 @@ class Market:
         return picked
 
     def _climb(self, skill_name: str, crafter: Crafter, runs: SkillRuns, memo: Memo) -> Climb:
-        """`crafter`'s climbs up `skill_name` (`plan_climb`) over `_candidates`; worked out once a market."""
-        key = (skill_name.lower(), crafter.name, runs.ceiling)
+        """`crafter`'s climbs up `skill_name` (`plan_climb`) over `_candidates` but `runs.banned`; worked out
+        once a market for each set of banned recipes."""
+        key = (skill_name.lower(), crafter.name, runs.ceiling, runs.banned)
         found = self._climb_cache.get(key)
         if found is None:
-            found = plan_climb(crafter, skill_name, self._candidates(skill_name, crafter, memo), runs.ceiling)
+            candidates = [
+                c for c in self._candidates(skill_name, crafter, memo) if c.recipe.id not in runs.banned
+            ]
+            found = plan_climb(crafter, skill_name, candidates, runs.ceiling)
             self._climb_cache[key] = found
         return found
 

@@ -1,4 +1,4 @@
-import type { FlowNode, RankResult } from '../api/client'
+import type { FlowNode, ProfessionRank, RankResult } from '../api/client'
 
 /*
  * Skilling up: what a skill point costs, and how far a run of a recipe goes (the server's `runs`: the first run of
@@ -9,12 +9,22 @@ import type { FlowNode, RankResult } from '../api/client'
 export const perPoint = (r: Pick<RankResult, 'profit' | 'skill_ups'>): number | null =>
   r.skill_ups ? -r.profit / r.skill_ups : null
 
-/** How much more the whole climb costs starting with this run than starting with the best (copper, above 0);
- * null when it costs no more, or either climb's cost is unknown. */
-export function climbExtra(r: Pick<RankResult, 'climb_cost'>, best: Pick<RankResult, 'climb_cost'> | undefined): number | null {
-  if (r.climb_cost == null || best?.climb_cost == null) return null
-  const extra = r.climb_cost - best.climb_cost
-  return extra > 0 ? extra : null
+/** The profession ranks to train during a run from `from` to `to` skill (the climb assumes the climber trains each
+ * as it comes): those above the cap they have (`maxRank`) that a trainer teaches by `to`, and not before `from`,
+ * where the run before already said so; the `first` run, from the climber's own skill, says every one they can train
+ * already. Each with the cap the skill stops at without it. */
+export function ranksToTrain(
+  ranks: readonly ProfessionRank[],
+  maxRank: number,
+  from: number,
+  to: number,
+  first: boolean,
+): { rank: ProfessionRank; stopsAt: number }[] {
+  return ranks.flatMap((rank, i) =>
+    rank.cap > maxRank && rank.train_at <= to && (first || rank.train_at > from)
+      ? [{ rank, stopsAt: ranks[i - 1]?.cap ?? maxRank }]
+      : [],
+  )
 }
 
 type Count = Pick<RankResult, 'crafts' | 'stop_skill' | 'reach_chances'>

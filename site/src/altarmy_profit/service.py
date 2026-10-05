@@ -301,10 +301,8 @@ def evaluate(
         if stretch is None
         else []
     )
-    found = []
-    same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
-    for n, model in enumerate(models):
-        market = _market(
+    markets = [
+        _market(
             base,
             chars,
             unlearned,
@@ -319,6 +317,26 @@ def evaluate(
             later,
             learn_costs,
         )
+        for model in models
+    ]
+    return _evaluate_in(markets, differ, time, recipe_id, choices, crafts, skill_run, stretch)
+
+
+def _evaluate_in(
+    markets: Sequence[Market],
+    differ: frozenset[int],
+    time: TimeModel | None,
+    recipe_id: int,
+    choices: Choices,
+    crafts: int,
+    skill_run: SkillRuns | None,
+    stretch: SkillRun | None = None,
+) -> Result | None:
+    """`evaluate` on its markets, one per group of cities that charge the characters differently
+    (`_models`, `differ` the items priced differently): the recipe where it is worth most."""
+    found = []
+    same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
+    for n, market in enumerate(markets):
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
             return None
@@ -331,9 +349,80 @@ def evaluate(
             found.append(result)
     if not found:
         return None
-    if time is None or len(models) == 1:
+    if time is None or len(markets) == 1:
         return found[0]
-    return _pick_city(found, same or len(found) == len(models), time.fastest)
+    return _pick_city(found, same or len(found) == len(markets), time.fastest)
+
+
+def climb_options(
+    base: Market,
+    chars: Sequence[Character],
+    unlearned: Learning | Unlearned,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
+    include_trivial: bool,
+    time: TimeModel | None,
+    skill_crafters: frozenset[str],
+    arcane_salvager: bool,
+    skill_run: SkillRuns,
+    ranked: Sequence[Result],
+    gathered: Mapping[int, int] | None = None,
+    learn_costs: Mapping[int, float | None] | None = None,
+) -> list[Result]:
+    """The skill workspace's options side by side: `ranked`, the first few runs of a `search` with
+    `skill_run`, each planned again as the first run of the cheapest climb that never crafts the options
+    before it (`SkillRuns.banned`): someone looking past the best option doesn't want it, so the second
+    option's climb never comes back to the first, the third's to either. The first stays as it is; one
+    that no longer gives a point is left out, and those after it may craft it (only the options shown are
+    passed over). Planned on one set of markets, as `evaluate` plans a run."""
+    if not ranked:
+        return []
+    out = [ranked[0]]
+    if len(ranked) == 1:
+        return out
+    if time is not None:
+        time = session_model(time, (), None)
+    skill_name = ranked[0].recipe.skill_name
+    models, differ = _models(base, chars, time)
+    later = later_recipes(
+        base,
+        chars,
+        unlearned,
+        exits,
+        no_ah,
+        skill_crafters,
+        arcane_salvager,
+        skill_name,
+        skill_run,
+        gathered,
+        models[0],
+    )
+    markets = [
+        _market(
+            base,
+            chars,
+            unlearned,
+            exits,
+            no_ah,
+            include_trivial,
+            model,
+            skill_crafters,
+            "",
+            arcane_salvager,
+            gathered,
+            later,
+            learn_costs,
+        )
+        for model in models
+    ]
+    for r in ranked[1:]:
+        banned = skill_run.banned | {p.recipe.id for p in out}
+        found = _evaluate_in(
+            markets, differ, time, r.recipe.id, {}, r.crafts, replace(skill_run, banned=frozenset(banned))
+        )
+        if found is not None and found.skill_ups:
+            out.append(found)
+    return out
 
 
 PriceTerms = frozenset[tuple[int, int, int]]  # `engine.city_prices`: what a city's vendors take off for whom
@@ -866,6 +955,25 @@ def at_skill(chars: Sequence[Character], name: str, skill_name: str, level: int)
             c,
             professions=tuple(
                 replace(p, rank=max(p.rank, level)) if p.name.lower() == wanted else p for p in c.professions
+            ),
+        )
+
+    return [raised(c) for c in chars]
+
+
+def trained_up(chars: Sequence[Character], name: str, skill_name: str | None, cap: int) -> list[Character]:
+    """`chars` with `name`'s `skill_name` (every profession, without one) capped at `cap` (never lowered): a
+    climb assumes the one skilled up trains each profession rank as they come to it."""
+    wanted = skill_name.lower() if skill_name else None
+
+    def raised(c: Character) -> Character:
+        if c.name != name:
+            return c
+        return replace(
+            c,
+            professions=tuple(
+                replace(p, max_rank=max(p.max_rank, cap)) if wanted in (None, p.name.lower()) else p
+                for p in c.professions
             ),
         )
 

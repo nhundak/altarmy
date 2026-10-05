@@ -713,6 +713,7 @@ def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     # from 20 the robe takes ~130 crafts to grey: more than a run asks for (100), so another run of it follows
     assert r["stop_reason"] == "ceiling" and r["crafts"] <= 100 and r["overtaken_by"] == ""
     (then,) = ranked["chain"]
+    assert ranked["option_chains"] == [ranked["chain"]]  # each option's chain: here the one option's
     assert (then["recipe_id"], then["stop_skill"], then["stop_reason"]) == (r["recipe_id"], 60, "trivial")
     assert then["climb_cost"] is None  # a later run of the climb
     assert then["skill_chance"] < 1  # planned from where the first run stops: yellow by then
@@ -729,6 +730,127 @@ def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     )  # as ranked
     got = client.post("/api/evaluate", json={**body, "runs": True, "copies": 12}).json()
     assert got["result"]["crafts"] == 12  # copies asked for win
+
+
+def test_a_climb_goes_on_past_the_climbers_rank_cap(client: TestClient, priced: Connection) -> None:
+    # capped at 55, they are assumed to train the next rank: the robe's run goes on until it turns grey at 60
+    capped = Character(
+        "Realm", "Capped", "Horde", "MAGE", 30, (Profession("Tailoring", 50, 55, frozenset({900})),)
+    )
+    service.replace_characters(priced, ME, FOREVER, [capped])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params = {**SKILL_UP, "skill_crafters": ["Capped"], "runs": True}
+    (r,) = client.get("/api/rank", params=params).json()["results"]
+    assert (r["stop_skill"], r["stop_reason"]) == (60, "trivial")
+    body = {
+        "recipe_id": r["recipe_id"],
+        "choices": {},
+        "include_trivial": False,
+        "skill_crafters": ["Capped"],
+    }
+    got = client.post("/api/evaluate", json={**body, "exits": ["vendor", "keep"], "runs": True}).json()
+    assert got["result"]["stop_skill"] == 60  # as ranked
+    # planned for the crafts bought for, the run is trained up too: its skill points past the cap
+    copies = client.post(
+        "/api/evaluate", json={**body, "exits": ["vendor", "keep"], "runs": True, "copies": r["crafts_p80"]}
+    ).json()["result"]
+    assert copies["crafts"] == r["crafts_p80"] and copies["skill_ups"] > 5
+    # at the cap itself, the run and its crafts still give points (the next rank is assumed trained)
+    at_cap = replace(capped, professions=(Profession("Tailoring", 55, 55, frozenset({900})),))
+    service.replace_characters(priced, ME, FOREVER, [at_cap])
+    (r,) = client.get("/api/rank", params=params).json()["results"]
+    assert r["stop_skill"] == 60
+    planned = client.post(
+        "/api/evaluate", json={**body, "exits": ["vendor", "keep"], "runs": True, "copies": r["crafts_p80"]}
+    )
+    assert planned.status_code == 200 and planned.json()["result"]["skill_ups"] > 0
+    # without runs nothing is assumed: at the cap a batch of crafts gives no point, so nothing ranks
+    assert client.get("/api/rank", params={**SKILL_UP, "skill_crafters": ["Capped"]}).json()["results"] == []
+
+
+def tailoring_options(conn: Connection) -> tuple[int, int, int]:
+    """Two more Tailoring recipes beside the Green Robe (10 linen and a thread; yellow from 30, grey at 60),
+    each making an item of its own: the Linen Cap (1 linen; yellow from 45, grey at 90) and the Linen Belt
+    (2 linen; yellow from 48, grey at 95). A tailor at 50 who knows all three: the cap is the cheapest
+    point, the belt the next, the robe the dearest. Their recipe ids (robe, cap, belt)."""
+    robe = (
+        conn.execute(select(schema.recipes).where(schema.recipes.c.game_version == FOREVER)).mappings().one()
+    )
+    item = (
+        conn.execute(select(schema.items).where(schema.items.c.id == robe["output_item_id"])).mappings().one()
+    )
+    for n, (name, linen, low, high) in enumerate(
+        (("Linen Cap", 1, 45, 90), ("Linen Belt", 2, 48, 95)), start=1
+    ):
+        conn.execute(insert(schema.items).values({**item, "id": 100 + n, "name": name}))
+        conn.execute(
+            insert(schema.recipes).values(
+                {
+                    **robe,
+                    "id": robe["id"] + n,
+                    "spell_id": 990 + n,
+                    "name": name,
+                    "output_item_id": 100 + n,
+                    "trivial_low": low,
+                    "trivial_high": high,
+                }
+            )
+        )
+        conn.execute(
+            insert(schema.recipe_reagents).values(
+                game_version=FOREVER, recipe_id=robe["id"] + n, item_id=1, count=linen, slot=0
+            )
+        )
+    tailor = Character(
+        "Realm",
+        "Tailor",
+        "Horde",
+        "MAGE",
+        60,
+        (Profession("Tailoring", 50, 300, frozenset({900, 991, 992})),),
+    )
+    service.replace_characters(conn, ME, FOREVER, [tailor])
+    set_prices(conn, {1: 20, 2: 100}, realm="Realm")
+    return robe["id"], robe["id"] + 1, robe["id"] + 2
+
+
+def test_each_option_side_by_side_never_comes_back_to_those_before_it(
+    client: TestClient, priced: Connection
+) -> None:
+    robe, cap, belt = tailoring_options(priced)
+    params = {**SKILL_UP, "skill_crafters": ["Tailor"], "runs": True}
+    body = client.get("/api/rank", params=params).json()
+    assert [r["recipe_id"] for r in body["results"]] == [cap, belt, robe]
+    first, second, third = body["options"]
+    # the best as ranked; the second never crafts the first, the third neither
+    assert first == body["results"][0] and first["climb_without"] == []
+    assert (second["recipe_id"], second["climb_without"]) == (belt, [cap])
+    assert (third["recipe_id"], third["climb_without"]) == (robe, sorted([cap, belt]))
+    # as ranked, the belt's run gives way to the cap; passed over, the cap never comes
+    assert body["results"][1]["overtaken_by"] == "Linen Cap"
+    assert second["overtaken_by"] != "Linen Cap" and second["stop_skill"] > body["results"][1]["stop_skill"]
+    assert all(r["recipe_id"] != cap for r in body["option_chains"][1])
+    # the robe's run without either goes on until it turns grey, and nothing follows it
+    assert (third["stop_reason"], third["stop_skill"]) == ("trivial", 60)
+    assert body["option_chains"][2] == []
+    # picked, an option is the run and the chain its card shows
+    picked = client.get("/api/rank", params={**params, "chain_from": belt, "top": 1}).json()
+    assert picked["chain_start"] == second
+    assert picked["chain"][: len(body["option_chains"][1])] == body["option_chains"][1]
+    assert all(r["recipe_id"] != cap for r in picked["chain"])
+    # planned again with what it leaves out, as the card shows it; without, as ranked
+    evaluated = {"recipe_id": belt, "choices": {}, "include_trivial": False, "skill_crafters": ["Tailor"]}
+    evaluated |= {"exits": ["vendor", "keep"], "runs": True}
+    got = client.post("/api/evaluate", json={**evaluated, "climb_without": [cap]}).json()["result"]
+    assert (got["crafts"], got["stop_skill"], got["climb_without"]) == (
+        second["crafts"],
+        second["stop_skill"],
+        [cap],
+    )
+    plain = client.post("/api/evaluate", json=evaluated).json()["result"]
+    assert (plain["stop_skill"], plain["climb_without"]) == (body["results"][1]["stop_skill"], [])
+    # a banned recipe has no run to plan
+    assert client.post("/api/evaluate", json={**evaluated, "climb_without": [belt]}).status_code == 404
 
 
 def test_skill_up_keeps_what_no_vendor_buys(client: TestClient, priced: Connection) -> None:
@@ -840,10 +962,22 @@ def test_each_game_version_has_its_own_data(client: TestClient, priced: Connecti
     assert (status["recipes"], status["prices"], status["characters"]) == (0, 0, 0)
     assert client.get("/api/ah-blocked", params=tbc).json()["items"] == []
     assert client.get("/api/rank", params=tbc).json()["results"] == []
-    assert client.get("/api/versions").json() == [
-        {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1, "ah_cut": 0.05},
-        {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0, "ah_cut": 0.05},
+    forever, tbc_out = client.get("/api/versions").json()
+    assert {k: v for k, v in forever.items() if k != "profession_ranks"} == (
+        {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1, "ah_cut": 0.05}
+    )
+    assert {k: v for k, v in tbc_out.items() if k != "profession_ranks"} == (
+        {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0, "ah_cut": 0.05}
+    )
+    # the trainer's ranks, up to each version's highest skill
+    assert [r["name"] for r in forever["profession_ranks"]] == [
+        "Apprentice",
+        "Journeyman",
+        "Expert",
+        "Artisan",
     ]
+    assert forever["profession_ranks"][2] == {"name": "Expert", "train_at": 125, "level": 20, "cap": 225}
+    assert tbc_out["profession_ranks"][-1]["cap"] == 375
 
 
 # --- users, tiers and prices ------------------------------------------------------------------------

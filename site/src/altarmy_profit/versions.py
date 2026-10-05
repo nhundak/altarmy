@@ -18,6 +18,27 @@ MAIL_POSTAGE = 30  # copper per attached item
 
 
 @dataclass(frozen=True)
+class ProfessionRank:
+    """A rank a profession trainer teaches: from `train_at` skill and character `level`, it lets the skill
+    go up to `cap`."""
+
+    name: str
+    train_at: int
+    level: int
+    cap: int
+
+
+# Vanilla's and TBC's ranks: each is taught 25 points before the one below it caps
+PROFESSION_RANKS = (
+    ProfessionRank("Apprentice", 1, 5, 75),
+    ProfessionRank("Journeyman", 50, 10, 150),
+    ProfessionRank("Expert", 125, 20, 225),
+    ProfessionRank("Artisan", 200, 35, 300),
+    ProfessionRank("Master", 275, 50, 375),
+)
+
+
+@dataclass(frozen=True)
 class GameVersion:
     key: GameVersionKey
     label: str
@@ -37,6 +58,11 @@ class GameVersion:
     # (standing, percent off) at a vendor for the buyer's standing with the vendor's faction (5 Friendly,
     # 6 Honored, 7 Revered, 8 Exalted; see `reputation`); standings not listed get nothing off
     reputation_discounts: tuple[tuple[int, int], ...] = ()
+
+    @property
+    def profession_ranks(self) -> tuple[ProfessionRank, ...]:
+        """The profession ranks a trainer teaches here, up to `max_skill`."""
+        return tuple(r for r in PROFESSION_RANKS if r.cap <= self.max_skill)
 
     @property
     def disenchant_csv(self) -> Path:

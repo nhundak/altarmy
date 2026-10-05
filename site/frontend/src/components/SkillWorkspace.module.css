@@ -32,7 +32,7 @@
   }
 }
 
-/* The options side by side: the chain under the option it follows (`--now`, its column), in the row below; See all
+/* The options side by side: each option's chain under it (`--column`), in the row below; See all
    under the rightmost card (`--see-all-row`: below the chain should it hang there). */
 .options {
   display: grid;
@@ -52,7 +52,7 @@
 
   .options > .chain {
     grid-row: 2;
-    grid-column: var(--now);
+    grid-column: var(--column);
   }
 
   .options > .seeAll {
@@ -79,6 +79,15 @@
   opacity: 0.4;
 }
 
+/* Side by side, the next run alone: its card fades from opaque at its top to nothing at its bottom. */
+.chain[data-preview] {
+  opacity: 1;
+}
+
+.chain[data-preview] article {
+  mask-image: linear-gradient(to bottom, #000, transparent);
+}
+
 .chainMore {
   align-self: center;
 }
@@ -103,3 +112,38 @@
 .at {
   grid-column: 3;
 }
+
+/* A run's card in the single column with the reminders to train the next profession rank (`.train`) above it. */
+.trained {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
+/* With room beside the centred card and its chain, the reminders hang to the left of the card. */
+@media (min-width: 62em) {
+  .single .trained {
+    position: relative;
+  }
+
+  .single .train {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    right: calc(100% + var(--mantine-spacing-md));
+    width: 240px;
+  }
+}
+
+/* An option card that opens or picks on a click: lit on hover. */
+.lit {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.lit:hover {
+  background-color: var(--mantine-color-default-hover);
+  border-color: var(--mantine-primary-color-filled);
+}
+

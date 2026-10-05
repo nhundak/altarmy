@@ -1,22 +1,31 @@
 import { describe, expect, it } from 'vitest'
-import { robeResult } from '../test/results'
-import { climbExtra, craftUntil, perPoint, runLead, runText, scaleRun, stepsText } from './skill'
-
-describe('climbExtra', () => {
-  it('is what the whole climb costs more than starting with the best, when that is known', () => {
-    expect(climbExtra({ climb_cost: 950 }, { climb_cost: 900 })).toBe(50)
-    expect(climbExtra({ climb_cost: 900 }, { climb_cost: 900 })).toBeNull() // the best itself
-    expect(climbExtra({ climb_cost: null }, { climb_cost: 900 })).toBeNull() // a pattern of unknown price
-    expect(climbExtra({ climb_cost: 950 }, { climb_cost: null })).toBeNull()
-    expect(climbExtra({ climb_cost: 950 }, undefined)).toBeNull()
-  })
-})
+import { professionRanks, robeResult } from '../test/results'
+import { craftUntil, perPoint, ranksToTrain, runLead, runText, scaleRun, stepsText } from './skill'
 
 describe('perPoint', () => {
   it('is what an expected skill point costs, negative when the run earns', () => {
     expect(perPoint({ ...robeResult, profit: -300, skill_ups: 3 })).toBe(100)
     expect(perPoint({ ...robeResult, profit: 300, skill_ups: 3 })).toBe(-100)
     expect(perPoint({ ...robeResult, skill_ups: 0 })).toBeNull()
+  })
+})
+
+describe('ranksToTrain', () => {
+  const names = (due: ReturnType<typeof ranksToTrain>) => due.map((d) => `${d.rank.name}<${d.stopsAt}`)
+
+  it('names each rank above the cap on the run that reaches its training skill', () => {
+    // a Journeyman (cap 150) at 100: Expert is taught from 125, Artisan from 200
+    expect(names(ranksToTrain(professionRanks, 150, 100, 120, true))).toEqual([])
+    expect(names(ranksToTrain(professionRanks, 150, 120, 130, false))).toEqual(['Expert<150'])
+    expect(names(ranksToTrain(professionRanks, 150, 125, 160, false))).toEqual([]) // said on the run before
+    expect(names(ranksToTrain(professionRanks, 150, 160, 210, false))).toEqual(['Artisan<225'])
+    expect(names(ranksToTrain(professionRanks, 150, 110, 260, false))).toEqual(['Expert<150', 'Artisan<225'])
+  })
+
+  it('names on the first run every rank the climber can train already', () => {
+    expect(names(ranksToTrain(professionRanks, 75, 60, 70, true))).toEqual(['Journeyman<75'])
+    expect(names(ranksToTrain(professionRanks, 75, 60, 70, false))).toEqual([])
+    expect(names(ranksToTrain(professionRanks, 300, 280, 300, true))).toEqual([]) // nothing above Artisan
   })
 })
 

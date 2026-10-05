@@ -1,4 +1,4 @@
-import type { FlowNode, RankResult } from '../api/client'
+import type { FlowNode, ProfessionRank, RankResult } from '../api/client'
 
 /** A bought reagent; with no `options`, buying it `source` is its only option. */
 export const bought = (
@@ -76,6 +76,7 @@ export const robeResult: RankResult = {
   overtaken_by_item: 0,
   crafts_p80: 0,
   reach_chances: [],
+  climb_without: [],
   exits: [
     { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     { kind: 'ah', value: 475, materials: [], postage: 0, mail_to: '' },
@@ -155,3 +156,11 @@ export const timedRobe: RankResult = {
   ],
   best_city: 'Thunder Bluff',
 }
+
+/** WoW: Forever's profession ranks, as /api/versions gives them. */
+export const professionRanks: ProfessionRank[] = [
+  { name: 'Apprentice', train_at: 1, level: 5, cap: 75 },
+  { name: 'Journeyman', train_at: 50, level: 10, cap: 150 },
+  { name: 'Expert', train_at: 125, level: 20, cap: 225 },
+  { name: 'Artisan', train_at: 200, level: 35, cap: 300 },
+]
