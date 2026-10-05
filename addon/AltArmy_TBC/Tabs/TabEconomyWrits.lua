@@ -28,8 +28,8 @@ local UI = {
     ICON_SIZE = 14,
     colWidths = { writ = 180, rep = 36, writPrice = 80, buy = 100, craft = 110, perRep = 120 }, -- 626
     sortKeys = W.WRITS_SORT_KEYS,
-    sortLabels = { writ = "Craftsman's Writ", rep = "Rep", writPrice = "Writ price", buy = "Fulfill via AH",
-        craft = "Fulfill via craft", perRep = "Total cost / Rep" },
+    sortLabels = { writ = "Craftsman's Writ", rep = "Rep", writPrice = "Writ Price", buy = "Fulfill via AH",
+        craft = "Fulfill via Craft", perRep = "Total Cost / Rep" },
     sortJustify = { writ = "LEFT", rep = "RIGHT", writPrice = "RIGHT", buy = "RIGHT", craft = "RIGHT",
         perRep = "RIGHT" },
     headerButtons = {},
@@ -103,16 +103,24 @@ UI.filter = Theme.CreateFilterDropdown({
     parent = panel,
     text = "Filter",
     getEntries = function()
+        local o = W.EnsureOptions()
         return {
-            { kind = "checkbox", key = "onlyCraftable", label = "Only writs my characters can craft",
-                checked = W.EnsureOptions().writsOnlyCraftable, enabled = true },
+            { kind = "checkbox", key = "hideUnavailable", label = "Hide unavailable writs",
+                checked = o.writsOnlyAvailable, enabled = true },
+            { kind = "checkbox", key = "hideUncraftable", label = "Hide writs I can not fulfill via crafting",
+                checked = o.writsOnlyCraftable, enabled = true },
         }
     end,
     onToggle = function(key, checked)
-        if key == "onlyCraftable" then
-            W.EnsureOptions().writsOnlyCraftable = checked and true or false
-            if frame.RefreshWrits then frame.RefreshWrits() end
+        local o = W.EnsureOptions()
+        if key == "hideUncraftable" then
+            o.writsOnlyCraftable = checked and true or false
+        elseif key == "hideUnavailable" then
+            o.writsOnlyAvailable = checked and true or false
+        else
+            return
         end
+        if frame.RefreshWrits then frame.RefreshWrits() end
     end,
 })
 if UI.filter and AltArmy.PlaceInToolbarRight then
@@ -196,7 +204,7 @@ end)
 -- The filter left nothing: a message in the empty table.
 UI.noRowsLabel = listViewport:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
 UI.noRowsLabel:SetPoint("CENTER", listViewport, "CENTER", 0, 20)
-UI.noRowsLabel:SetText("None of your characters on this realm can craft a writ's order.")
+UI.noRowsLabel:SetText("No writs left: the filters hide them all.")
 UI.noRowsLabel:Hide()
 
 local function ReleaseRows()
@@ -215,14 +223,14 @@ local function CharName(name)
     return CC.formatName(name, UI.classOf[name])
 end
 
---- A step's tooltip line: its text, and its cost (nil for a craft: it costs nothing more).
+--- A step's tooltip line: its text, and its cost (nil for a craft: it costs nothing more). Counts read "3x"
+--- (a craft's is its casts).
 local function StepText(step)
     local name = ItemName(step.item)
     if step.kind == "craft" then
-        local times = step.casts == 1 and "once" or (step.casts .. " times")
-        return "Craft " .. name .. " " .. times .. " on " .. CharName(step.who), nil
+        return "Craft " .. step.casts .. "x " .. name .. " on " .. CharName(step.who), nil
     end
-    local left = "Buy " .. step.qty .. " x " .. name
+    local left = "Buy " .. step.qty .. "x " .. name
     if step.kind == "vendor" then
         left = left .. " from a vendor on " .. CharName(step.who)
     else
@@ -250,7 +258,7 @@ local function ShowRowTooltip(row)
         GameTooltip:SetText(rd.name)
     end
     GameTooltip:AddLine(" ")
-    local wants = "Wants " .. rd.count .. " x " .. ItemName(rd.item)
+    local wants = "Wants " .. rd.count .. "x " .. ItemName(rd.item)
     GameTooltip:AddLine(wants, 1, 0.82, 0, true)
     GameTooltip:AddDoubleLine(rd.tier .. " writ", "+" .. rd.rep .. " reputation", 1, 1, 1, 1, 1, 1)
     GameTooltip:AddLine(" ")
@@ -424,7 +432,8 @@ local function RefreshWrits()
     local ctx = BuildContext(realm, faction, book)
     local orders = AltArmy.WritOrders and AltArmy.WritOrders.Orders() or nil
     local o = W.EnsureOptions()
-    local rows = WC.Filter(WC.BuildRows(book, Writs, orders, ctx), o.writsOnlyCraftable)
+    local rows = WC.Filter(WC.BuildRows(book, Writs, orders, ctx),
+        { hideUncraftable = o.writsOnlyCraftable, hideUnavailable = o.writsOnlyAvailable })
     table.sort(rows, function(a, b) return WC.Compare(a, b, o.writsSortKey, o.writsSortAscending) end)
     UpdateHeaderSortIndicators()
 
@@ -443,6 +452,7 @@ local function RefreshWrits()
     end
     statusLabel:SetTextColor(color[1], color[2], color[3], 1)
     footer.Show()
+    footer.SetSummary(scan and scan.summary)
 
     local totalW = TotalColWidth()
     scrollChild:SetSize(totalW, math.max(1, #rows) * UI.ROW_HEIGHT)

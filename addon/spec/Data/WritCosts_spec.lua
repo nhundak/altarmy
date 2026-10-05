@@ -130,12 +130,35 @@ describe("WritCosts", function()
     end)
 
     describe("Filter", function()
-        it("keeps the writs someone can craft", function()
+        local function ids(rows)
+            local out = {}
+            for i, row in ipairs(rows) do out[i] = row.id end
+            return out
+        end
+
+        it("keeps every row with no filter on", function()
             local rows = WC.BuildRows(context().book, WRITS, nil, context())
-            assert.equals(3, #WC.Filter(rows, false))
-            local kept = WC.Filter(rows, true)
-            assert.equals(1, #kept)
-            assert.equals(264047, kept[1].id)
+            assert.equals(3, #WC.Filter(rows, nil))
+            assert.equals(3, #WC.Filter(rows, {}))
+        end)
+
+        it("hides the writs nobody can craft", function()
+            local rows = WC.BuildRows(context().book, WRITS, nil, context())
+            assert.same({ 264047 }, ids(WC.Filter(rows, { hideUncraftable = true })))
+        end)
+
+        it("hides writs not listed, or whose order can't be fulfilled either way", function()
+            local rows = WC.BuildRows(context().book, WRITS, nil, context())
+            assert.same({ 264047, 264144 }, ids(WC.Filter(rows, { hideUnavailable = true })))
+            local unlisted = context()
+            unlisted.book[264144] = nil -- the Suit writ: its order can be bought, but the writ isn't listed
+            rows = WC.BuildRows(unlisted.book, WRITS, nil, unlisted)
+            assert.same({ 264047 }, ids(WC.Filter(rows, { hideUnavailable = true })))
+        end)
+
+        it("applies both together", function()
+            local rows = WC.BuildRows(context().book, WRITS, nil, context())
+            assert.same({ 264047 }, ids(WC.Filter(rows, { hideUncraftable = true, hideUnavailable = true })))
         end)
     end)
 

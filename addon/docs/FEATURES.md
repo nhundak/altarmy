@@ -100,8 +100,9 @@ the reading of other addons' full scans are all off, whatever the client's API o
 - The game allows one full scan every 15 minutes per account. During that wait, or if the game refuses the
   full scan, the button runs a **summary scan** instead: each item's cheapest price and how many units are
   listed. It has no cooldown and is faster, but cannot say how many units sit at each price.
-- **Prefer full scans** (Options → General → Auction House, on by default): turned off, every scan is a
-  summary scan, unless the client has no summary scan.
+- The scan mode (Options → General → Auction House): **Prefer full scans** (the default, as above), **Only
+  full scans** (nothing during the cooldown: the button is disabled and the automatic scan does nothing) or
+  **Only summary scans**.
 - Summary scans are kept apart from full scans (the newest one per realm and faction) and are never uploaded
   to altarmy-profit, which only gets full scans. A summary never replaces a stored full scan.
 - When the full scan is cooling down and no summary scan is possible, the button counts the wait down. Its

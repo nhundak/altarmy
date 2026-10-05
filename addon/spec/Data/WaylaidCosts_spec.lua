@@ -78,12 +78,24 @@ describe("WaylaidCosts", function()
             [3] = { lv(900, 4) }, -- Gold Bar: only 4 of 10 listed
         }
 
-        it("lists only the crates on the auction house", function()
+        it("lists every crate, those not on the auction house without a price", function()
             local rows = byId(W.BuildRows(book, CRATES))
             assert.truthy(rows[900])
             assert.truthy(rows[901])
             assert.truthy(rows[902])
-            assert.is_nil(rows[903])
+            local r = rows[903]
+            assert.is_nil(r.price)
+            assert.equals(0, r.listed)
+            assert.is_nil(r.total)
+            assert.equals("none listed", r.bundleText)
+        end)
+
+        it("still prices the fill of a crate that is not listed", function()
+            local r = byId(W.BuildRows({ [2] = { lv(30, 25) } }, CRATES))[901]
+            assert.is_nil(r.price)
+            assert.equals(600, r.bundle.cost)
+            assert.equals("20 x Tin Ore", r.bundleText)
+            assert.is_nil(r.total)
         end)
 
         it("fills with the cheapest bundle and adds the cheapest crate", function()
@@ -150,6 +162,31 @@ describe("WaylaidCosts", function()
         end)
     end)
 
+    describe("FilterRows", function()
+        local book = {
+            [900] = { lv(500, 4) },
+            [901] = { lv(1000, 1) },
+            [902] = { lv(3000, 1) },
+            [2] = { lv(30, 25) },
+            [3] = { lv(900, 4) }, -- Gold Bar: too few to fill Expert Ingots
+        }
+
+        local function ids(rows)
+            local out = {}
+            for i, r in ipairs(rows) do out[i] = r.id end
+            table.sort(out)
+            return out
+        end
+
+        it("keeps every crate unless asked", function()
+            assert.equals(4, #W.FilterRows(W.BuildRows(book, CRATES), false))
+        end)
+
+        it("hides crates not listed, and those no bundle can fill (the unread crate is kept)", function()
+            assert.same({ 900, 901 }, ids(W.FilterRows(W.BuildRows(book, CRATES), true)))
+        end)
+    end)
+
     describe("Compare", function()
         local a = { name = "A", tier = "Apprentice", price = 10, total = 100,
             bundle = { name = "Tin Ore", cost = 90 } }
@@ -174,33 +211,19 @@ describe("WaylaidCosts", function()
             assert.same({ "B", "A", "C" }, sorted("bundle", true))
         end)
 
-        it("sorts by crate price", function()
+        it("sorts by crate price, crates not listed last either way", function()
             assert.same({ "C", "A", "B" }, sorted("price", true))
+            local unlisted = { name = "D", tier = "Journeyman" }
+            local rows = { a, unlisted, b }
+            table.sort(rows, function(x, y) return W.Compare(x, y, "price", false) end)
+            assert.same({ "B", "A", "D" }, { rows[1].name, rows[2].name, rows[3].name })
+            table.sort(rows, function(x, y) return W.Compare(x, y, "price", true) end)
+            assert.same({ "A", "B", "D" }, { rows[1].name, rows[2].name, rows[3].name })
         end)
 
         it("sorts crates by tier in game order", function()
             assert.same({ "A", "B", "C" }, sorted("crate", true))
             assert.same({ "C", "B", "A" }, sorted("crate", false))
-        end)
-    end)
-
-    describe("AgeText", function()
-        local function fmt(s)
-            return s .. "s"
-        end
-
-        it("says how long ago the scan was taken", function()
-            assert.equals("Scanned 120s ago", W.AgeText(1000, 1120, fmt))
-        end)
-
-        it("names a summary scan", function()
-            assert.equals("Scanned 120s ago (summary)", W.AgeText(1000, 1120, fmt, true))
-            assert.equals("Scanned just now (summary)", W.AgeText(1000, 1030, fmt, true))
-        end)
-
-        it("says just now within a minute, or if the clock went back", function()
-            assert.equals("Scanned just now", W.AgeText(1000, 1030, fmt))
-            assert.equals("Scanned just now", W.AgeText(1000, 900, fmt))
         end)
     end)
 
@@ -217,6 +240,33 @@ describe("WaylaidCosts", function()
         end)
     end)
 
+    describe("AgeText", function()
+        local function fmt(s)
+            return s .. "s"
+        end
+
+        it("says how long ago the scan was taken", function()
+            assert.equals("Scanned 120s ago", W.AgeText(1000, 1120, fmt))
+        end)
+
+        it("rounds to the nearest minute", function()
+            assert.equals("Scanned 60s ago", W.AgeText(1000, 1089, fmt))
+            assert.equals("Scanned 180s ago", W.AgeText(1000, 1150, fmt))
+            assert.equals("Scanned 3600s ago", W.AgeText(1000, 1000 + 3599, fmt))
+        end)
+
+        it("names a summary scan", function()
+            assert.equals("Scanned 120s ago (summary)", W.AgeText(1000, 1120, fmt, true))
+            assert.equals("Scanned just now (summary)", W.AgeText(1000, 1030, fmt, true))
+        end)
+
+        it("says just now within a minute, or if the clock went back", function()
+            assert.equals("Scanned just now", W.AgeText(1000, 1030, fmt))
+            assert.equals("Scanned just now", W.AgeText(1000, 900, fmt))
+        end)
+    end)
+
+
     describe("EnsureOptions", function()
         it("defaults to the currency view, crates sorted by total", function()
             _G.AltArmyTBC_Options = nil
@@ -227,6 +277,8 @@ describe("WaylaidCosts", function()
             assert.equals("perRep", o.writsSortKey)
             assert.is_true(o.writsSortAscending)
             assert.is_false(o.writsOnlyCraftable)
+            assert.is_true(o.writsOnlyAvailable)
+            assert.is_true(o.waylaidOnlyAvailable)
             assert.equals(o, AltArmyTBC_Options.economy)
         end)
 
@@ -240,6 +292,15 @@ describe("WaylaidCosts", function()
             assert.is_true(o.writsOnlyCraftable)
             _G.AltArmyTBC_Options.economy.writsSortKey = "who" -- a column that is gone
             assert.equals("perRep", W.EnsureOptions().writsSortKey)
+        end)
+
+        it("keeps the availability filters turned off, and drops the old writs key", function()
+            _G.AltArmyTBC_Options = { economy = { writsOnlyAvailable = false, waylaidOnlyAvailable = false,
+                writsHideUnavailable = false } }
+            local o = W.EnsureOptions()
+            assert.is_false(o.writsOnlyAvailable)
+            assert.is_false(o.waylaidOnlyAvailable)
+            assert.is_nil(o.writsHideUnavailable)
         end)
 
         it("keeps saved choices and repairs bad ones", function()

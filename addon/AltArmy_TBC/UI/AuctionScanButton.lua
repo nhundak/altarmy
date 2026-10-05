@@ -26,6 +26,13 @@ end
 
 --- What a click does now, for the button's tooltip: `nextKind` is AuctionScan.NextKind().
 function Btn.TooltipText(nextKind, cooldown)
+    if nextKind == nil then
+        if cooldown > 0 then
+            return string.format("Only full scans are set (Options), and the game allows the next one in %d:%02d.",
+                math.floor(cooldown / 60), cooldown % 60)
+        end
+        return "This client can't run the kind of scan set in Options."
+    end
     if nextKind == "summary" then
         local text = "Runs a summary scan: each item's cheapest price, so costs are estimates."
         if cooldown > 0 then

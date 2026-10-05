@@ -176,7 +176,7 @@ panel.default = function()
     end
     if AltArmy.AuctionScan and AltArmy.AuctionScan.SetAutoScanEnabled then
         AltArmy.AuctionScan.SetAutoScanEnabled(false)
-        AltArmy.AuctionScan.SetPreferFullEnabled(true)
+        AltArmy.AuctionScan.SetScanMode("prefer_full")
     end
     if panel.RefreshAuctionOptions then
         panel.RefreshAuctionOptions()
@@ -1472,8 +1472,9 @@ layoutGuildSharingTail()
 
 -- Auction House section: the Alt Army scan (Data/Auctions/AuctionScan.lua). Only on clients with the full
 -- scan (WoW Forever); TBC Anniversary's auction house has none.
--- Its two checkboxes sit side by side, half the width each: a checkbox row stretches to its parent's right
--- edge, so each gets a half-width holder (on panel, not main-chunk locals: Lua 5.1's 200-local limit).
+-- The automatic scan checkbox and the scan mode dropdown sit side by side, half the width each: a checkbox
+-- row stretches to its parent's right edge, so each gets a half-width holder (on panel, not main-chunk
+-- locals: Lua 5.1's 200-local limit).
 panel.auctionLeftHolder = CreateFrame("Frame", nil, auctionSection.content)
 panel.auctionLeftHolder:SetPoint("TOPLEFT", auctionSection.content, "TOPLEFT", 0, 0)
 panel.auctionLeftHolder:SetPoint("TOPRIGHT", auctionSection.content, "TOP", -4, 0)
@@ -1481,7 +1482,7 @@ panel.auctionLeftHolder:SetHeight(Theme.CHAR_LIST_ROW_HEIGHT)
 panel.auctionRightHolder = CreateFrame("Frame", nil, auctionSection.content)
 panel.auctionRightHolder:SetPoint("TOPLEFT", auctionSection.content, "TOP", 4, 0)
 panel.auctionRightHolder:SetPoint("TOPRIGHT", auctionSection.content, "TOPRIGHT", 0, 0)
-panel.auctionRightHolder:SetHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+panel.auctionRightHolder:SetHeight(Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24)
 local autoScanRow = Theme.CreateLabeledCheckbox(panel.auctionLeftHolder, {
     point = "TOPLEFT",
     relativeTo = panel.auctionLeftHolder,
@@ -1499,36 +1500,60 @@ local autoScanRow = Theme.CreateLabeledCheckbox(panel.auctionLeftHolder, {
 })
 panel.auctionAutoScanCheckbox = autoScanRow.check
 
--- Full scans (every listing, 15-minute cooldown) or summary scans (cheapest price per item, no cooldown).
--- Kept on panel, not as main-chunk locals (Lua 5.1's 200-local limit).
-panel.auctionPreferFullRow = Theme.CreateLabeledCheckbox(panel.auctionRightHolder, {
+-- Which scans run (AuctionScan.GetScanMode): full scans (every listing, 15-minute cooldown) and/or summary
+-- scans (cheapest price per item, no cooldown). Kept on panel, not as main-chunk locals (Lua 5.1's 200-local
+-- limit). The help icon sits at the holder's right; the dropdown fills the rest.
+panel.AUCTION_SCAN_MODES = {
+    { id = "prefer_full", label = "Prefer full scans" },
+    { id = "only_full", label = "Only full scans" },
+    { id = "only_summary", label = "Only summary scans" },
+}
+panel.auctionScanModeDropdown = Theme.CreateSingleSelectDropdown({
+    parent = panel.auctionRightHolder,
     point = "TOPLEFT",
     relativeTo = panel.auctionRightHolder,
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Prefer full scans",
-    fullWidthHover = true,
-    onClick = function(checked)
+    rowHeight = Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24,
+    dropdownParent = tabGeneral,
+    getEntries = function() return panel.AUCTION_SCAN_MODES end,
+    getSelectedId = function()
         local S = AltArmy.AuctionScan
-        if S and S.SetPreferFullEnabled then
-            S.SetPreferFullEnabled(checked)
+        return S and S.GetScanMode and S.GetScanMode() or "prefer_full"
+    end,
+    onSelect = function(id)
+        local S = AltArmy.AuctionScan
+        if S and S.SetScanMode then
+            S.SetScanMode(id)
         end
     end,
 })
-Theme.AttachSettingsHelpIcon(panel.auctionPreferFullRow, {
-    title = "Prefer full scans",
+panel.auctionScanModeHelp = Theme.AttachSettingsHelpIcon(panel.auctionRightHolder, {
+    title = "Auction house scans",
     lines = {
-        "A full scan lets us determine how many items are available at each cost. However, it is slower. "
-            .. "If you prefer a faster scan but less accurate calculations and tooltips, uncheck this.",
+        "A full scan lets us determine how many items are available at each cost. However, it is slower, "
+            .. "and the game allows one every 15 minutes.",
+        "A summary scan is fast and has no cooldown, but collects only each item's lowest price, so "
+            .. "calculations and tooltips are less accurate.",
     },
 })
+do
+    local dd = panel.auctionScanModeDropdown
+    dd.button:ClearAllPoints()
+    dd.button:SetPoint("TOPLEFT", panel.auctionRightHolder, "TOPLEFT", 0, 0)
+    dd.button:SetPoint("BOTTOMRIGHT", panel.auctionRightHolder, "BOTTOMRIGHT", -20, 0)
+    dd.popup:ClearAllPoints()
+    dd.popup:SetPoint("TOPLEFT", dd.button, "BOTTOMLEFT", 0, -2)
+    dd.popup:SetPoint("TOPRIGHT", dd.button, "BOTTOMRIGHT", 0, -2)
+end
 
 local function RefreshAuctionOptions()
     local S = AltArmy.AuctionScan
     panel.auctionAutoScanCheckbox:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
-    panel.auctionPreferFullRow.check:SetChecked(
-        not (S and S.IsPreferFullEnabled) or S.IsPreferFullEnabled())
+    if panel.auctionScanModeDropdown.Update then
+        panel.auctionScanModeDropdown:Update()
+    end
 end
 panel.RefreshAuctionOptions = RefreshAuctionOptions
 do
@@ -1575,7 +1600,7 @@ end
 
 generalSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT + 14 + REALM_FILTER_ROW_HEIGHT)
 guildSection.SetContentHeight(GUILD_CONTENT_HEIGHT)
-auctionSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT)
+auctionSection.SetContentHeight(math.max(Theme.CHAR_LIST_ROW_HEIGHT, Theme.OPTIONS_DROPDOWN_ROW_HEIGHT or 24))
 panel.advancedSection.SetContentHeight(Theme.CHAR_LIST_ROW_HEIGHT)
 
 --- Where the General tab's section frames and the Guild rows actually are, for `/altarmy debug layout`
@@ -1642,6 +1667,7 @@ local GENERAL_FLASH_TARGETS = {
     guildShare = { section = guildSection, region = guildShareEnableFocusRegion },
     autoDelete = { section = guildSection, region = guildAutoDeleteRow },
     autoScan = { section = auctionSection, region = autoScanRow },
+    scanMode = { section = auctionSection, region = panel.auctionRightHolder },
 }
 
 --- Show `flash`'s control: open only the section it is in (the others close), scroll it into view and
@@ -2262,7 +2288,12 @@ SlashCmdList.ALTARMY = function(msg)
         local text = not ok and said[reason] or nil -- a scan that starts says so itself
         if reason == "cooldown" then
             local left = scan.CooldownLeft()
-            text = string.format("The game allows the next full scan in %d:%02d.", math.floor(left / 60), left % 60)
+            if left > 0 then
+                text = string.format("The game allows the next full scan in %d:%02d.", math.floor(left / 60),
+                    left % 60)
+            else
+                text = "This client can't run the kind of scan set in Options (Auction House)."
+            end
         end
         if text and AltArmy.Debug and AltArmy.Debug.NotifyChat then
             AltArmy.Debug.NotifyChat("|cff00ccff[Alt Army]|r " .. text)
@@ -2537,9 +2568,9 @@ end
 AltArmy.OptionsPanel = panel
 
 --- @param initialTab string|nil "general" (default), "characters", "cooldowns", or "debug"
---- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare"|"autoDelete"|"autoScan" }
+--- @param opts table|nil { name, realm, flash = "main"|"bankAlt"|"guildShare"|"autoDelete"|"autoScan"|"scanMode" }
 --- A flashed General tab control's section is opened first (Guild: main, guildShare, autoDelete;
---- Auction House: autoScan).
+--- Auction House: autoScan, scanMode).
 function AltArmy.OpenInterfaceOptions(initialTab, opts)
     opts = opts or {}
     local tab = initialTab or "general"

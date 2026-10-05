@@ -74,12 +74,19 @@ function WC.BuildRows(book, writs, orders, ctx)
     return rows
 end
 
---- The rows, or only those someone can craft.
-function WC.Filter(rows, onlyCraftable)
-    if not onlyCraftable then return rows end
+--- The rows the filters keep: `opts.hideUncraftable` drops those nobody can craft, `opts.hideUnavailable`
+--- those whose writ isn't listed or whose order can't be fulfilled either way.
+function WC.Filter(rows, opts)
+    opts = opts or {}
+    if not (opts.hideUncraftable or opts.hideUnavailable) then return rows end
     local out = {}
     for _, row in ipairs(rows) do
-        if row.canCraft then out[#out + 1] = row end
+        local keep = true
+        if opts.hideUncraftable and not row.canCraft then keep = false end
+        if opts.hideUnavailable and (row.writPrice == nil or (row.buy == nil and row.craft == nil)) then
+            keep = false
+        end
+        if keep then out[#out + 1] = row end
     end
     return out
 end

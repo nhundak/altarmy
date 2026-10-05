@@ -4,9 +4,11 @@
 -- another addon asked for (Auctionator's full scan): the listings event is the client's, whoever asked.
 -- A summary scan is a blank browse query (C_AuctionHouse.SendBrowseQuery), paged until the client has every
 -- result: one row per item, its cheapest unit price and units listed. No cooldown, far fewer rows, but no
--- ladder. It runs when a full scan cannot (cooldown, the client refused, no full-scan API) or when the player
--- turned "Prefer full scans" off (AltArmyTBC_Options.auctionPreferFullScan, on unless false). Summaries are
--- stored apart (AuctionBook.StoreSummary) so altarmy-profit only ever gets full scans.
+-- ladder. Which runs is the player's scan mode (AltArmyTBC_Options.auctionScanMode, Options → General →
+-- Auction House): "prefer_full" (the default) runs a full scan when the client allows one and a summary when
+-- it cannot (cooldown, the client refused, no full-scan API); "only_full" runs full scans alone, and nothing
+-- during the cooldown; "only_summary" runs summaries alone. Summaries are stored apart
+-- (AuctionBook.StoreSummary) so altarmy-profit only ever gets full scans.
 -- Only a scan read to its end is stored; one the auction house closed on is dropped.
 -- With the automatic scan on (AltArmyTBC_Options.auctionAutoScan, the Auction House options), a scan starts
 -- AUTO_DELAY seconds after the auction house opens, if the client allows one and none is under way.
@@ -130,24 +132,39 @@ function S.HasApi()
     return S.HasFullApi() or S.HasSummaryApi()
 end
 
---- Whether a full scan is chosen over a summary when both can run (on unless turned off).
-function S.IsPreferFullEnabled()
-    return not (type(AltArmyTBC_Options) == "table" and AltArmyTBC_Options.auctionPreferFullScan == false)
+S.SCAN_MODES = { "prefer_full", "only_full", "only_summary" }
+local SCAN_MODE = { prefer_full = true, only_full = true, only_summary = true }
+
+--- Which scans run (see the header): "prefer_full" unless set. Before the mode existed, a "Prefer full scans"
+--- checkbox turned off (auctionPreferFullScan = false) meant summaries alone.
+function S.GetScanMode()
+    local o = type(AltArmyTBC_Options) == "table" and AltArmyTBC_Options or {}
+    if SCAN_MODE[o.auctionScanMode] then return o.auctionScanMode end
+    if o.auctionPreferFullScan == false then return "only_summary" end
+    return "prefer_full"
 end
 
-function S.SetPreferFullEnabled(on)
+function S.SetScanMode(mode)
     if type(AltArmyTBC_Options) ~= "table" then
         AltArmyTBC_Options = {}
     end
-    AltArmyTBC_Options.auctionPreferFullScan = on ~= false
+    AltArmyTBC_Options.auctionScanMode = SCAN_MODE[mode] and mode or "prefer_full"
+    AltArmyTBC_Options.auctionPreferFullScan = nil
 end
 
---- The kind of scan Start would run now: "full", "summary", or nil (only a full scan, still cooling down).
+--- The kind of scan Start would run now: "full", "summary", or nil (none the mode allows can run: a full
+--- scan still cooling down, or no API for the kind the mode wants).
 function S.NextKind()
+    local mode = S.GetScanMode()
     local fullReady = S.HasFullApi() and S.CooldownLeft() <= 0
-    if fullReady and S.IsPreferFullEnabled() then return "full" end
-    if S.HasSummaryApi() then return "summary" end
+    if mode == "only_full" then
+        return fullReady and "full" or nil
+    end
+    if mode == "only_summary" then
+        return S.HasSummaryApi() and "summary" or nil
+    end
     if fullReady then return "full" end
+    if S.HasSummaryApi() then return "summary" end
     return nil
 end
 
@@ -381,9 +398,9 @@ function S.OnEvent(event)
     end
 end
 
---- Start a scan: a full scan if preferred and allowed, otherwise a summary (see NextKind). Returns true once
---- asked; false and why otherwise: "missing" (the client has neither scan), "closed" (no auction house
---- open), "busy", "cooldown" (only a full scan, still cooling down), "error" (the client refused).
+--- Start a scan of the kind the scan mode allows now (see NextKind). Returns true once asked; false and why
+--- otherwise: "missing" (the client has neither scan), "closed" (no auction house open), "busy", "cooldown"
+--- (nothing the scan mode allows can run: a full scan still cooling down), "error" (the client refused).
 function S.Start()
     if not S.HasApi() then return false, "missing" end
     if not open then return false, "closed" end
@@ -394,7 +411,7 @@ function S.Start()
         return startSummary()
     end
     if not pcall(C_AuctionHouse.ReplicateItems) then
-        if S.HasSummaryApi() then
+        if S.HasSummaryApi() and S.GetScanMode() ~= "only_full" then
             return startSummary()
         end
         return false, "error"

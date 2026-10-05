@@ -36,10 +36,10 @@ local UI = {
     colWidths = { crate = 170, price = 96, bundle = 168, bundleCost = 96, total = 96 },
     sortKeys = { "crate", "price", "bundle", "bundleCost", "total" },
     sortLabels = {
-        crate = "Crate",
-        price = "Crate price",
-        bundle = "Cheapest fill",
-        bundleCost = "Fill cost",
+        crate = "Waylaid Crate",
+        price = "Crate Price",
+        bundle = "Cheapest Fill",
+        bundleCost = "Fill Cost",
         total = "Total",
     },
     sortJustify = { crate = "LEFT", price = "RIGHT", bundle = "LEFT", bundleCost = "RIGHT", total = "RIGHT" },
@@ -129,6 +129,42 @@ local function CreateScanFooter(parent)
     status:SetJustifyH("LEFT")
     footer.status = status
 
+    -- After a summary scan: an info icon beside the age, and a tooltip over both saying what that means; a
+    -- click opens the Options on the scan mode dropdown.
+    local info = parent:CreateTexture(nil, "ARTWORK")
+    info:SetTexture("Interface\\Common\\help-i")
+    info:SetSize(UI.ICON_SIZE, UI.ICON_SIZE)
+    info:SetPoint("LEFT", status, "RIGHT", 2, 0)
+    info:Hide()
+    local hover = CreateFrame("Frame", nil, parent)
+    hover:SetPoint("TOPLEFT", status, "TOPLEFT", 0, 0)
+    hover:SetPoint("BOTTOMRIGHT", info, "BOTTOMRIGHT", 0, 0)
+    hover:SetHeight(UI.STATUS_HEIGHT)
+    hover:EnableMouse(true)
+    hover:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine("Summary scan", 1, 1, 1)
+        GameTooltip:AddLine("A summary scan collects only the lowest price for each item, not how many are "
+            .. "listed at each price. As a result, the numbers shown may be too optimistic.",
+            0.9, 0.9, 0.9, true)
+        GameTooltip:AddLine("Click to configure", 0.5, 0.5, 0.5)
+        GameTooltip:Show()
+    end)
+    hover:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    hover:SetScript("OnMouseUp", function()
+        GameTooltip:Hide()
+        if AltArmy.OpenInterfaceOptions then
+            AltArmy.OpenInterfaceOptions("general", { flash = "scanMode" })
+        end
+    end)
+    hover:Hide()
+
+    --- Show the info icon and its tooltip when the scan shown is a summary scan.
+    function footer.SetSummary(isSummary)
+        info:SetShown(isSummary and status:IsShown() and true or false)
+        hover:SetShown(info:IsShown())
+    end
+
     -- Same setting as Options → General → Auction House. CreateLabeledCheckbox stretches its row to its
     -- parent's right edge: a holder sized to the checkbox and label keeps it right-aligned.
     local holder = CreateFrame("Frame", nil, parent)
@@ -180,6 +216,7 @@ local function CreateScanFooter(parent)
         status:Hide()
         btn:Hide()
         holder:Hide()
+        footer.SetSummary(false)
     end
 
     btn:SetScript("OnClick", function()
@@ -282,8 +319,32 @@ end)
 -- A scan with no Waylaid Crates listed: a message in the empty table.
 UI.noCratesLabel = listViewport:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
 UI.noCratesLabel:SetPoint("CENTER", listViewport, "CENTER", 0, 20)
-UI.noCratesLabel:SetText("No Waylaid Crates were listed on this scan.")
+UI.noCratesLabel:SetText("No crates left: the filters hide them all.")
 UI.noCratesLabel:Hide()
+
+-- "Filter" dropdown in the main toolbar row (as on the Craftsman's Writs view), parented to this view's panel
+-- so it shows only here. Its entries are re-read on every open and toggle.
+UI.filter = Theme.CreateFilterDropdown({
+    parent = waylaidPanel,
+    text = "Filter",
+    getEntries = function()
+        return {
+            { kind = "checkbox", key = "hideUnavailable", label = "Hide unavailable crates",
+                checked = W.EnsureOptions().waylaidOnlyAvailable, enabled = true },
+        }
+    end,
+    onToggle = function(key, checked)
+        if key ~= "hideUnavailable" then return end
+        W.EnsureOptions().waylaidOnlyAvailable = checked and true or false
+        if frame.RefreshWaylaid then frame.RefreshWaylaid() end
+    end,
+})
+if UI.filter and AltArmy.PlaceInToolbarRight then
+    AltArmy.PlaceInToolbarRight(UI.filter.button, waylaidPanel, -4) -- off the window's edge
+end
+waylaidPanel:HookScript("OnHide", function()
+    if UI.filter and UI.filter.Close then UI.filter.Close() end
+end)
 
 -- No scan of this auction house yet: a message and the automatic scan checkbox, in place of the table.
 local empty = CreateFrame("Frame", nil, inner)
@@ -329,7 +390,11 @@ local function ShowRowTooltip(row)
         GameTooltip:SetText(rd.name)
     end
     GameTooltip:AddLine(" ")
-    GameTooltip:AddDoubleLine("Cheapest crate on the auction house", Money(rd.price), 1, 0.82, 0, 1, 1, 1)
+    if rd.price then
+        GameTooltip:AddDoubleLine("Cheapest crate on the auction house", Money(rd.price), 1, 0.82, 0, 1, 1, 1)
+    else
+        GameTooltip:AddDoubleLine("Cheapest crate on the auction house", "n/a", 1, 0.82, 0, 0.7, 0.7, 0.7)
+    end
     if rd.random then
         GameTooltip:AddLine("Its shipment is random until you read the label, so there is no fill cost.",
             0.7, 0.7, 0.7, true)
@@ -412,6 +477,7 @@ local function ShowEmpty(realm, faction)
     autoScanRow.check:SetChecked(S and S.IsAutoScanEnabled and S.IsAutoScanEnabled() or false)
     empty:Show()
     statusLabel:Hide()
+    footer.SetSummary(false)
     UI.scanBtn:Hide()
     UI.autoScanHolder:Hide()
     headerRow:Hide()
@@ -435,13 +501,14 @@ local function RefreshWaylaid()
     headerRow:Show()
     listViewport:Show()
 
-    local rows = W.BuildRows(UI.cache.book, Crates, scan.summary)
     local o = W.EnsureOptions()
+    local rows = W.FilterRows(W.BuildRows(UI.cache.book, Crates, scan.summary), o.waylaidOnlyAvailable)
     table.sort(rows, function(a, b) return W.Compare(a, b, o.waylaidSortKey, o.waylaidSortAscending) end)
     UpdateHeaderSortIndicators()
 
     local now = GetServerTime and GetServerTime() or time()
     statusLabel:SetText(W.AgeText(scan.t, now, AltArmy.SummaryData.GetTimeString, scan.summary))
+    footer.SetSummary(scan.summary)
     local level = W.AgeLevel(scan.t, now)
     local ageColor = level == "old" and Theme.COLORS.warningBlocking
         or level == "stale" and Theme.COLORS.warningCaution

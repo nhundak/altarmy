@@ -48,6 +48,13 @@ describe("AuctionScanButton", function()
         assert.is_nil(Btn.TooltipText("summary", 0):find("allowed in"))
     end)
 
+    it("says why nothing can run with only full scans set", function()
+        local text = Btn.TooltipText(nil, 125)
+        assert.truthy(text:find("Only full scans"))
+        assert.truthy(text:find("2:05"))
+        assert.truthy(Btn.TooltipText(nil, 0):find("can't run"))
+    end)
+
     it("opens the options on the automatic scan checkbox", function()
         local opened
         AltArmy.OpenInterfaceOptions = function(tab, opts) opened = { tab, opts.flash } end

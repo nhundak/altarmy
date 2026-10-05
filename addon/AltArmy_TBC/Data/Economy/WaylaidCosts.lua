@@ -46,9 +46,18 @@ function W.EnsureOptions()
     if type(o.writsSortAscending) ~= "boolean" then
         o.writsSortAscending = true
     end
-    if type(o.writsOnlyCraftable) ~= "boolean" then
+    if type(o.writsOnlyCraftable) ~= "boolean" then -- Hide writs I can not fulfill via crafting
         o.writsOnlyCraftable = false
     end
+    -- Hide unavailable writs / crates: on by default (keys new with that default, so an earlier saved off
+    -- doesn't carry over).
+    if type(o.writsOnlyAvailable) ~= "boolean" then
+        o.writsOnlyAvailable = true
+    end
+    if type(o.waylaidOnlyAvailable) ~= "boolean" then
+        o.waylaidOnlyAvailable = true
+    end
+    o.writsHideUnavailable = nil
     return o
 end
 
@@ -94,18 +103,20 @@ local function sortOptions(options)
     end)
 end
 
---- One row per crate listed in `book` (itemID -> ladder): its cheapest price and the cheapest bundle
---- that can be bought in full. `crates` is AltArmy.WaylaidCrates (LIST). `summary`: the book is a summary
---- scan's (one level per item, its cheapest price), so a fill of more than one unit is a lower bound: those
---- costs are marked approx and the row `summary`.
+--- One row per crate (every one the game has, listed or not): its cheapest price in `book` (itemID ->
+--- ladder; nil when the crate isn't listed) and the cheapest bundle that can be bought in full. `crates` is
+--- AltArmy.WaylaidCrates (LIST). `summary`: the book is a summary scan's (one level per item, its cheapest
+--- price), so a fill of more than one unit is a lower bound: those costs are marked approx and the row
+--- `summary`.
 function W.BuildRows(book, crates, summary)
     local rows = {}
     for _, crate in ipairs(crates.LIST) do
         local ladder = book[crate.id]
-        if ladder and ladder[1] then
+        do
             local row = {
                 id = crate.id, name = crate.name, short = crate.short, tier = crate.tier, kind = crate.kind,
-                random = crate.random == true, price = ladder[1].price, listed = unitsListed(ladder),
+                random = crate.random == true, price = ladder and ladder[1] and ladder[1].price or nil,
+                listed = unitsListed(ladder),
                 options = {}, shortBundles = 0, unlisted = 0, summary = summary and true or nil,
             }
             for _, b in ipairs(crate.bundles) do
@@ -125,8 +136,10 @@ function W.BuildRows(book, crates, summary)
                 end
             end
             sortOptions(row.options)
-            if row.bundle then
+            if row.bundle and row.price then
                 row.total = row.price + row.bundle.cost
+            end
+            if row.bundle then
                 row.bundleText = row.bundle.count .. " x " .. row.bundle.name
             elseif row.random then
                 row.bundleText = "random"
@@ -139,6 +152,19 @@ function W.BuildRows(book, crates, summary)
         end
     end
     return rows
+end
+
+--- The rows, or with `onlyAvailable` only the crates listed on the auction house that a bundle can fill
+--- (the unread crate, whose shipment is random, needs only to be listed).
+function W.FilterRows(rows, onlyAvailable)
+    if not onlyAvailable then return rows end
+    local out = {}
+    for _, row in ipairs(rows) do
+        if row.price and (row.bundle or row.random) then
+            out[#out + 1] = row
+        end
+    end
+    return out
 end
 
 --- Auctionator shopping-list terms for a row: the crate, then its cheapest fill at its count (if any).
@@ -174,7 +200,9 @@ function W.Compare(a, b, key, ascending)
         if y == nil and x ~= nil then return true end
         if x ~= nil then r = ordered(x, y) end
     elseif key == "price" then
-        r = ordered(a.price or 0, b.price or 0)
+        if a.price == nil and b.price ~= nil then return false end
+        if b.price == nil and a.price ~= nil then return true end
+        if a.price ~= nil then r = ordered(a.price, b.price) end
     elseif key == "bundle" then
         r = ordered(a.bundle and a.bundle.name or "~", b.bundle and b.bundle.name or "~")
     else -- crate: tier, then name
@@ -187,17 +215,6 @@ function W.Compare(a, b, key, ascending)
     return (a.name or "") < (b.name or "")
 end
 
---- "Scanned 2 hr ago", from the scan's time and now (server time); `fmt` formats seconds. `summary` adds
---- " (summary)".
-function W.AgeText(scanTime, now, fmt, summary)
-    local age = (now or 0) - (scanTime or 0)
-    local suffix = summary and " (summary)" or ""
-    if age < 60 then
-        return "Scanned just now" .. suffix
-    end
-    return "Scanned " .. fmt(age) .. " ago" .. suffix
-end
-
 --- How much to trust a scan's prices by its age: "fresh" under 15 min, "stale" up to 30, then "old".
 function W.AgeLevel(scanTime, now)
     local age = (now or 0) - (scanTime or 0)
@@ -208,3 +225,16 @@ function W.AgeLevel(scanTime, now)
     end
     return "old"
 end
+
+--- "Scanned 2 hr ago", from the scan's time and now (server time), in whole minutes rounded to the nearest
+--- ("Scanned just now" under a minute); `fmt` formats seconds. `summary` adds " (summary)".
+function W.AgeText(scanTime, now, fmt, summary)
+    local age = (now or 0) - (scanTime or 0)
+    local suffix = summary and " (summary)" or ""
+    if age < 60 then
+        return "Scanned just now" .. suffix
+    end
+    -- Whole minutes, rounded to the nearest: the client's SecondsToTime would show seconds too.
+    return "Scanned " .. fmt(math.floor(age / 60 + 0.5) * 60) .. " ago" .. suffix
+end
+
