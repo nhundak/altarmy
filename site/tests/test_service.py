@@ -820,6 +820,52 @@ def test_likely_profit_counts_unsold_units_at_the_fallback_exit() -> None:
     assert service.likely(r, {10: swamped}, 1000) == service.Likely(10 * 500 - 1000, "vendor", 0, 10)
 
 
+def test_the_auction_house_counts_only_what_its_market_takes_whichever_exit_pays_best() -> None:
+    items = {1: engine.Item(1, "Cloth"), 10: engine.Item(10, "Robe", sell_price=500, class_id=4)}
+    robe = engine.Recipe(1, "Robe", 10, 1, ((1, 1),), "Tailoring")
+    (r,) = engine.Market(items, [robe], {1: 100}, sell_prices={10: 1000}).rank(crafts=10)
+    ladder = (book.Level(900, 1, 1), book.Level(1000, 1, 1), book.Level(1500, 5, 1))
+    listing = prices.Listing(900, 7, ladder, 3 / 7, "altarmy", True, sale_price=1000)
+    assert service.ah_sale(r, {10: listing}, 1000) == service.AhSale(r.profit - 7 * (950 - 500), 3, 7)
+    # depth 0: every unit goes to the vendor
+    swamped = replace(listing, sale_rate=0.0, ladder=())
+    assert service.ah_sale(r, {10: swamped}, 1000) == service.AhSale(10 * 500 - 1000, 0, 10)
+    # another source's price is counted as it is
+    other = replace(listing, source="auctionator")
+    assert service.ah_sale(r, {10: other}, 1000) == service.AhSale(r.profit, 0, 0)
+    # another exit paying best changes nothing about what the AH makes
+    vendor = replace(r, best_exit="vendor", revenue=5000)
+    assert service.ah_sale(vendor, {10: listing}, 1000) == service.ah_sale(r, {10: listing}, 1000)
+    # nothing to say without an AH exit
+    no_ah = replace(vendor, sell_options=[engine.SellOption("vendor", vendor.profit)])
+    assert service.ah_sale(no_ah, {10: listing}, 1000) is None
+
+
+def test_likely_profit_is_the_better_of_playing_it_safe_and_the_auction_house() -> None:
+    items = {1: engine.Item(1, "Cloth"), 10: engine.Item(10, "Robe", sell_price=500, class_id=4)}
+    robe = engine.Recipe(1, "Robe", 10, 1, ((1, 1),), "Tailoring")
+    (r,) = engine.Market(items, [robe], {1: 100}, sell_prices={10: 1000}).rank(crafts=10)
+    for sold, listed in ((3 / 7, 7), (0.0, 0), (1.0, 20)):
+        ladder = (book.Level(1000, listed, 1),) if listed else ()
+        listing = prices.Listing(1000, listed, ladder, sold, "altarmy", True, sale_price=1000)
+        sale = service.ah_sale(r, {10: listing}, 1000)
+        safe = service.safe_profit(r)
+        assert sale is not None and safe is not None
+        assert service.likely(r, {10: listing}, 1000).profit == max(sale.profit, safe[1])
+
+
+def test_an_essence_conversion_sells_safely() -> None:
+    convert = engine.Recipe(1_000_000_001, "Greater Essence", 2, 1, ((1, 3),), "", kind="convert")
+    assert convert.is_conversion
+    sale = engine.Result(convert, 300, 1000, "ah", engine.Node(2, "Greater Essence", 1, 300))
+    sale.sell_options = [engine.SellOption("ah", 700)]
+    thin = prices.Listing(1000, 0, (), 0.0, "altarmy", True, sale_price=1000)
+    # enchanting materials sell: no depth cap, and not an auction house play
+    assert service.likely(sale, {2: thin}, 1000) == service.Likely(700, "ah", 0, 0)
+    assert service.ah_sale(sale, {2: thin}, 1000) is None
+    assert service.safe_profit(sale) == ("convert", 700)
+
+
 def test_a_gathered_material_is_worth_what_it_would_sell_for() -> None:
     items = {1: engine.Item(1, "Cloth", sell_price=3), 2: engine.Item(2, "Thread"), 3: engine.Item(3, "Dust")}
     market = engine.Market(items, [], {}, sell_prices={1: 100})
@@ -1281,6 +1327,18 @@ def test_the_gold_sorts() -> None:
     assert [r.recipe.id for r in service.by_roi([a, b, c])] == [3, 1, 2]
     assert [r.recipe.id for r in service.by_spend([a, b, c])] == [3, 1, 2]
     assert [r.recipe.id for r in service.by_profit_each([a, b, c])] == [2, 1, 3]
+    SO = engine.SellOption
+    a.sell_options = [SO("ah", 500), SO("vendor", -50)]
+    b.sell_options = [SO("disenchant", 300), SO("vendor", 100)]
+    c.sell_options = [SO("ah", 900)]
+    a.exits = [engine.Exit("ah", 525), engine.Exit("vendor", 5)]
+    c.exits = [engine.Exit("ah", 91)]
+    assert [r.recipe.id for r in service.by_safe([a, b, c])] == [2, 1, 3]  # c has no safe exit: last
+    assert [r.recipe.id for r in service.by_safe([a, b, c], ascending=True)] == [1, 2, 3]  # still last
+    nowhere = engine.Market({}, [], {})
+    assert [r.recipe.id for r in service.by_ah([a, b, c], {}, nowhere)] == [3, 1, 2]
+    assert [r.recipe.id for r in service.by_ah([a, b, c], {}, nowhere, ascending=True)] == [1, 3, 2]
+    assert (service.safe_profit(b), service.safe_profit(c)) == (("disenchant", 300), None)
     assert service.at_least_verdict("likely", "steady") and not service.at_least_verdict("likely", "unproven")
 
 

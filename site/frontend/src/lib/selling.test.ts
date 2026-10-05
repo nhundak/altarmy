@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { RankResult } from '../api/client'
 import { linen, makeItem } from '../test/items'
 import { robeResult } from '../test/results'
-import { breakEven, countedOn, fallback, floodCheck, floor } from './selling'
+import { ahCount, ahProfit, breakEven, countedOn, depthNote, fallback, floodCheck, floor, safeProfit } from './selling'
 
 // the robe: costs 300 to make one, a vendor pays 500, the AH nets 475 of a 500 listing
 const robe: RankResult = { ...robeResult, best_exit: 'ah' }
@@ -42,5 +42,47 @@ describe('selling', () => {
       { itemId: 1, name: 'Linen Cloth', adds: 8, listed: 90 },
     ])
     expect(floodCheck(robe, {})).toEqual([])
+  })
+})
+
+describe('the two ways to sell', () => {
+  // ten robes: the AH counts on 3 at 950 net, the other 7 at the vendor's 500
+  const ten: RankResult = {
+    ...robe,
+    crafts: 10,
+    safe_profit: 2000,
+    safe_exit: 'vendor',
+    ah_profit: 2000 + 3 * 450,
+    ah_excess_units: 7,
+    exits: [
+      { kind: 'ah', value: 950, materials: [], postage: 0, mail_to: '' },
+      { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
+    ],
+    sell_options: [
+      { kind: 'ah', profit: 6500 },
+      { kind: 'vendor', profit: 2000 },
+    ],
+  }
+  const listed = { 3: makeItem({ id: 3, name: 'Green Robe', ah_quantity: 4, ah_sell_price: 1000 }) }
+
+  it('plays it safe as the server says, if it can', () => {
+    expect(safeProfit(ten)).toEqual({ kind: 'vendor', profit: 2000 })
+    expect(safeProfit({ safe_profit: null, safe_exit: null })).toBeNull()
+    expect(ahProfit({ ah_profit: null })).toBeNull()
+  })
+
+  it('says how many the market takes, or how many are listed', () => {
+    expect(depthNote(ten, listed)).toEqual({ text: 'market takes ~3 of 10', warn: true })
+    expect(depthNote({ ...ten, ah_excess_units: 4 }, listed)).toEqual({ text: 'market takes ~6 of 10', warn: false })
+    expect(depthNote({ ...ten, ah_excess_units: 10 }, listed)).toEqual({ text: 'no buyers shown yet', warn: true })
+    expect(depthNote({ ...ten, ah_excess_units: 0 }, listed)).toEqual({ text: '4 listed · you add 10', warn: false })
+    expect(depthNote({ ...ten, ah_excess_units: 0 }, {})).toBeNull()
+    expect(depthNote({ ...ten, ah_profit: null }, listed)).toBeNull()
+  })
+
+  it('says how the auction house figure was counted', () => {
+    expect(ahCount(ten, listed)).toEqual({ counted: 3, made: 10, price: 1000, restKind: 'vendor', allSold: 6500 })
+    expect(ahCount({ ...ten, ah_excess_units: 0 }, listed)?.restKind).toBeNull()
+    expect(ahCount({ ...ten, ah_profit: null }, listed)).toBeNull()
   })
 })

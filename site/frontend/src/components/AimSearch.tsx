@@ -7,7 +7,6 @@ import {
   Group,
   Loader,
   NumberInput,
-  Select,
   SimpleGrid,
   Stack,
   Text,
@@ -18,10 +17,8 @@ import {
 import { z } from 'zod'
 import {
   ALL_SOURCES,
-  type Exit,
   type RankParams,
   type RankSort,
-  type VerdictLevel,
   type Source,
   useAhBlocked,
   useDataVersion,
@@ -48,50 +45,19 @@ import { useStoredState } from '../lib/storage'
 import { IconInfo } from './icons'
 import { HOW_TO_SCAN } from './PriceFreshness'
 import classes from './SearchTab.module.css'
-import { ResultsTable } from './ResultsTable'
+import { type GoldSort, ResultsTable, type SortOrder } from './ResultsTable'
 import { SkillWorkspace } from './SkillWorkspace'
 import { CraftsPerSession } from './CraftsPerSession'
 
 /** Results per page: the first request asks for this many, and each "Show more" for this many more. */
 const PAGE = 50
 
-const EXITS: {
-  value: Exit
-  label: string
-  description: string
-  warning?: string
-  aside?: string
-}[] = [
-  {
-    value: 'vendor',
-    label: 'Vendor',
-    description: "Dead simple, 100% reliable. It's rarely profitable, but use it if you can.",
-  },
-  {
-    value: 'disenchant',
-    label: 'Disenchant',
-    description:
-      'Enchanting materials tend to have stable prices and sell well. Usually the most reliable way to turn a profit.',
-    aside:
-      'Enabling this will also look for cases where converting essences is profitable (3 lesser to 1 greater, ' +
-      'or back), and cases where gear can be bought, disenchanted, and resold.',
-  },
-  {
-    value: 'ah',
-    label: 'Auction house',
-    description: 'Volatile, unpredictable, but potentially lucrative.',
-    warning: 'You will need to take an active role in figuring out what sells reliably.',
-  },
-]
 /** The professions with spells that enhance an item and make none (enchants, Engineering's tinkers). Skilling one of
  * them up always ranks such casts for the skill point alone: they sell nothing, so they rank at a dead loss, and the
  * climb takes one only where nothing gives the point cheaper. */
 const ENHANCING: ReadonlySet<string> = new Set(['enchanting', 'engineering'])
 /** The Arcane Salvager checkbox is hidden for now: while it is, disenchants never count on a salvager. */
 export const SHOW_ARCANE_SALVAGER = false
-
-/** The Disenchant tooltip's extra line when none of the selected realm's characters has Enchanting. */
-const NO_ENCHANTER = 'None of your characters here has Enchanting, so nothing can be disenchanted.'
 
 /**
  * One way to sell: its checkbox, with the explanation in a tooltip beside it (and as the checkbox's description for
@@ -182,8 +148,6 @@ const sourceList = z.array(z.enum(['trainer', 'recipe', 'bop']))
 const DEFAULT_SOURCES: Source[] = ['trainer', 'recipe']
 const SECTIONS = ['advanced'] as const
 const NONE_OPEN: string[] = []
-const exitList = z.array(z.enum(['vendor', 'disenchant', 'ah', 'keep']))
-const EVERY_EXIT: Exit[] = [...ALL_EXITS]
 
 const bound = z.number().nullable()
 /** NumberInput reports an empty field as ''; that means no bound. */
@@ -192,22 +156,11 @@ const scaled = (v: number | null, f: (v: number) => number) => (v === null ? nul
 
 type Filters = Omit<RankParams, 'top'>
 
-const ANY_VERDICT = 'any'
-const VERDICT_OPTIONS = [
-  { value: ANY_VERDICT, label: 'Any' },
-  { value: 'likely', label: 'Likely or steady' },
-  { value: 'steady', label: 'Steady' },
-]
-const verdictSchema = z.enum(['steady', 'likely', 'unproven']).nullable()
-/** The gold list's orders, all the server's (over the whole ranking, not just the rows loaded). */
-const GOLD_SORTS: { value: RankSort; label: string }[] = [
-  { value: 'likely', label: 'Likely profit' },
-  { value: 'all_sell', label: 'Profit if all sell' },
-  { value: 'roi', label: 'ROI' },
-  { value: 'spend', label: 'Least spent' },
-  { value: 'profit_each', label: 'Profit each' },
-]
-const goldSortSchema = z.enum(['likely', 'all_sell', 'roi', 'spend', 'profit_each'])
+/** The gold list's orders, all the server's (over the whole ranking, not just the rows loaded), picked by its
+ * Safe and Auction house headers; none picked: the better of the two. A stored sort from before (all sell, ROI,
+ * least spent, profit each) reads as that default. */
+const goldSortSchema = z.enum(['likely', 'safe', 'ah'])
+const sortOrderSchema = z.enum(['desc', 'asc'])
 /** Under this many hours of back-to-back scans this week, a house's sales are barely seen. */
 const WATCHED_ENOUGH_HOURS = 3
 
@@ -228,7 +181,16 @@ function useSettled<T>(value: T, wait: number, flush: number): T {
 }
 
 /** Memoized: opening or closing a filter section re-renders the search, and the table is the costly part. */
-const Results = memo(function Results({ filters, browsing }: { filters: Filters; browsing: boolean }) {
+const Results = memo(function Results({
+  filters,
+  browsing,
+  onGoldSort,
+}: {
+  filters: Filters
+  browsing: boolean
+  /** Re-rank a gold list by a column's header. */
+  onGoldSort?: (sort: GoldSort, order: SortOrder) => void
+}) {
   // Back to one page whenever the filters change.
   const [page, setPage] = useState({ filters, top: PAGE })
   const top = page.filters === filters ? page.top : PAGE
@@ -278,6 +240,9 @@ const Results = memo(function Results({ filters, browsing }: { filters: Filters;
         favorites={favorites}
         onSetFavorite={(recipeId, favorite) => setFavorite({ recipeId, favorite })}
         rankBy={filters.sort === 'skill' ? 'skill' : 'gold'}
+        goldSort={filters.sort}
+        goldOrder={filters.order}
+        onGoldSort={onGoldSort}
       />
       {total > results.length && (
         <Group justify="center">
@@ -445,7 +410,6 @@ export function AimSearch({
   // not an error.
   const [stored, setOpen] = useFilter(aim, 'open', z.array(z.string()), NONE_OPEN)
   const open = SECTIONS.filter((s) => stored.includes(s))
-  const [exits, setExits] = useFilter<Exit[]>(aim, 'exits', exitList, EVERY_EXIT)
   // null until the user ticks or unticks it: then it follows whether any character can make an Arcane Salvager.
   const [salvagerPick, setSalvagerPick] = useFilter<boolean | null>(aim, 'arcaneSalvager', z.boolean().nullable(), null)
   const arcaneSalvager = SHOW_ARCANE_SALVAGER && (salvagerPick ?? salvagerDefault)
@@ -457,8 +421,8 @@ export function AimSearch({
   const [maxProfit, setMaxProfit] = useFilter(aim, 'maxProfit', bound, null)
   const [minRoi, setMinRoi] = useFilter(aim, 'minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useFilter(aim, 'maxRoi', bound, null)
-  const [minVerdict, setMinVerdict] = useFilter<VerdictLevel | null>(aim, 'minVerdict', verdictSchema, null)
   const [goldSort, setGoldSort] = useFilter<RankSort>(aim, 'sort', goldSortSchema, 'likely')
+  const [goldOrder, setGoldOrder] = useFilter<SortOrder>(aim, 'order', sortOrderSchema, 'desc')
   const [learnable, setLearnable] = useFilter(aim, 'learnable', z.boolean(), false)
   // Skill up only: how sure the materials bought for a run are to get there, in percent.
   const [reach, setReach] = useFilter(aim, 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
@@ -508,7 +472,8 @@ export function AimSearch({
             lookAhead: 0,
             sources: DEFAULT_SOURCES,
             includeTrivial: true,
-            exits: ALL_EXITS.filter((e) => exits.includes(e)),
+            // every way to sell, side by side: the list shows playing it safe and the auction house apart
+            exits: [...ALL_EXITS],
             arcaneSalvager,
             minCost: scaled(minCost, goldToCopper),
             maxCost: scaled(maxCost, goldToCopper),
@@ -517,16 +482,15 @@ export function AimSearch({
             minRoi: scaled(minRoi, (p) => p / 100),
             maxRoi: scaled(maxRoi, (p) => p / 100),
             minConfidence: null,
-            minVerdict,
             professions: [],
             skillCrafters: [],
             sort,
+            order: goldOrder,
             runs: false,
           },
     [
       skill,
       sources,
-      exits,
       skilling,
       arcaneSalvager,
       minCost,
@@ -535,9 +499,9 @@ export function AimSearch({
       maxProfit,
       minRoi,
       maxRoi,
-      minVerdict,
       learnable,
       sort,
+      goldOrder,
       profession,
       skilled,
       stop,
@@ -590,23 +554,8 @@ export function AimSearch({
       ) : (
         <Options label="Filters">
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xl">
-            <Checkbox.Group
-              label="Sell via"
-              value={exits}
-              onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
-            >
-              <Stack mt={4} gap="xs">
-                {EXITS.map((e) => (
-                  <SellVia
-                    key={e.value}
-                    {...e}
-                    note={e.value === 'disenchant' && noEnchanter ? NO_ENCHANTER : undefined}
-                  />
-                ))}
-              </Stack>
-            </Checkbox.Group>
+            <CraftsPerSession />
             <Stack gap="md">
-              <CraftsPerSession />
               <Checkbox
                 label="Include recipes I could learn"
                 description="Recipes a character can train or buy the pattern for now"
@@ -644,7 +593,6 @@ export function AimSearch({
           None of your characters on {realm} has Enchanting, so nothing can be disenchanted. Making an enchanter on any
           alt is an easy way to expand your options: enchanting materials sell reliably
           {skill ? ', and disenchanting what you make often costs less than selling it to a vendor.' : '.'}
-          {setup.aim === 'gold' && setup.selling === 'reliable' && ' Until then only vendor sales count.'}
         </Alert>
       )}
       {browsing && (
@@ -689,14 +637,6 @@ export function AimSearch({
                       step={0.5}
                     />
                     <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
-                    <Select
-                      label="Minimum sale verdict"
-                      description="How sure a sale must be to sell: steady, likely, or anything"
-                      data={VERDICT_OPTIONS}
-                      value={minVerdict ?? ANY_VERDICT}
-                      onChange={(v) => setMinVerdict(v === 'steady' || v === 'likely' ? v : null)}
-                      allowDeselect={false}
-                    />
                   </SimpleGrid>
                 </Stack>
               </Accordion.Panel>
@@ -706,18 +646,13 @@ export function AimSearch({
       )}
       {noPrices && <Alert color="yellow">No prices yet for this realm. {HOW_TO_SCAN}</Alert>}
       {!skill && (
-        <Select
-          label="Sort by"
-          data={GOLD_SORTS}
-          value={goldSort}
-          onChange={(v) => setGoldSort(GOLD_SORTS.find((o) => o.value === v)?.value ?? 'likely')}
-          allowDeselect={false}
-          w={220}
-        />
+        <Text size="sm" c="dimmed">
+          <b>Safe profit</b>: sold to a vendor or disenchanted, so it always sells. <b>Auction profit</b>: counts only as
+          many as its market has been taking, the rest the safe way. Ranked by the better of the two, in bold; click a
+          heading to rank by it, and again to reverse it.
+        </Text>
       )}
-      {!debouncedFilters.exits.length ? (
-        <Alert>Pick at least one way to sell under Sell via.</Alert>
-      ) : climber && profession !== null ? (
+      {climber && profession !== null ? (
         <SkillWorkspace
           filters={debouncedFilters}
           climber={climber}
@@ -725,7 +660,18 @@ export function AimSearch({
           reachTarget={reachTarget(reach)}
         />
       ) : (
-        <Results filters={debouncedFilters} browsing={browsing} />
+        <Results
+          filters={debouncedFilters}
+          browsing={browsing}
+          onGoldSort={
+            skill
+              ? undefined
+              : (s, o) => {
+                  setGoldSort(s)
+                  setGoldOrder(o)
+                }
+          }
+        />
       )}
     </>
   )

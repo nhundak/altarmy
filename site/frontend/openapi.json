@@ -2156,11 +2156,6 @@
             "title": "Classes",
             "type": "object"
           },
-          "hidden_by_verdict": {
-            "default": 0,
-            "title": "Hidden By Verdict",
-            "type": "integer"
-          },
           "items": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ItemInfo"
@@ -2218,6 +2213,27 @@
       },
       "RankResult": {
         "properties": {
+          "ah_depth_units": {
+            "default": 0,
+            "title": "Ah Depth Units",
+            "type": "integer"
+          },
+          "ah_excess_units": {
+            "default": 0,
+            "title": "Ah Excess Units",
+            "type": "integer"
+          },
+          "ah_profit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ah Profit"
+          },
           "best_city": {
             "anyOf": [
               {
@@ -2456,6 +2472,28 @@
             "title": "Roi",
             "type": "number"
           },
+          "safe_exit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Exit"
+          },
+          "safe_profit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Profit"
+          },
           "sell_options": {
             "items": {
               "$ref": "#/components/schemas/SellOptionOut"
@@ -2523,24 +2561,6 @@
             "default": 0,
             "title": "Trivial Low",
             "type": "integer"
-          },
-          "verdict": {
-            "default": "steady",
-            "enum": [
-              "steady",
-              "likely",
-              "unproven"
-            ],
-            "title": "Verdict",
-            "type": "string"
-          },
-          "verdict_reasons": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Verdict Reasons",
-            "type": "array"
           }
         },
         "required": [
@@ -4549,29 +4569,6 @@
             }
           },
           {
-            "description": "only sales at least this sure to sell (`verdict`)",
-            "in": "query",
-            "name": "min_verdict",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "steady",
-                    "likely",
-                    "unproven"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "only sales at least this sure to sell (`verdict`)",
-              "title": "Min Verdict"
-            }
-          },
-          {
             "description": "only recipes of these professions (default: every one)",
             "in": "query",
             "name": "professions",
@@ -4593,13 +4590,13 @@
             }
           },
           {
-            "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made",
+            "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, profit per unit made, or the profit selling it all safely (a vendor or disenchanting: `safe`) or on the auction house (`ah`), those it isn't open to last",
             "in": "query",
             "name": "sort",
             "required": false,
             "schema": {
               "default": "profit",
-              "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made",
+              "description": "profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, profit per unit made, or the profit selling it all safely (a vendor or disenchanting: `safe`) or on the auction house (`ah`), those it isn't open to last",
               "enum": [
                 "profit",
                 "rate",
@@ -4608,9 +4605,27 @@
                 "all_sell",
                 "roi",
                 "spend",
-                "profit_each"
+                "profit_each",
+                "safe",
+                "ah"
               ],
               "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "description": "`safe` and `ah` only: best first, or worst first (those not open to it last)",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "description": "`safe` and `ah` only: best first, or worst first (those not open to it last)",
+              "enum": [
+                "desc",
+                "asc"
+              ],
+              "title": "Order",
               "type": "string"
             }
           },

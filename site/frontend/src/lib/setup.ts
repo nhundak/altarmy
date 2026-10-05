@@ -6,13 +6,13 @@ import { craftingTalents, type CraftingTalent } from './talents'
 
 /*
  * The Profit page's setup: a few questions asked before the search, each setting one thing about it. What the user is
- * after (gold, or skill in one profession); for gold, how they are willing to sell.
+ * after (gold, or skill in one profession), and for skill which profession. Making gold asks nothing more: its list shows
+ * what playing it safe and what the auction house make side by side, and the user sorts by either.
  */
 
 export const aimSchema = z.enum(['gold', 'skill'])
-export const sellingSchema = z.enum(['reliable', 'any'])
+const sellingSchema = z.enum(['reliable', 'any'])
 export type Aim = z.infer<typeof aimSchema>
-export type Selling = z.infer<typeof sellingSchema>
 
 /** The answers so far; the ones a changed aim no longer asks are kept for when it comes back. Keys it no longer
  * knows (a budget, from before that question was dropped) are stripped when read. */
@@ -22,15 +22,14 @@ export const setupSchema = z.object({
   /** Which of the profession's holders is being skilled up (one; several from before one climbed at a time); unset:
    * the one who has it. */
   characters: z.array(z.string()).optional(),
+  /** How to sell, from when making gold asked; no longer asked or read (both ways show side by side). */
   selling: sellingSchema.optional(),
 })
 export type Setup = z.infer<typeof setupSchema>
-export type Step = 'aim' | 'profession' | 'selling'
+export type Step = 'aim' | 'profession'
 
 /** Every way to sell, in the order the filters list them. */
 export const ALL_EXITS: readonly Exit[] = ['vendor', 'disenchant', 'ah']
-/** Ways to sell that never leave the user holding stock: a vendor always pays, enchanting materials always sell. */
-const RELIABLE_EXITS: readonly Exit[] = ['vendor', 'disenchant']
 /** Skilling up sells what is made to a vendor or disenchants it (when someone can), else keeps it. */
 export const SKILL_EXITS: readonly Exit[] = ['vendor', 'disenchant', 'keep']
 
@@ -47,7 +46,6 @@ export type Card<K extends string> = {
 export const STEP_QUESTION: Readonly<Record<Step, string>> = {
   aim: 'What are you after?',
   profession: 'Which profession?',
-  selling: 'How do you want to sell?',
 }
 
 export const AIMS: readonly Card<Aim>[] = [
@@ -64,26 +62,6 @@ export const AIMS: readonly Card<Aim>[] = [
       'Each recipe is counted as the crafts until it turns green for you, ranked by what an expected skill point costs: orange recipes always give one, yellow and green ones less often.',
   },
 ]
-
-export const SELLING: readonly Card<Selling>[] = [
-  {
-    key: 'reliable',
-    title: 'Play it safe',
-    blurb: 'Sell to a vendor, or disenchant and sell the materials.',
-    details:
-      "A vendor always pays, and enchanting materials usually find buyers: disenchanting and converting essences still sell materials on the auction house, so each says how sure its sale is. Margins are smaller, but you won't be left holding stock.",
-  },
-  {
-    key: 'any',
-    title: 'Use the auction house too',
-    blurb: 'Also sell crafted items on the auction house.',
-    details:
-      'Each recipe counts only the units its market has shown it takes, and says how sure the sale is and why.',
-    caution: 'Watch for:',
-    points: ['Thin markets, where one listing is an asking price, not a price', 'Flooding the market yourself'],
-  },
-]
-
 
 /** One character having a profession, at what skill, and the Legacy talents that matter to it (`craftingTalents`). */
 export type Holder = {
@@ -148,7 +126,7 @@ export function nextStep(
     if (noCharacters) return 'aim'
     return skillCrafters(setup, professions).length ? null : 'profession'
   }
-  return setup.selling ? null : 'selling'
+  return null
 }
 
 /**
@@ -172,8 +150,6 @@ export function answer(setup: Setup | null, step: Step, value: string, character
       return { ...base, aim: aimSchema.parse(value) }
     case 'profession':
       return { ...base, profession: value, characters }
-    case 'selling':
-      return { ...base, selling: sellingSchema.parse(value) }
   }
 }
 
@@ -203,14 +179,12 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
           includeTrivial: true,
           minProfit: 0.0001,
           minRoi: 0,
-          exits: [...(setup.selling === 'reliable' ? RELIABLE_EXITS : ALL_EXITS)],
+          exits: [...ALL_EXITS],
           unlearned: 'none',
         }
   switch (step) {
     case 'aim':
       return all
-    case 'selling':
-      return { exits: all.exits }
     case 'profession':
       return {}
   }
@@ -237,11 +211,6 @@ export const rankSort = (setup: Setup | null): 'profit' | 'skill' => (setup?.aim
 export const rankProfessions = (setup: Setup | null): string[] =>
   setup?.aim === 'skill' && setup.profession ? [setup.profession] : []
 
-const SELLING_TEXT: Readonly<Record<Selling, string>> = {
-  reliable: 'Play it safe',
-  any: 'Use the auction house too',
-}
-
 /** The answers in a few words each, in question order, for the folded summary: "Making gold · …". */
 export function stripParts(setup: Setup): { step: Step; text: string }[] {
   const parts: { step: Step; text: string }[] = []
@@ -254,6 +223,5 @@ export function stripParts(setup: Setup): { step: Step; text: string }[] {
     return parts
   }
   parts.push({ step: 'aim', text: 'Making gold' })
-  if (setup.selling) parts.push({ step: 'selling', text: SELLING_TEXT[setup.selling] })
   return parts
 }

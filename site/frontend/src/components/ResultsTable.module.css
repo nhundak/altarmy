@@ -54,6 +54,27 @@ tr.details:hover {
   opacity: 1;
 }
 
+/* A gold list's sortable money headers: the header's own size, not a button's. */
+.goldSort {
+  font-size: inherit;
+}
+
+/* Shown only where the columns above have given way: a gold row's profits under its recipe. */
+.onlyBelowXs {
+  display: none;
+  margin-top: 4px;
+}
+
+.phoneWay {
+  line-height: 1.4;
+}
+
+@media (max-width: 36em) {
+  .onlyBelowXs {
+    display: block;
+  }
+}
+
 /* Columns that give way on narrower screens (Mantine's sm and xs breakpoints). */
 @media (max-width: 48em) {
   .hideBelowSm {
@@ -73,4 +94,29 @@ tr.details:hover {
   text-decoration: underline dotted;
   text-underline-offset: 2px;
   cursor: help;
+}
+
+/* A gold row's other profit, the one paying less: present, but not competing with the bold one. */
+.secondary {
+  opacity: 0.8;
+}
+
+/* The small line under a gold row's profit: kept on one line where it fits. */
+.cellNote {
+  white-space: nowrap;
+}
+
+/* A gold row's figure with more on hover: how it was counted. */
+.explained {
+  cursor: help;
+}
+
+/* A gold row's figure: never broken between its coins. */
+.figure {
+  white-space: nowrap;
+}
+
+/* On a phone, the safe figure and the auction house's: apart, and apart again when they wrap. */
+.phoneSafe {
+  margin-right: 12px;
 }

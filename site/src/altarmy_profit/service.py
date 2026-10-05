@@ -815,27 +815,67 @@ class Likely:
     excess_units: int
 
 
-def likely(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> Likely:
-    """`r`'s likely profit (see `Likely`). An AH sale of an item from Alt Army's scans counts on as many
-    units as the market has shown it takes: the more of those seen sold over the last week and those listed
-    at or under `sell_price` (a crude depth, until a model of what sells replaces it). The units beyond go
-    to the best other exit (or are worth nothing), and when that exit outright pays better, it is the
-    likely one. Any other sale, or a price from another source, is what it is."""
-    listing = listings.get(r.recipe.output_item_id)
+@dataclass(frozen=True)
+class AhSale:
+    """What selling a result on the auction house makes, counting on as many units as its market has shown it
+    takes (`depth_units`) and the rest (`excess_units`) at the best other exit."""
+
+    profit: int
+    depth_units: int
+    excess_units: int
+
+
+def ah_sale(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> AhSale | None:
+    """What `r` makes on the auction house (see `AhSale`), whichever exit pays best; None when it can't be
+    sold there, or is an essence conversion (enchanting materials sell: `safe_profit`). Its market's depth is
+    the more of the units seen sold over the last week and those listed at or under `sell_price` (a crude
+    depth, until a model of what sells replaces it); a price from another source than Alt Army's scans is
+    counted as it is."""
+    all_sold = (
+        r.profit if r.best_exit == "ah" else next((o.profit for o in r.sell_options if o.kind == "ah"), None)
+    )
     ah = next((e for e in r.exits if e.kind == "ah"), None)
-    if r.best_exit != "ah" or ah is None or listing is None or listing.source != prices.ALTARMY:
-        return Likely(r.profit, r.best_exit, 0, 0)
+    if all_sold is None or ah is None or r.recipe.is_conversion:
+        return None
+    listing = listings.get(r.recipe.output_item_id)
+    if listing is None or listing.source != prices.ALTARMY:
+        return AhSale(all_sold, 0, 0)
     units = r.recipe.output_count * r.crafts
     sold = round((listing.sale_rate or 0.0) * prices.SALES_DAYS)
     ahead = sum(lv.quantity for lv in listing.ladder if sell_price is not None and lv.price <= sell_price)
     depth = max(sold, ahead)
     excess = max(0, units - depth)
     fallback = max((e.value - e.postage for e in r.exits if e.kind != "ah"), default=0)
-    capped = r.profit - excess * (ah.value - fallback)
+    return AhSale(all_sold - excess * (ah.value - fallback), depth, excess)
+
+
+def likely(r: Result, listings: Mapping[int, prices.Listing], sell_price: int | None) -> Likely:
+    """`r`'s likely profit (see `Likely`): an AH sale of an item from Alt Army's scans counts as `ah_sale`
+    does, and when another exit then outright pays better, it is the likely one. Any other sale (an essence
+    conversion's too), or a price from another source, is what it is. It is the better of `safe_profit` and
+    `ah_sale` wherever both exist."""
+    listing = listings.get(r.recipe.output_item_id)
+    if r.best_exit != "ah" or listing is None or listing.source != prices.ALTARMY:
+        return Likely(r.profit, r.best_exit, 0, 0)
+    sale = ah_sale(r, listings, sell_price)
+    if sale is None:
+        return Likely(r.profit, r.best_exit, 0, 0)
     other = max((o for o in r.sell_options if o.kind != "ah"), key=lambda o: o.profit, default=None)
-    if other is not None and other.profit >= capped:
-        return Likely(other.profit, other.kind, depth, excess)
-    return Likely(capped, "ah", depth, excess)
+    if other is not None and other.profit >= sale.profit:
+        return Likely(other.profit, other.kind, sale.depth_units, sale.excess_units)
+    return Likely(sale.profit, "ah", sale.depth_units, sale.excess_units)
+
+
+SAFE_EXITS = ("vendor", "disenchant")  # the exits that never leave the user holding stock
+
+
+def safe_profit(r: Result) -> tuple[str, int] | None:
+    """What playing it safe makes for the session, and how: the better of a vendor and disenchanting, or an
+    essence conversion's sale (`convert`: enchanting materials sell); None when neither is open to `r`."""
+    options = [(o.kind, o.profit) for o in r.sell_options if o.kind in SAFE_EXITS]
+    if r.recipe.is_conversion:
+        options += [("convert", o.profit) for o in r.sell_options if o.kind == "ah"]
+    return max(options, key=lambda o: o[1], default=None)
 
 
 def by_likely(
@@ -898,7 +938,7 @@ def verdict(
         level, reasons = _disenchant_sure(r, listings, watched, disenchant_verified)
     else:
         level, reasons = "steady", ()
-    flags = (*(("short",) if r.short > 0 else ()), *(("just_listed",) if _fresh_buy(r, market) else ()))
+    flags = buy_flags(r, market)
     if flags:
         level = _WEAKER[level]
     return Verdict(level, reasons, flags)
@@ -925,6 +965,12 @@ def _disenchant_sure(
     if not verified and level == "steady":
         level, reasons = "likely", [*reasons, "disenchant_unchecked"]
     return level, tuple(reasons)
+
+
+def buy_flags(r: Result, market: Market) -> tuple[str, ...]:
+    """What about buying `r`'s reagents is in doubt: `short` (more than is listed), `just_listed` (the
+    cheapest listing of an AH reagent is new since the scan before)."""
+    return (*(("short",) if r.short > 0 else ()), *(("just_listed",) if _fresh_buy(r, market) else ()))
 
 
 def _fresh_buy(r: Result, market: Market) -> bool:
@@ -1013,6 +1059,44 @@ def by_spend(results: Iterable[Result]) -> list[Result]:
 def by_profit_each(results: Iterable[Result]) -> list[Result]:
     """`results` by profit per unit made, best first."""
     return sorted(results, key=lambda r: -r.profit / max(1, r.recipe.output_count * r.crafts))
+
+
+def _by_worth(
+    results: Iterable[Result], worth: Callable[[Result], int | None], ascending: bool = False
+) -> list[Result]:
+    """`results` by `worth`, best first (worst first when `ascending`); those it is None for last either way;
+    ties keep their order."""
+    listed = list(results)
+    known = {id(r): worth(r) for r in listed}
+    sign = 1 if ascending else -1
+    return sorted(listed, key=lambda r: (known[id(r)] is None, sign * (known[id(r)] or 0)))
+
+
+def by_safe(results: Iterable[Result], ascending: bool = False) -> list[Result]:
+    """`results` by what playing it safe makes (`safe_profit`), best first (worst first when `ascending`);
+    those it isn't open to last."""
+
+    def worth(r: Result) -> int | None:
+        safe = safe_profit(r)
+        return None if safe is None else safe[1]
+
+    return _by_worth(results, worth, ascending)
+
+
+def by_ah(
+    results: Iterable[Result],
+    listings: Mapping[int, prices.Listing],
+    market: Market,
+    ascending: bool = False,
+) -> list[Result]:
+    """`results` by what the auction house makes counting only what its market takes (`ah_sale`), best
+    first (worst first when `ascending`); those it can't be sold there last."""
+
+    def worth(r: Result) -> int | None:
+        sale = ah_sale(r, listings, market.sell_prices.get(r.recipe.output_item_id))
+        return None if sale is None else sale.profit
+
+    return _by_worth(results, worth, ascending)
 
 
 def by_rate(results: Iterable[Result]) -> list[Result]:

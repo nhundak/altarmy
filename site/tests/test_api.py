@@ -2007,23 +2007,23 @@ def test_events_are_logged_without_who_sent_them(
     assert client.post("/api/events", json={"name": "anything"}).status_code == 422
 
 
-def test_rank_says_whether_a_sale_will_sell_and_narrows_to_the_sure_ones(
+def test_rank_says_what_playing_it_safe_and_the_auction_house_make(
     client: TestClient, priced: Connection
 ) -> None:
-    one_craft(client)
-    scanned_robe(priced, 1000, 1000)  # one robe listed, nothing seen sold, a house hardly watched
-    body = client.get("/api/rank").json()
-    (r,) = body["results"]
-    assert (r["best_exit"], r["verdict"]) == ("ah", "unproven")
-    assert r["verdict_reasons"] == ["lone", "thin", "unwatched"]
-    assert r["buy_flags"] == []
-    assert body["hidden_by_verdict"] == 0
-    narrowed = client.get("/api/rank", params={"min_verdict": "likely"}).json()
-    assert (narrowed["total"], narrowed["hidden_by_verdict"]) == (0, 1)
-    vendor = client.get("/api/rank", params={"exits": ["vendor"], "min_verdict": "steady"}).json()
-    assert vendor["results"][0]["verdict"] == "steady"
-    for sort in ("all_sell", "roi", "spend", "profit_each"):
+    scanned_robe(priced, 1000, 1000)  # one robe listed, nothing seen sold: the market takes 1 of 10
+    (r,) = client.get("/api/rank").json()["results"]
+    # ten robes: a vendor pays 500 each; the AH nets 950 for the one it takes, the other nine go to a vendor
+    assert (r["safe_profit"], r["safe_exit"]) == (5000 - 3000, "vendor")
+    assert (r["ah_profit"], r["ah_depth_units"], r["ah_excess_units"]) == (950 + 9 * 500 - 3000, 1, 9)
+    assert (r["likely_profit"], r["likely_exit"]) == (r["ah_profit"], "ah")
+    assert "verdict" not in r and r["buy_flags"] == []
+    vendor_only = client.get("/api/rank", params={"exits": ["vendor"]}).json()["results"][0]
+    assert (vendor_only["safe_profit"], vendor_only["ah_profit"]) == (2000, None)
+    for sort in ("all_sell", "roi", "spend", "profit_each", "safe", "ah"):
         assert client.get("/api/rank", params={"sort": sort}).json()["total"] == 1
+    for sort in ("safe", "ah"):  # worst first too
+        assert client.get("/api/rank", params={"sort": sort, "order": "asc"}).json()["total"] == 1
+    assert client.get("/api/rank", params={"sort": "safe", "order": "up"}).status_code == 422
 
 
 def test_a_recipe_the_climb_took_up_before_is_not_learned_again() -> None:

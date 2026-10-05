@@ -389,15 +389,22 @@ class RankResult(BaseModel):
     # what the crafter must spend to learn the recipe (its pattern, or a trainer's fee; 0 when known or
     # free); None when nothing says
     learn_cost: int | None = 0
-    # whether the sale will sell (`service.verdict`): steady, likely or unproven, why it is no surer, and what
-    # about buying the reagents makes it one less sure
-    verdict: service.VerdictLevel = "steady"
-    verdict_reasons: list[str] = []
+    # what about buying the reagents is in doubt (`service.buy_flags`): short, just_listed
     buy_flags: list[str] = []
     likely_profit: int
     likely_exit: str
     depth_units: int = 0
     excess_units: int = 0
+    # the gold list's two ways to sell. Playing it safe (`service.safe_profit`): the better of a vendor and
+    # disenchanting, or an essence conversion's sale (`safe_exit` convert); None when neither is open.
+    # The auction house (`service.ah_sale`), whichever exit pays best: counting on the units its market
+    # has shown it takes (`ah_depth_units`), the rest (`ah_excess_units`) at the best other exit; None when
+    # it can't be sold there. `likely_profit` is the better of the two.
+    safe_profit: int | None = None
+    safe_exit: str | None = None
+    ah_profit: int | None = None
+    ah_depth_units: int = 0
+    ah_excess_units: int = 0
     # the skill the recipe is learned at (0: a trainer's, at no skill DB2 knows) and where it turns yellow
     # and grey (green halfway between); 0 when unknown
     learn_skill: int = 0
@@ -504,7 +511,6 @@ class RankResponse(BaseModel):
     options: list[RankResult] = []
     # each option's `chain` (`SKILL_CHAIN` runs at most), in the options' order: the first is `chain`'s start
     option_chains: list[list[RankResult]] = []
-    hidden_by_verdict: int = 0  # matches left out by `min_verdict`
 
 
 class EvaluateRequest(BaseModel):
@@ -1097,20 +1103,22 @@ def get_rank(
         prices.ConfidenceLevel | None,
         Query(description="only AH sales whose sell price is trusted at least this much (others all pass)"),
     ] = None,
-    min_verdict: Annotated[
-        service.VerdictLevel | None,
-        Query(description="only sales at least this sure to sell (`verdict`)"),
-    ] = None,
     professions: Annotated[
         list[str] | None, Query(description="only recipes of these professions (default: every one)")
     ] = None,
     sort: Annotated[
-        Literal["profit", "rate", "skill", "likely", "all_sell", "roi", "spend", "profit_each"],
+        Literal["profit", "rate", "skill", "likely", "all_sell", "roi", "spend", "profit_each", "safe", "ah"],
         Query(
             description="profit per session (the batch; all_sell is the same), per hour of play, cheapest "
-            "skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made"
+            "skill point, likely profit (`likely_profit`), ROI, least spent, profit per unit made, or the "
+            "profit selling it all safely (a vendor or disenchanting: `safe`) or on the auction house "
+            "(`ah`), those it isn't open to last"
         ),
     ] = "profit",
+    order: Annotated[
+        Literal["desc", "asc"],
+        Query(description="`safe` and `ah` only: best first, or worst first (those not open to it last)"),
+    ] = "desc",
     gathered: Annotated[
         list[int] | None,
         Query(description="items the user gathers: had for what selling them would make, instead of bought"),
@@ -1203,6 +1211,10 @@ def get_rank(
         matches = _ranked(state, (key, sort), s.token, ordered)
     elif sort == "likely":  # cheap: ordered per request
         matches = service.by_likely(matches, s.listings, base)
+    elif sort == "ah":
+        matches = service.by_ah(matches, s.listings, base, ascending=order == "asc")
+    elif sort == "safe":
+        matches = service.by_safe(matches, ascending=order == "asc")
     elif sort in ("roi", "spend", "profit_each"):
         matches = {"roi": service.by_roi, "spend": service.by_spend, "profit_each": service.by_profit_each}[
             sort
@@ -1211,11 +1223,6 @@ def get_rank(
     matches = [r for r in matches if filters.accepts(r)]
     if min_confidence is not None:
         matches = [r for r in matches if service.confident(r, s.listings, s.watched, min_confidence)]
-    hidden = 0
-    if min_verdict is not None:
-        before = len(matches)
-        matches = [r for r in matches if service.at_least_verdict(min_verdict, _verdict(r, s).level)]
-        hidden = before - len(matches)
     if professions:
         wanted = {p.lower() for p in professions}
         matches = [r for r in matches if r.recipe.skill_name.lower() in wanted]
@@ -1355,7 +1362,6 @@ def get_rank(
         chain_start=start_out,
         options=options_out,
         option_chains=option_chains_out,
-        hidden_by_verdict=hidden,
     )
 
 
@@ -1483,7 +1489,6 @@ class Selected:
     cities: list[timing.CityMap]
     faction: str = ""  # the selection's (Horde, Alliance); "" without one
     watched: float = 0.0  # `prices.watched_hours` of the auction house
-    disenchant_verified: bool = False  # the version's (`GameVersion.disenchant_verified`)
     token: Hashable = None  # what the market was built from (`service.Held.token`): the rank cache's key
 
 
@@ -1504,10 +1509,6 @@ def _ranked(
         return got
 
     return state.flights.run((key, token), work)
-
-
-def _verdict(r: engine.Result, s: Selected) -> service.Verdict:
-    return service.verdict(r, s.listings, s.watched, s.base, s.disenchant_verified)
 
 
 def _selected(state: AppState, user: auth.User, price_version: int | None = None) -> Selected:
@@ -1531,7 +1532,6 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         service.faction_cities(state.cities, faction),
         faction,
         priced.watched,
-        state.version.disenchant_verified,
         held.token,
     )
 
@@ -1794,8 +1794,10 @@ def _result_out(
     listings = s.listings
     per_city = _cities_out(r, base, s.cities)
     sure = service.price_confidence(r, listings, s.watched)
-    likely = service.likely(r, listings, base.sell_prices.get(r.recipe.output_item_id))
-    judged = _verdict(r, s)
+    sell_price = base.sell_prices.get(r.recipe.output_item_id)
+    likely = service.likely(r, listings, sell_price)
+    safe = service.safe_profit(r)
+    ah = service.ah_sale(r, listings, sell_price)
     t = r.timing
 
     def faction(who: str, item_id: int, percent: int) -> str:
@@ -1868,13 +1870,16 @@ def _result_out(
         ],
         tree=_node_out(r.tree, faction),
         learn_cost=learn_cost,
-        verdict=judged.level,
-        verdict_reasons=list(judged.reasons),
-        buy_flags=list(judged.buy_flags),
+        buy_flags=list(service.buy_flags(r, s.base)),
         likely_profit=likely.profit,
         likely_exit=likely.exit,
         depth_units=likely.depth_units,
         excess_units=likely.excess_units,
+        safe_profit=None if safe is None else safe[1],
+        safe_exit=None if safe is None else safe[0],
+        ah_profit=None if ah is None else ah.profit,
+        ah_depth_units=0 if ah is None else ah.depth_units,
+        ah_excess_units=0 if ah is None else ah.excess_units,
         learn_skill=r.recipe.learn_skill,
         trivial_low=r.recipe.trivial_low,
         trivial_high=r.recipe.trivial_high,

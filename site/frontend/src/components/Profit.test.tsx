@@ -69,10 +69,10 @@ describe('ProfitPage', () => {
     // nothing is ranked until the setup is complete
     const aims = within(search).getByRole('group', { name: 'What are you after?' })
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
+    // making gold asks nothing more: the list shows both ways to sell
     await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
-    expect(paths(fetch, '/api/rank')).toEqual([])
-    await userEvent.click(await within(search).findByRole('button', { name: 'Use the auction house too' }))
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
+    expect(within(search).queryByRole('group', { name: 'How do you want to sell?' })).not.toBeInTheDocument()
     expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('likely')
 
     unmount()

@@ -58,8 +58,8 @@ export function SearchTab() {
   const pick = (step: Step, value: string, characters?: string[]) => {
     const next = answer(setup, step, value, characters)
     setSetup(next)
-    // an aim always asks its follow-up (which profession, how to sell), even when an answer is kept from before
-    setEditing(step === 'aim' ? (next.aim === 'skill' ? 'profession' : 'selling') : null)
+    // skilling up always asks which profession, even when an answer is kept from before; making gold asks nothing more
+    setEditing(step === 'aim' && next.aim === 'skill' ? 'profession' : null)
     setPicks((n) => n + 1)
     if (step === 'aim') track('aim_chosen', { aim: next.aim })
     // The aim's search is not mounted while a question is open: it starts from these once the setup is complete.

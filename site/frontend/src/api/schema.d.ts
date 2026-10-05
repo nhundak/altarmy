@@ -1300,11 +1300,6 @@ export interface components {
             classes: {
                 [key: string]: string;
             };
-            /**
-             * Hidden By Verdict
-             * @default 0
-             */
-            hidden_by_verdict: number;
             /** Items */
             items: {
                 [key: string]: components["schemas"]["ItemInfo"];
@@ -1333,6 +1328,18 @@ export interface components {
         };
         /** RankResult */
         RankResult: {
+            /**
+             * Ah Depth Units
+             * @default 0
+             */
+            ah_depth_units: number;
+            /**
+             * Ah Excess Units
+             * @default 0
+             */
+            ah_excess_units: number;
+            /** Ah Profit */
+            ah_profit?: number | null;
             /** Best City */
             best_city?: string | null;
             /** Best Exit */
@@ -1456,6 +1463,10 @@ export interface components {
             revenue: number;
             /** Roi */
             roi: number;
+            /** Safe Exit */
+            safe_exit?: string | null;
+            /** Safe Profit */
+            safe_profit?: number | null;
             /** Sell Options */
             sell_options: components["schemas"]["SellOptionOut"][];
             /** Short */
@@ -1495,17 +1506,6 @@ export interface components {
              * @default 0
              */
             trivial_low: number;
-            /**
-             * Verdict
-             * @default steady
-             * @enum {string}
-             */
-            verdict: "steady" | "likely" | "unproven";
-            /**
-             * Verdict Reasons
-             * @default []
-             */
-            verdict_reasons: string[];
         };
         /** RealmPricesOut */
         RealmPricesOut: {
@@ -2427,12 +2427,12 @@ export interface operations {
                 max_roi?: number | null;
                 /** @description only AH sales whose sell price is trusted at least this much (others all pass) */
                 min_confidence?: ("high" | "medium" | "low") | null;
-                /** @description only sales at least this sure to sell (`verdict`) */
-                min_verdict?: ("steady" | "likely" | "unproven") | null;
                 /** @description only recipes of these professions (default: every one) */
                 professions?: string[] | null;
-                /** @description profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, or profit per unit made */
-                sort?: "profit" | "rate" | "skill" | "likely" | "all_sell" | "roi" | "spend" | "profit_each";
+                /** @description profit per session (the batch; all_sell is the same), per hour of play, cheapest skill point, likely profit (`likely_profit`), ROI, least spent, profit per unit made, or the profit selling it all safely (a vendor or disenchanting: `safe`) or on the auction house (`ah`), those it isn't open to last */
+                sort?: "profit" | "rate" | "skill" | "likely" | "all_sell" | "roi" | "spend" | "profit_each" | "safe" | "ah";
+                /** @description `safe` and `ah` only: best first, or worst first (those not open to it last) */
+                order?: "desc" | "asc";
                 /** @description items the user gathers: had for what selling them would make, instead of bought */
                 gathered?: number[] | null;
                 /** @description with skill_crafters: rank each recipe as a run, the crafts until another recipe would give the one skilled up a cheaper skill point, not as the user's batch */

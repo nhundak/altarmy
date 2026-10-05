@@ -3,7 +3,6 @@ import { Button, Group, List, Radio, Stack, Text, Title, UnstyledButton } from '
 import { AnimatePresence, motion } from 'motion/react'
 import {
   AIMS,
-  SELLING,
   STEP_QUESTION,
   stripParts,
   type Aim,
@@ -205,13 +204,11 @@ function StepCards({
   }[] =
     step === 'aim'
       ? AIMS.map((card) => ({ card, icon: AIM_ICONS[card.key], reason: unavailable[card.key] }))
-      : step === 'selling'
-        ? SELLING.map((card) => ({ card }))
-        : professions.map((p) => ({
-            card: { key: p.name, title: p.name, blurb: '' },
-            body: <Holders holders={p.holders} profession={p.name} />,
-            choice: p,
-          }))
+      : professions.map((p) => ({
+          card: { key: p.name, title: p.name, blurb: '' },
+          body: <Holders holders={p.holders} profession={p.name} />,
+          choice: p,
+        }))
   if (!options.length) {
     return (
       <Text size="sm" c="dimmed">

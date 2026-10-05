@@ -114,11 +114,11 @@ export type RankParams = {
   minConfidence: Confidence | null
   /** only recipes of these professions; empty for every one */
   professions: string[]
-  /** best profit per session first, cheapest expected skill point, or a gold list's order (likely profit, profit if
-   * all sell, ROI, least spent, profit per unit); the API's `rate`, per hour of play, is not used */
+  /** best profit per session first, cheapest expected skill point, or a gold list's order (the better of playing it safe
+   * and the auction house, either one, ROI, least spent); the API's `rate`, per hour of play, is not used */
   sort: RankSort
-  /** only sales at least this sure to sell; null or unset for any */
-  minVerdict?: VerdictLevel | null
+  /** `safe` and `ah`: best first (`desc`, the default) or worst first */
+  order?: 'desc' | 'asc'
   /** skilling up: rank each recipe as a run, the first of the cheapest climb up the profession starting with it;
    * false: a session */
   runs: boolean
@@ -131,8 +131,16 @@ export type RankParams = {
   top: number
 }
 
-export type RankSort = 'profit' | 'skill' | 'likely' | 'all_sell' | 'roi' | 'spend' | 'profit_each'
-export type VerdictLevel = 'steady' | 'likely' | 'unproven'
+export type RankSort =
+  | 'profit'
+  | 'skill'
+  | 'likely'
+  | 'all_sell'
+  | 'roi'
+  | 'spend'
+  | 'profit_each'
+  | 'safe'
+  | 'ah'
 
 /** How far a sell price can be trusted, least first. */
 export const CONFIDENCE_LEVELS = ['low', 'medium', 'high'] as const
@@ -181,9 +189,9 @@ export function useRank(
               min_roi: orUndefined(params.minRoi),
               max_roi: orUndefined(params.maxRoi),
               min_confidence: orUndefined(params.minConfidence),
-              min_verdict: params.minVerdict ?? undefined,
               professions: params.professions.length ? params.professions : undefined,
               sort: params.sort === 'profit' ? undefined : params.sort,
+              order: params.order === 'asc' && (params.sort === 'safe' || params.sort === 'ah') ? 'asc' : undefined,
               runs: params.runs || undefined,
               gathered: params.gathered?.length ? params.gathered : undefined,
               chain_from: params.chainFrom,
