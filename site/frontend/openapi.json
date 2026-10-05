@@ -604,6 +604,30 @@
             "title": "Arcane Salvager",
             "type": "boolean"
           },
+          "chain_at": {
+            "anyOf": [
+              {
+                "maximum": 40.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chain At"
+          },
+          "chain_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chain From"
+          },
           "choices": {
             "additionalProperties": {
               "type": "string"
@@ -3894,7 +3918,7 @@
     },
     "/api/evaluate": {
       "post": {
-        "description": "One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's\n`choices` of sources and exit applied, and for `copies` crafts or in `city` if given.",
+        "description": "One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's\n`choices` of sources and exit applied, and for `copies` crafts or in `city` if given. With `chain_at`, a\nrun of `chain_from`'s chain, as /api/rank's `chain` has it (or for `copies` crafts at the skill it starts\nfrom).",
         "operationId": "evaluate_api_evaluate_post",
         "parameters": [
           {

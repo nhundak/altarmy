@@ -61,7 +61,8 @@
 }
 
 /* A run of the chain in the single column: as wide as the card above it, centred. */
-.single .link {
+.single .link,
+.departing[data-single] .link {
   width: 100%;
   max-width: 300px;
   align-self: center;
@@ -149,13 +150,13 @@
   opacity: 0.4;
 }
 
-/* Side by side, the next run alone: its card fades from opaque at its top to nothing at its bottom. */
+/* Side by side, the next run alone: its card fades from partly faded at its top to nothing at its bottom. */
 .chain[data-preview] {
   opacity: 1;
 }
 
 .chain[data-preview] article {
-  mask-image: linear-gradient(to bottom, #000, transparent);
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.4), transparent);
 }
 
 .chainMore {
@@ -246,3 +247,9 @@
   }
 }
 
+
+/* A chain fading out where it was after another run was picked, laid over the options. */
+.departing {
+  position: absolute;
+  pointer-events: none;
+}

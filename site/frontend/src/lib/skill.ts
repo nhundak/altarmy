@@ -136,7 +136,7 @@ function stepText({ action, name, quantity, via, who, enchant }: PlainStep): str
       case 'sell':
         if (via === 'keep') return `Keep the ${what}`
         if (via === 'disenchant') return `Disenchant ${what}, sell the materials`
-        return `Sell back ${what} ${via === 'ah' ? 'on the AH' : 'to a vendor'}`
+        return `Sell ${what} ${via === 'ah' ? 'on the AH' : 'to a vendor'}`
       default:
         return `${action} ${what}`
     }

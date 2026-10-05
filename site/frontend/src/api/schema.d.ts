@@ -159,7 +159,9 @@ export interface paths {
         /**
          * Evaluate
          * @description One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's
-         *     `choices` of sources and exit applied, and for `copies` crafts or in `city` if given.
+         *     `choices` of sources and exit applied, and for `copies` crafts or in `city` if given. With `chain_at`, a
+         *     run of `chain_from`'s chain, as /api/rank's `chain` has it (or for `copies` crafts at the skill it starts
+         *     from).
          */
         post: operations["evaluate_api_evaluate_post"];
         delete?: never;
@@ -680,6 +682,10 @@ export interface components {
              * @default false
              */
             arcane_salvager: boolean;
+            /** Chain At */
+            chain_at?: number | null;
+            /** Chain From */
+            chain_from?: number | null;
             /** Choices */
             choices: {
                 [key: string]: string;

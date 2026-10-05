@@ -158,19 +158,12 @@ function describeAction(
             {extra} (no vendor buys it)
           </>,
         ]
-      if (skill)
-        // skilling up sells back what was made: what it brings in, no profit to speak of
-        return [
-          <>
-            Sell back {quantity}x {item}
-            {extra} {via === 'ah' ? 'on the AH' : `to ${vendor ?? 'a vendor'}`} (<StepMoney value={value} />)
-          </>,
-        ]
+      // skilling up sells what was made only to win some of the cost back: no notes on how to post it
       return [
         <>
           Sell {quantity}x {item}
           {extra} {via === 'ah' ? 'on the AH' : `to ${vendor ?? 'a vendor'}`} <Sale gross={value} net={result.profit} />
-          {via === 'ah' && <SaleNotes result={result} items={items} />}
+          {via === 'ah' && !skill && <SaleNotes result={result} items={items} />}
         </>,
       ]
   }
@@ -298,9 +291,8 @@ function planLines(result: RankResult, items: ItemMap, detailed: boolean): React
 
 /**
  * The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. In `skill` mode
- * (skilling up: a checklist) the steps are grouped under each character in the order they do them, and selling back
- * says what it brings in rather than a profit; `learn`, a step learning the recipe, comes first among the final
- * crafter's.
+ * (skilling up: a checklist) the steps are grouped under each character in the order they do them, and an AH sale
+ * has no posting notes; `learn`, a step learning the recipe, comes first among the final crafter's.
  */
 export function StepList({
   result,

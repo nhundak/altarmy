@@ -525,6 +525,11 @@ class EvaluateRequest(BaseModel):
     copies: int | None = Field(default=None, ge=1, le=1000)
     runs: bool = False  # as /api/rank's: plan the run, unless `copies` is given
     climb_without: list[int] = []  # with `runs`: recipes the climb never crafts (`RankResult.climb_without`)
+    # with `runs`: the recipe whose run the chain follows (as /api/rank's `chain_from`) and `recipe_id`'s
+    # place in that chain (1: the run after it), planned at the skill it starts from as the chain has it
+    # (`climb_without` then is the first run's, and applies whatever the `copies`)
+    chain_from: int | None = None
+    chain_at: int | None = Field(default=None, ge=1, le=MAX_SKILL_CHAIN)
     gathered: list[int] = []  # as /api/rank's
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
@@ -1357,43 +1362,90 @@ def get_rank(
 @router.post("/evaluate")
 def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it (a session of the user's batch of crafts), with the user's
-    `choices` of sources and exit applied, and for `copies` crafts or in `city` if given."""
+    `choices` of sources and exit applied, and for `copies` crafts or in `city` if given. With `chain_at`, a
+    run of `chain_from`'s chain, as /api/rank's `chain` has it (or for `copies` crafts at the skill it starts
+    from)."""
     s = _selected(state, user, body.price_version)
     with _http_errors():
         time = service.session_model(s.time, s.cities, body.city)
-    run = (
-        engine.SkillRuns(banned=frozenset(body.climb_without)) if body.runs and body.copies is None else None
-    )
+    banned = frozenset(body.climb_without)
+    run = engine.SkillRuns(banned=banned) if body.runs and body.copies is None else None
     recipe_skill = next((r.skill_name for r in s.base.recipes if r.id == body.recipe_id), None)
     skilled = frozenset(body.skill_crafters)
+    learning = engine.Learning(body.unlearned, body.look_ahead, frozenset(body.sources))
+    exits = frozenset(body.exits)
+    gathered = service.gather_values(s.base, body.gathered) if body.gathered else None
+    # a run planned for its crafts too: its skill points are the run's, past the uploaded cap
+    chars = _trained_up(state, s.chars, skilled, recipe_skill, body.runs)
+    stretch: engine.SkillRun | None = None
+    taken: frozenset[int] = frozenset()  # the recipes the climb took up before this run: learned by then
+    if body.chain_at is not None:
+        if not body.runs or body.chain_from is None or len(skilled) != 1:
+            raise HTTPException(400, "A run of a chain needs runs, chain_from and one character skilled up.")
+        # the run the chain follows, as /api/rank ranks it (or plans a pick among the options)
+        first = service.evaluate(
+            s.base,
+            chars,
+            learning,
+            exits,
+            body.chain_from,
+            {},
+            s.no_ah,
+            body.include_trivial,
+            time,
+            s.time.config.batch,
+            skilled,
+            "",
+            body.arcane_salvager,
+            skill_run=engine.SkillRuns(banned=banned),
+            gathered=gathered,
+            learn_costs=_climb_learn_costs(state, s, recipe_skill, skilled),
+        )
+        before = first.climb_after[: body.chain_at - 1] if first is not None else ()
+        found = (
+            first.climb_after[body.chain_at - 1]
+            if first is not None and len(first.climb_after) >= body.chain_at
+            else None
+        )
+        if first is None or found is None or found.recipe is None or found.recipe.id != body.recipe_id:
+            raise HTTPException(404, "That run is no longer part of the climb.")
+        # as `service.skill_chain` plans it: the climber at the skill it starts from
+        chars = service.at_skill(chars, first.crafter, found.recipe.skill_name, found.start_skill)
+        taken = frozenset({first.recipe.id, *(b.recipe.id for b in before if b.recipe is not None)})
+        if body.copies is None:
+            stretch, run = found, engine.SkillRuns()
     r = service.evaluate(
         s.base,
-        # a run planned for its crafts too: its skill points are the run's, past the uploaded cap
-        _trained_up(state, s.chars, skilled, recipe_skill, body.runs),
-        engine.Learning(body.unlearned, body.look_ahead, frozenset(body.sources)),
-        frozenset(body.exits),
+        chars,
+        learning,
+        exits,
         body.recipe_id,
         body.choices,
         s.no_ah,
         body.include_trivial,
         time,
-        body.copies or s.time.config.batch,
-        frozenset(body.skill_crafters),
+        stretch.crafts if stretch is not None else body.copies or s.time.config.batch,
+        skilled,
         body.crafter or "",
         body.arcane_salvager,
         skill_run=run,
-        gathered=service.gather_values(s.base, body.gathered) if body.gathered else None,
-        learn_costs=_climb_learn_costs(state, s, recipe_skill, skilled) if run is not None else None,
+        gathered=gathered,
+        learn_costs=(
+            _climb_learn_costs(state, s, recipe_skill, skilled)
+            if run is not None and stretch is None
+            else None
+        ),
+        stretch=stretch,
         scope=body.runs and bool(skilled),  # a skill climb's run, planned as /api/rank plans it
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
-    return EvaluateResponse(
-        result=_result_out(
-            r, s.base, altarmy.crafters(s.chars), s, _learn_costs(state, s, [r]).get(r.recipe.id, 0)
-        ),
-        items=_item_infos(state, s, [r]),
+    out = _result_out(
+        r, s.base, altarmy.crafters(s.chars), s, _learn_costs(state, s, [r]).get(r.recipe.id, 0)
     )
+    if r.recipe.id in taken:
+        _learned_by_then(out)
+    return EvaluateResponse(result=out, items=_item_infos(state, s, [r]))
 
 
 EVENTS = logging.getLogger("altarmy_profit.events")
@@ -1510,10 +1562,16 @@ def _learned_on_the_way(first: int, chain: Sequence[RankResult]) -> None:
     the chain): learned by then, so nothing to learn or pay for again."""
     seen = {first}
     for r in chain:
-        if r.recipe_id in seen and r.crafter:
-            r.learn_cost = 0
-            r.crafters = sorted({*r.crafters, r.crafter})
+        if r.recipe_id in seen:
+            _learned_by_then(r)
         seen.add(r.recipe_id)
+
+
+def _learned_by_then(r: RankResult) -> None:
+    """`r`, a run of a recipe its climb took up before: its crafter knows it by then."""
+    if r.crafter:
+        r.learn_cost = 0
+        r.crafters = sorted({*r.crafters, r.crafter})
 
 
 def _trained_up(

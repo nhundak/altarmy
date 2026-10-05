@@ -313,6 +313,28 @@ describe('SkillWorkspace', () => {
     expect(within(back).getByRole('button', { name: 'Choose Linen Cap' })).toBeInTheDocument()
   })
 
+  it("hangs a picked option's own chain under it while its climb is on its way, never the one shown before", async () => {
+    let release: (value: unknown) => void = () => {}
+    const capChain = { ...ranked, results: [capRun], chain: [bootsRun, beltRun], chain_start: capRun }
+    api({
+      '/api/rank': (url: URL) =>
+        url.searchParams.get('chain_from') === '101'
+          ? new Promise((resolve) => (release = () => resolve(capChain)))
+          : { ...ranked, options: [robeRun, capRun], option_chains: [ranked.chain, [bootsRun]] },
+    })
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
+    await userEvent.click(within(options).getByRole('button', { name: 'Choose Linen Cap' }))
+    // the cap's chain as it came with the list, muted; the robe's (fading out) is out of the accessibility tree
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    expect(chainNames(chain)).toEqual(['Linen Boots'])
+    expect(chain).toHaveAttribute('aria-disabled', 'true')
+    release(undefined)
+    await waitFor(() => expect(chainNames(chain)).toEqual(['Linen Boots', 'Linen Belt']))
+    expect(chain).not.toHaveAttribute('aria-disabled')
+  })
+
   it('resets another run picked to craft now back to the recommended one', async () => {
     const capChain = { ...ranked, results: [capRun], chain: [bootsRun], chain_start: capRun }
     api({ '/api/rank': (url: URL) => (url.searchParams.get('chain_from') === '101' ? capChain : ranked) })
@@ -382,7 +404,7 @@ describe('SkillWorkspace', () => {
     expect([first, second]).toEqual([within(views).getByLabelText('Steps'), within(views).getByLabelText('Flowchart')])
     expect(within(views).getByLabelText('Steps')).toBeChecked()
     expect(within(run).getByRole('group', { name: "Tailor Guy's steps" })).toBeInTheDocument()
-    expect(within(run).getByText(/Sell back 2x/)).toBeInTheDocument() // for the 14 crafts
+    expect(within(run).getByText(/Sell 2x/)).toBeInTheDocument() // for the 14 crafts
     // more crafts: better odds, and the checklist buys for them; past the odds sent, the last of them
     const input = within(run).getByRole('textbox', { name: 'Crafts to buy for' })
     await userEvent.clear(input)
@@ -554,7 +576,7 @@ describe('SkillWorkspace', () => {
     api({ '/api/evaluate': () => new Promise(() => {}) }) // never answers
     show()
     const run = await choose('Green Robe')
-    expect(within(run).getByText(/Sell back 2x/)).toBeInTheDocument() // the ranked run, in proportion
+    expect(within(run).getByText(/Sell 2x/)).toBeInTheDocument() // the ranked run, in proportion
     await new Promise((r) => setTimeout(r, 500)) // past the count's debounce
     expect(within(run).queryByLabelText('Planning')).not.toBeInTheDocument()
     const input = within(run).getByRole('textbox', { name: 'Crafts to buy for' })
@@ -681,6 +703,29 @@ describe('SkillWorkspace', () => {
     await userEvent.click(within(run).getByRole('button', { name: 'Close' }))
     run = await choose('Linen Cap')
     expect(within(run).queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+  })
+
+  it("changes a source in a run of the chain, planned again as the chain has it", async () => {
+    const fetch = api()
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    await userEvent.click(within(chain).getByRole('button', { name: 'Open Linen Boots' }))
+    const run = within(chain).getByRole('region', { name: 'Run details' })
+    await userEvent.click(await within(run).findByRole('button', { name: 'Change source of Coarse Thread' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: /Buy on the AH/ }))
+    // the boots are the second run after the robe's, the one crafted now: found in its climb
+    await waitFor(async () =>
+      expect((await bodies(fetch, '/api/evaluate')).at(-1)).toMatchObject({
+        recipe_id: 103,
+        runs: true,
+        chain_from: 100,
+        chain_at: 2,
+        climb_without: [],
+        choices: { 'r.1': 'ah' },
+      }),
+    )
+    expect(await within(run).findByRole('button', { name: 'Reset' })).toBeInTheDocument()
   })
 
   it('reminds the climber to train the next rank beside the run that reaches its skill', async () => {

@@ -90,7 +90,7 @@ describe('stepsText', () => {
         '1. Bob: Buy 10x Linen Cloth on the AH',
         '2. Bob: Gather 4x Wool Cloth',
         '3. Bob: Craft 1x Green Robe',
-        '4. Bob: Sell back 1x Green Robe to a vendor',
+        '4. Bob: Sell 1x Green Robe to a vendor',
       ].join('\n'),
     )
   })

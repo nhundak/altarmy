@@ -210,6 +210,9 @@ export type EvaluateParams = Pick<
   version?: string
   /** with `runs`: the recipes the run's climb never crafts (its `climb_without`), when no `copies` are planned */
   climbWithout?: number[]
+  /** with `runs`: the recipe is the `at`-th run of the chain after `from`'s run (`climbWithout` then being that
+   * run's), planned at the skill it starts from */
+  chain?: { from: number; at: number }
 }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
@@ -263,18 +266,19 @@ export function useEvaluations(
  * until they move: never stale. */
 function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climbWithout }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climbWithout, chain }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
   crafter: string | null,
   priceVersion: number | undefined,
 ) {
-  // a run planned for some copies is those crafts whatever its climb leaves out
-  const without = runs && copies === null ? (climbWithout ?? []) : []
+  // a run planned for some copies is those crafts whatever its climb leaves out; a chain's run is found in the climb
+  // of the run it follows, whatever the copies
+  const without = runs && (copies === null || chain) ? (climbWithout ?? []) : []
   return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter, without],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter, without, chain ?? null],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -293,6 +297,8 @@ function sessionPlanQuery(
             choices: choices ?? {},
             copies: copies ?? undefined,
             climb_without: without,
+            chain_from: chain?.from,
+            chain_at: chain?.at,
             city: city ?? undefined,
             crafter: crafter ?? undefined,
             price_version: priceVersion,

@@ -1,4 +1,4 @@
-import { type CSSProperties, Fragment, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, Fragment, type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ActionIcon, Alert, Badge, Box, Button, Divider, Group, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { LayoutGroup, animate, motion } from 'motion/react'
 import { useDebouncedValue } from '@mantine/hooks'
@@ -187,7 +187,8 @@ const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}
  * in as the other options open out; `lit`: lit on hover, which says it opens (anywhere on it, as ever); `grow`: it
  * also grows a little on hover, where a click opens it out (not where a click only picks it). `action` names its
  * button ("Choose", "Open"), `layoutId` what it opens out into (by default the option's); a run in the chain stays
- * an `article` named after its recipe. */
+ * an `article` named after its recipe. A summary given a `layoutId` moves with it (the run crafted now's chain, between
+ * the single column and the options side by side). */
 function OptionCard({
   result: r,
   items,
@@ -197,7 +198,7 @@ function OptionCard({
   grow,
   onChoose,
   action = 'Choose',
-  layoutId = `skill-option-${r.recipe_id}`,
+  layoutId,
   article,
   cheapest,
 }: {
@@ -241,15 +242,22 @@ function OptionCard({
           </Stack>
   )
   if (!onChoose) {
-    return (
+    const summary = (
       <Paper withBorder radius="md" p="sm" component="article" aria-label={r.output_name}>
         {body}
       </Paper>
     )
+    return layoutId ? (
+      <motion.div layoutId={layoutId} transition={LAYOUT} style={{ borderRadius: 8 }}>
+        {summary}
+      </motion.div>
+    ) : (
+      summary
+    )
   }
   return (
     <motion.div
-      layoutId={layoutId}
+      layoutId={layoutId ?? `skill-option-${r.recipe_id}`}
       transition={LAYOUT}
       initial={fade ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
@@ -276,6 +284,18 @@ function OptionCard({
       </Paper>
     </motion.div>
   )
+}
+
+/** A chain fading out where it was, over the options: what it showed and its box within them. */
+type Departing = {
+  key: number
+  runs: RankResult[]
+  start: number
+  preview: boolean
+  muted: boolean
+  top: number
+  left: number
+  width: number
 }
 
 /** What the reminders to train the next profession rank need: the version's ranks, the cap the climber has and the
@@ -325,12 +345,15 @@ function Trained({
   )
 }
 
-/** The short arrow from one run to the run after it. */
-function ChainArrow() {
+/** The short arrow from one run to the run after it; with a `layoutId`, it moves with the chain (in a `div`: Motion
+ * doesn't animate an SVG element's layout). */
+function ChainArrow({ layoutId }: { layoutId?: string }) {
   return (
-    <svg className={classes.arrow} width="16" height="24" viewBox="0 0 16 24" aria-hidden>
-      <path d="M8 2v18M3 15l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
+    <motion.div layoutId={layoutId} transition={LAYOUT} className={classes.arrow}>
+      <svg width="16" height="24" viewBox="0 0 16 24" display="block" aria-hidden>
+        <path d="M8 2v18M3 15l5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </motion.div>
   )
 }
 
@@ -338,8 +361,10 @@ function ChainArrow() {
  * option's own: the options are side by side, or its chain is on its way; `preview`: side by side, only the next run,
  * fading out downwards. `onOpen`: each card opens out in place, `opened` the one that has (its index and what it
  * shows instead of its card). `onMore`: Show more under the last, when
- * there may be more after it. The run crafted now's chain carries `layoutId`, so it moves with its card; `column`
- * places another option's under it, side by side. */
+ * there may be more after it. The run crafted now's chain carries `layoutId` (named after the run it follows), so
+ * its cards, arrows and skills move with that run's card, each on its own (the section is as wide as the row in the
+ * single column, one column side by side: moved as one, its centred contents would start out of place); `column` places another option's under it, side by side. `fade`: it fades
+ * in, arrows and all (a chain new to the run crafted now). */
 function Chain({
   runs,
   start,
@@ -355,6 +380,8 @@ function Chain({
   preview,
   onOpen,
   opened,
+  fade,
+  ref,
 }: {
   runs: RankResult[]
   /** the skill the first of `runs` starts at: where the run they follow stops */
@@ -372,13 +399,18 @@ function Chain({
   preview?: boolean
   onOpen?: (index: number) => void
   opened?: { index: number; panel: ReactNode }
+  fade?: boolean
+  ref?: Ref<HTMLElement>
 }) {
   if (preview) runs = runs.slice(0, 1)
   if (!runs.length && !pending) return null
   return (
     <motion.section
-      layoutId={layoutId}
+      ref={ref}
       transition={LAYOUT}
+      // fading in, to the opacity its muting asks for (side by side, the next run alone isn't muted)
+      initial={fade ? { opacity: 0 } : false}
+      animate={fade ? { opacity: muted && !preview ? 0.4 : 1 } : undefined}
       className={classes.chain}
       style={column ? ({ '--column': column } as CSSProperties) : undefined}
       data-muted={muted || undefined}
@@ -393,10 +425,11 @@ function Chain({
             result={r}
             items={items}
             learn={learn[r.recipe_id]}
+            // the run crafted now's chain: each card moves with it, opened out or not
+            layoutId={layoutId && `${layoutId}-run-${i}`}
             {...(onOpen && {
               onChoose: () => onOpen(i),
               action: 'Open',
-              layoutId: `skill-run-${i}`,
               lit: true,
               grow: true,
               article: true,
@@ -408,11 +441,19 @@ function Chain({
           // a climb may come back to a recipe: keyed by place
           <Stack key={`${i}-${r.recipe_id}`} gap={4} className={isOpen ? undefined : classes.link}>
             <div className={classes.step}>
-              <ChainArrow />
+              <ChainArrow layoutId={layoutId && `${layoutId}-arrow-${i}`} />
               {from > 0 && (
-                <Text size="xs" c="dimmed" className={classes.at}>
-                  At {from} skill
-                </Text>
+                // by position: text isn't stretched
+                <motion.div
+                  layout={layoutId ? 'position' : false}
+                  layoutId={layoutId && `${layoutId}-at-${i}`}
+                  transition={LAYOUT}
+                  className={classes.at}
+                >
+                  <Text size="xs" c="dimmed">
+                    At {from} skill
+                  </Text>
+                </motion.div>
               )}
             </div>
             {isOpen ? (
@@ -498,24 +539,30 @@ export function SkillWorkspace({
   )
   const restart = chainRank.data?.chain_start
   const now = picked && restart?.recipe_id === ranked?.recipe_id ? restart : ranked
+  // The chain's layout id, named after the run it follows: another run's chain never moves into its place
+  const chainId = `skill-chain-${now?.recipe_id ?? 0}`
   const chainData = picked || longer ? chainRank.data : rank.data
   // The chain on its way: a picked option's (the one shown before it stays, muted) or a longer one.
   const chainPending = (picked || longer) && (chainRank.isPlaceholderData || !chainRank.data)
-  const current = chainData?.chain ?? rank.data?.chain ?? NO_RUNS
+  // A picked option's chain on its way: its own as it came with the list meanwhile, never the one shown before
+  const current =
+    picked && chainPending && !longer
+      ? (rank.data?.option_chains?.[listed.indexOf(ranked)] ?? NO_RUNS)
+      : (chainData?.chain ?? rank.data?.chain ?? NO_RUNS)
   // The chain as last settled: what stays shown while a longer one is on its way.
   const [settled, setSettled] = useState(current)
   if (!chainPending && current !== settled) setSettled(current)
   const chain = chainPending && longer ? settled : current
+  // muted among the options side by side, and while another chain is on its way (a longer one on its way keeps the
+  // runs already shown as they are)
+  const chainMuted = expanded || (chainPending && !longer)
   // the run opened out: the one crafted now as it stands after a pick (else as ranked), or one of its chain
   const open = expanded || openAt === null ? undefined : openAt === 0 ? now : chain[openAt - 1]
-  // A run of the chain is planned at the skill it starts from, which /api/evaluate doesn't plan at: its checklist is
-  // the run as the chain has it, scaled to the crafts, and its sources and exit stay as planned.
-  const inChain = open !== undefined && openAt !== 0
   // the skill the run opened out starts at
   const openFrom = !openAt ? climber.rank : openAt === 1 ? (now?.stop_skill ?? 0) : (chain[openAt - 2]?.stop_skill ?? 0)
   const atCap = climber.rank >= climber.maxRank
   const training: Training = { ranks: useProfessionRanks(), maxRank: climber.maxRank, profession }
-  const evaluate: EvaluateParams = {
+  const planParams: EvaluateParams = {
     unlearned: filters.unlearned,
     lookAhead: filters.lookAhead,
     sources: filters.sources,
@@ -525,9 +572,14 @@ export function SkillWorkspace({
     arcaneSalvager: filters.arcaneSalvager,
     runs: filters.runs,
     version,
-    // an option side by side never comes back to those before it: planned again the same way
-    climbWithout: open?.climb_without,
   }
+  const evaluate: EvaluateParams =
+    openAt && now
+      ? // a run of the chain, planned again as the chain has it: at the skill it starts from, in the climb of the run
+        // crafted now (which never comes back to what that one leaves out)
+        { ...planParams, climbWithout: now.climb_without, chain: { from: now.recipe_id, at: openAt } }
+      : // an option side by side never comes back to those before it: planned again the same way
+        { ...planParams, climbWithout: open?.climb_without }
   // The crafts the checklist buys for: what the user typed, else enough to reach the run's target with the chance
   // the Skill options ask for; planned again (debounced) when that isn't the ranked run's own count.
   const [typed, setTyped] = useState<number | null>(null)
@@ -539,9 +591,9 @@ export function SkillWorkspace({
       const copies = craftsToReach(r, reachTarget)
       return copies > r.crafts ? [{ recipeId: r.recipe_id, copies }] : []
     }),
-    evaluate,
+    planParams,
   )
-  const buyFor = open && !inChain && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
+  const buyFor = open && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
   // The user's changes to the run's plan (another source for a reagent, another way to sell); undefined: as ranked.
   const [choices, setChoices] = useState<Choices | undefined>(undefined)
   const modified = choices !== undefined
@@ -557,7 +609,7 @@ export function SkillWorkspace({
   // Planning a count the user typed. The count a run opens with is fetched ahead; should it still be on its way, the
   // ranked run in proportion shows meanwhile, close enough to need no spinner.
   const replanning = typed !== null && plan.isFetching && !modified
-  const editing: PlanEditing | undefined = inChain ? undefined : {
+  const editing: PlanEditing = {
     onChoose: (paths, key) => setChoices((prev) => paths.reduce((c, path) => chooseAt(c, path, key), prev ?? {})),
     modified,
     onReset: () => setChoices(undefined),
@@ -575,6 +627,12 @@ export function SkillWorkspace({
   const [copied, setCopied] = useState(false)
   // The run's plan as its steps (first) or a flow chart.
   const [view, setView] = useState<PlanView>('steps')
+  // The chain under the run crafted now is new to it (another run was picked): it fades in.
+  const [freshChain, setFreshChain] = useState(false)
+  // The chain shown before another run was picked, fading out where it was.
+  const [departing, setDeparting] = useState<Departing | null>(null)
+  const chainRef = useRef<HTMLElement>(null)
+  const areaRef = useRef<HTMLDivElement>(null)
   // Scrolls an option being opened out fully into view as it grows: its layout is final as soon as it renders (the
   // growing is a transform), so the scroll runs alongside, with the same timing. A wheel or touch stops it.
   const runRef = useRef<HTMLElement>(null)
@@ -679,14 +737,37 @@ export function SkillWorkspace({
     )
   }
 
+  // Another run to craft now: its chain fades in under it, the one shown before fading out where it was (a copy,
+  // laid over the options, since what it hung under is gone).
+  const leave = (id: number) => {
+    if (id === now?.recipe_id) return
+    setFreshChain(true)
+    const el = chainRef.current
+    const area = areaRef.current
+    if (!el || !area) return
+    const box = el.getBoundingClientRect()
+    const within = area.getBoundingClientRect()
+    setDeparting({
+      key: (departing?.key ?? 0) + 1,
+      runs: chain,
+      start: now?.stop_skill ?? 0,
+      preview: expanded,
+      muted: chainMuted,
+      top: box.top - within.top,
+      left: box.left - within.left,
+      width: box.width,
+    })
+  }
   // Picking one of the options side by side makes it the one to craft now, the others folding away around it.
   const pick = (id: number) => {
+    leave(id)
     setPickedId(id === bestId ? null : id)
     setChainLength(CHAIN)
     setExpanded(false)
   }
   // Back to the recommended climb, when another run to craft now was picked: the best and its own chain.
   const reset = () => {
+    if (bestId !== undefined) leave(bestId)
     choose(null)
     setPickedId(null)
     setChainLength(CHAIN)
@@ -695,7 +776,7 @@ export function SkillWorkspace({
   // The run opened out, in place of the card it grows out of
   const panel = open && (
     <motion.div
-      layoutId={openAt === 0 ? `skill-option-${open.recipe_id}` : `skill-run-${(openAt ?? 1) - 1}`}
+      layoutId={openAt === 0 ? `skill-option-${open.recipe_id}` : `${chainId}-run-${(openAt ?? 1) - 1}`}
       transition={LAYOUT}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -760,14 +841,14 @@ export function SkillWorkspace({
             <Group gap="sm">
               <PlanViewSwitch value={view} onChange={setView} />
               {modified && (
-                <Button size="compact-xs" variant="light" onClick={editing?.onReset}>
+                <Button size="compact-xs" variant="light" onClick={editing.onReset}>
                   Reset
                 </Button>
               )}
-              {editing?.pending && <Loader size="xs" aria-label="Re-costing" />}
-              {editing?.error && (
+              {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
+              {editing.error && (
                 <Text size="xs" c="red">
-                  {editing?.error}
+                  {editing.error}
                 </Text>
               )}
             </Group>
@@ -809,13 +890,15 @@ export function SkillWorkspace({
       start={now?.stop_skill ?? 0}
       items={items}
       learn={{ ...learn, ...chainRank.data?.learn }}
-      layoutId="skill-chain"
+      key={chainId}
+      ref={chainRef}
+      layoutId={chainId}
       column={nowIndex + 1}
+      fade={freshChain}
       // among the options side by side: the next run alone, and no reminders
       preview={expanded}
       training={expanded ? undefined : training}
-      // a longer chain on its way keeps the runs already shown as they are
-      muted={expanded || (chainPending && !longer)}
+      muted={chainMuted}
       pending={chainPending && !expanded}
       onMore={!expanded && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN_MORE) : undefined}
       // in the single column each run opens out in place; not while another chain is on its way
@@ -833,7 +916,7 @@ export function SkillWorkspace({
         {capCard}
         {refresh}
         <LayoutGroup>
-          <Stack gap="xs" component="section" aria-label="Your options">
+          <Stack ref={areaRef} gap="xs" component="section" aria-label="Your options" pos="relative">
             <div className={classes.heading}>
               <Text size="lg" fw={600} ta="center" className={classes.title}>
                 What to craft next:
@@ -921,6 +1004,7 @@ export function SkillWorkspace({
                         aria-label="Show me other options"
                         onClick={() => {
                           choose(null)
+                          setFreshChain(false)
                           setExpanded(true)
                         }}
                       >
@@ -931,6 +1015,29 @@ export function SkillWorkspace({
                   {chainView}
                 </div>
               )
+            )}
+            {departing && (
+              <motion.div
+                key={departing.key}
+                aria-hidden
+                className={classes.departing}
+                data-single={!departing.preview || undefined}
+                style={{ top: departing.top, left: departing.left, width: departing.width }}
+                initial={{ opacity: 1 }}
+                animate={{ opacity: 0 }}
+                transition={LAYOUT}
+                onAnimationComplete={() => setDeparting((d) => (d?.key === departing.key ? null : d))}
+              >
+                <Chain
+                  runs={departing.runs}
+                  start={departing.start}
+                  items={items}
+                  learn={learn}
+                  muted={departing.muted}
+                  preview={departing.preview}
+                  pending={false}
+                />
+              </motion.div>
             )}
           </Stack>
         </LayoutGroup>

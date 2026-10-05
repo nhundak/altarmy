@@ -815,6 +815,47 @@ def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     assert got["result"]["crafts"] == 12  # copies asked for win
 
 
+def test_a_run_of_the_chain_is_planned_again_as_the_chain_has_it(
+    client: TestClient, priced: Connection
+) -> None:
+    novice = Character(
+        "Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 20, 75, frozenset({900})),)
+    )
+    service.replace_characters(priced, ME, FOREVER, [novice])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params = {**SKILL_UP, "skill_crafters": ["Novice"], "exits": ["vendor", "keep"], "runs": True}
+    ranked = client.get("/api/rank", params=params).json()
+    (r,) = ranked["results"]
+    (then,) = ranked["chain"]  # the robe again, from where the first run stops
+    body = {
+        "recipe_id": then["recipe_id"],
+        "choices": {},
+        "include_trivial": False,
+        "skill_crafters": ["Novice"],
+        "exits": ["vendor", "keep"],
+        "runs": True,
+        "chain_from": r["recipe_id"],
+        "chain_at": 1,
+    }
+    got = client.post("/api/evaluate", json=body).json()["result"]
+    assert got == then  # at the skill it starts from, not the climber's
+    # with a choice, the same run sold another way
+    kept = client.post("/api/evaluate", json={**body, "choices": {"sell": "keep"}}).json()["result"]
+    assert (kept["best_exit"], kept["crafts"], kept["stop_skill"]) == (
+        "keep",
+        then["crafts"],
+        then["stop_skill"],
+    )
+    # for some copies: those crafts, still at that skill
+    copies = client.post("/api/evaluate", json={**body, "copies": 5}).json()["result"]
+    assert copies["crafts"] == 5 and copies["skill_chance"] == then["skill_chance"]
+    # a place the chain doesn't have, or another recipe there, is no run
+    assert client.post("/api/evaluate", json={**body, "chain_at": 2}).status_code == 404
+    assert client.post("/api/evaluate", json={**body, "recipe_id": 999999}).status_code == 404
+    # a chain needs the run it follows
+    assert client.post("/api/evaluate", json={**body, "chain_from": None}).status_code == 400
+
+
 def test_a_climb_goes_on_past_the_climbers_rank_cap(client: TestClient, priced: Connection) -> None:
     # capped at 55, they are assumed to train the next rank: the robe's run goes on until it turns grey at 60
     capped = Character(
