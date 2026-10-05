@@ -1209,15 +1209,14 @@ def get_rank(
     option_chains: list[list[engine.Result]] = []
 
     if sort == "skill" and skill_name and run is not None and len(skilled) == 1 and matches:
-        # the runs starting the cheapest climbs, each planned again never to craft those before it
-        leaders: list[engine.Result] = []
-        for r in matches[:SKILL_OPTIONS]:
-            if r.climb_cost is None or not r.skill_ups:
-                break
-            leaders.append(r)
-        options_key = (key, "options", tuple(r.recipe.id for r in leaders))
+        # the run starting the cheapest climb, then each the start of the cheapest climb never crafting those
+        # before it
+        best = matches[0]
+        options_key = (key, "options", best.recipe.id)
         sides = state.rank_cache.get(options_key, base)
-        if sides is None:
+        if best.climb_cost is None or not best.skill_ups:
+            sides = []
+        elif sides is None:
             sides = service.climb_options(
                 base,
                 chars,
@@ -1229,7 +1228,8 @@ def get_rank(
                 skilled,
                 arcane_salvager,
                 run,
-                leaders,
+                best,
+                SKILL_OPTIONS,
                 gathered=gather,
                 learn_costs=_climb_learn_costs(state, s, skill_name, skilled),
             )

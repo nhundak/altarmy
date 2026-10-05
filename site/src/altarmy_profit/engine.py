@@ -2019,6 +2019,18 @@ class Market:
         picked.sell_options = [SellOption(r.best_exit, r.profit) for r in ranked]
         return picked
 
+    def climb_start(self, skill_name: str, runs: SkillRuns) -> Recipe | None:
+        """The recipe the cheapest climb up `skill_name` starts with (`Climb.best`, never crafting
+        `runs.banned`) for the one character skilled up; None without one, or when nothing gives them a
+        point."""
+        if len(self.skill_crafters) != 1:
+            return None
+        crafter = self._by_name.get(next(iter(self.skill_crafters)))
+        if crafter is None or crafter.skill(skill_name) is None:
+            return None
+        best = self._climb(skill_name, crafter, runs, {}).best
+        return best.runs[0].recipe if best is not None and best.runs else None
+
     def _climb(self, skill_name: str, crafter: Crafter, runs: SkillRuns, memo: Memo) -> Climb:
         """`crafter`'s climbs up `skill_name` (`plan_climb`) over `_candidates` but `runs.banned`; worked out
         once a market for each set of banned recipes."""

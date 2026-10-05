@@ -365,24 +365,23 @@ def climb_options(
     skill_crafters: frozenset[str],
     arcane_salvager: bool,
     skill_run: SkillRuns,
-    ranked: Sequence[Result],
+    first: Result,
+    count: int,
     gathered: Mapping[int, int] | None = None,
     learn_costs: Mapping[int, float | None] | None = None,
 ) -> list[Result]:
-    """The skill workspace's options side by side: `ranked`, the first few runs of a `search` with
-    `skill_run`, each planned again as the first run of the cheapest climb that never crafts the options
-    before it (`SkillRuns.banned`): someone looking past the best option doesn't want it, so the second
-    option's climb never comes back to the first, the third's to either. The first stays as it is; one
-    that no longer gives a point is left out, and those after it may craft it (only the options shown are
-    passed over). Planned on one set of markets, as `evaluate` plans a run."""
-    if not ranked:
-        return []
-    out = [ranked[0]]
-    if len(ranked) == 1:
+    """The skill workspace's `count` options side by side: `first`, the best run of a `search` with
+    `skill_run`, then each the first run of the cheapest climb that never crafts the options before it
+    (`SkillRuns.banned`, `Market.climb_start`): someone looking past the best option doesn't want it, so the
+    second is the best climb without the first, the third the best without either. Fewer when no climb
+    without them gives a point. Planned on one set of markets, as `evaluate` plans a run; with cities that
+    charge the characters differently, the climb is chosen in the first group's (`_models`)."""
+    out = [first]
+    if count <= 1:
         return out
     if time is not None:
         time = session_model(time, (), None)
-    skill_name = ranked[0].recipe.skill_name
+    skill_name = first.recipe.skill_name
     models, differ = _models(base, chars, time)
     later = later_recipes(
         base,
@@ -415,13 +414,13 @@ def climb_options(
         )
         for model in models
     ]
-    for r in ranked[1:]:
-        banned = skill_run.banned | {p.recipe.id for p in out}
-        found = _evaluate_in(
-            markets, differ, time, r.recipe.id, {}, r.crafts, replace(skill_run, banned=frozenset(banned))
-        )
-        if found is not None and found.skill_ups:
-            out.append(found)
+    while len(out) < count:
+        runs = replace(skill_run, banned=skill_run.banned | {p.recipe.id for p in out})
+        start = markets[0].climb_start(skill_name, runs)
+        found = _evaluate_in(markets, differ, time, start.id, {}, 1, runs) if start is not None else None
+        if found is None or not found.skill_ups:
+            break
+        out.append(found)
     return out
 
 
