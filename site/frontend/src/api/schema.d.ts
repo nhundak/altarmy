@@ -729,11 +729,6 @@ export interface components {
              */
             skill_crafters: string[];
             /**
-             * Skip
-             * @default []
-             */
-            skip: number[];
-            /**
              * Sources
              * @default [
              *       "trainer",
@@ -1305,6 +1300,8 @@ export interface components {
              * @default []
              */
             cities: components["schemas"]["CityTimingOut"][];
+            /** Climb Cost */
+            climb_cost?: number | null;
             confidence?: components["schemas"]["ConfidenceOut"] | null;
             /** Cost */
             cost: number;
@@ -2383,8 +2380,6 @@ export interface operations {
                 chain_from?: number | null;
                 /** @description with sort=skill and runs: the runs the chain may hold */
                 chain_length?: number;
-                /** @description with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted) */
-                skip?: number[] | null;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";
             };

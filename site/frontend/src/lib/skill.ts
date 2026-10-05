@@ -1,13 +1,21 @@
 import type { FlowNode, RankResult } from '../api/client'
 
 /*
- * Skilling up: what a skill point costs, and how far a run of a recipe goes (the crafts until another recipe would
- * give the character skilled up a cheaper skill point: the server's `runs`).
+ * Skilling up: what a skill point costs, and how far a run of a recipe goes (the server's `runs`: the first run of
+ * the cheapest climb up the profession that starts with the recipe, until the climb goes on with another).
  */
 
 /** What an expected skill point costs in copper (negative when the run earns gold); null when it gives none. */
 export const perPoint = (r: Pick<RankResult, 'profit' | 'skill_ups'>): number | null =>
   r.skill_ups ? -r.profit / r.skill_ups : null
+
+/** How much more the whole climb costs starting with this run than starting with the best (copper, above 0);
+ * null when it costs no more, or either climb's cost is unknown. */
+export function climbExtra(r: Pick<RankResult, 'climb_cost'>, best: Pick<RankResult, 'climb_cost'> | undefined): number | null {
+  if (r.climb_cost == null || best?.climb_cost == null) return null
+  const extra = r.climb_cost - best.climb_cost
+  return extra > 0 ? extra : null
+}
 
 type Count = Pick<RankResult, 'crafts' | 'stop_skill' | 'reach_chances'>
 

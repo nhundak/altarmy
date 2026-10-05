@@ -16,7 +16,7 @@ import {
 import { choose as chooseAt, type Choices } from '../lib/choices'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import type { Holder } from '../lib/setup'
-import { AT_WHICH_POINT, CHEAPER, runLead, runText, scaleRun, stepsText } from '../lib/skill'
+import { AT_WHICH_POINT, CHEAPER, climbExtra, runLead, runText, scaleRun, stepsText } from '../lib/skill'
 import { talentNote } from '../lib/talents'
 import type { PlanEditing } from './ChoiceMenu'
 import { CharacterClasses, CharacterName } from './CharacterName'
@@ -110,13 +110,14 @@ const TRAIN_NOTE = 'You will need to train this recipe (included in the cost)'
 const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`)
 
 /** One option in the overview: the recipe, what its run comes to per skill point, how far it goes, how it is
- * learned. Without `onChoose`, a summary of a run to come (in the chain), with nothing to click; `fade`: it fades
- * in as the other options open out. */
+ * learned, and (`extra`) what starting with it adds to the whole climb over the best. Without `onChoose`, a summary
+ * of a run to come (in the chain), with nothing to click; `fade`: it fades in as the other options open out. */
 function OptionCard({
   result: r,
   best,
   items,
   learn,
+  extra,
   fade,
   onChoose,
 }: {
@@ -124,6 +125,7 @@ function OptionCard({
   best: boolean
   items: ItemMap
   learn: Learn | undefined
+  extra?: number | null
   fade?: boolean
   onChoose?: () => void
 }) {
@@ -149,6 +151,12 @@ function OptionCard({
             {mustLearn(r) && (
               <Text size="xs" c={r.learn_cost === null ? 'orange' : 'dimmed'}>
                 {r.learn_cost === null ? learnNote(r, learn) : TRAIN_NOTE}
+              </Text>
+            )}
+            {/* a run cheaper per point can still make the whole climb dearer: what comes after it costs more */}
+            {extra != null && (
+              <Text size="xs" c="dimmed">
+                The whole climb costs <Money copper={extra} /> more than with the best
               </Text>
             )}
           </Stack>
@@ -227,7 +235,8 @@ function Chain({
       {runs.map((r, i) => {
         const from = i === 0 ? start : (runs[i - 1]?.stop_skill ?? 0)
         return (
-          <Stack key={r.recipe_id} gap={4}>
+          // a climb may come back to a recipe: keyed by place
+          <Stack key={`${i}-${r.recipe_id}`} gap={4}>
             <div className={classes.step}>
               <ChainArrow />
               {from > 0 && (
@@ -251,9 +260,10 @@ function Chain({
 }
 
 /**
- * Skilling up one profession on one character. First an overview: the run to craft now (the cheapest skill point,
- * each option counted as a run: the crafts until another recipe would give a cheaper skill point, it turns trivial
- * or the skill reaches its cap), centred, with the runs that would follow it hung below; Show me other options lays
+ * Skilling up one profession on one character. First an overview: the run to craft now (the first of the cheapest
+ * climb up the profession; each option counted as the first run of the cheapest climb starting with it, until the
+ * climb goes on with another recipe, it turns trivial or the skill reaches its cap), centred, with the rest of its
+ * climb hung below; Show me other options lays
  * the best few side by side, the chain muted under the one it follows until another is picked, which then folds
  * back to be the one crafted now. Choosing the run crafted now opens it out into the full run: what to make until when, what it costs,
  * what the next best was, what comes after it, and a checklist per character to take into the game. The list holds still while new prices come in, until the
@@ -288,7 +298,7 @@ export function SkillWorkspace({
     { priceVersion: frozen, enabled: all && shown > results.length },
   )
   const listed = (shown > results.length ? allRank.data?.results : undefined) ?? results
-  // The options side by side: each ranked as picking it gives (the ones before it passed over), else as listed.
+  // The options side by side: the runs starting the cheapest climbs, each what picking it gives, else as listed.
   const options = rank.data?.options?.length ? rank.data.options : results.slice(0, OPTIONS)
   const bestId = results[0]?.recipe_id
   // The option to craft now: the best unless the user picked another of the first few (null: the best).
@@ -299,17 +309,15 @@ export function SkillWorkspace({
   )
   const ranked = options[nowIndex]
   const picked = ranked !== undefined && ranked.recipe_id !== bestId
-  // Picked, the options ranked above it were passed over: neither crafted later nor counted as what ends a run.
-  const skip = picked ? options.slice(0, nowIndex).map((r) => r.recipe_id) : []
   // Whether the first few options are laid out side by side, the user choosing among them.
   const [expanded, setExpanded] = useState(false)
   // How many runs the chain holds: CHAIN, and CHAIN more with each Show more (back to CHAIN on a pick).
   const [chainLength, setChainLength] = useState(CHAIN)
   const longer = chainLength > CHAIN
-  // A picked option's run ranked again without those, and the runs after it (the ranking itself is the server's
-  // cached one); the best's come with the list, unless more of them are shown.
+  // A picked option's run and the rest of its climb (the ranking itself is the server's cached one); the best's
+  // come with the list, unless more of them are shown.
   const chainRank = useRank(
-    { ...params, top: 1, chainFrom: ranked?.recipe_id, skip, chainLength: longer ? chainLength : undefined },
+    { ...params, top: 1, chainFrom: ranked?.recipe_id, chainLength: longer ? chainLength : undefined },
     { priceVersion: frozen, enabled: picked || longer },
   )
   const restart = chainRank.data?.chain_start
@@ -339,8 +347,6 @@ export function SkillWorkspace({
     exits: filters.exits,
     arcaneSalvager: filters.arcaneSalvager,
     runs: filters.runs,
-    // the picked run's plan, as it was ranked: without the options passed over
-    skip: picked && openId === now?.recipe_id ? skip : undefined,
     version,
   }
   // The crafts the checklist buys for: what the user typed, else enough to reach the run's target four times in
@@ -651,6 +657,7 @@ export function SkillWorkspace({
                         best={r.recipe_id === bestId}
                         items={items}
                         learn={learn[r.recipe_id]}
+                        extra={climbExtra(r, results[0])}
                         onChoose={() => choose(r.recipe_id)}
                       />
                     ))}
@@ -686,6 +693,7 @@ export function SkillWorkspace({
                         best={r.recipe_id === bestId}
                         items={items}
                         learn={learn[r.recipe_id]}
+                        extra={climbExtra(r, results[0])}
                         fade={r.recipe_id !== now?.recipe_id}
                         onChoose={() => pick(r.recipe_id)}
                       />
@@ -715,6 +723,8 @@ export function SkillWorkspace({
                         best={now.recipe_id === bestId}
                         items={items}
                         learn={learn[now.recipe_id]}
+                        // picked over the best: what that adds to the whole climb stays said
+                        extra={climbExtra(now, results[0])}
                         onChoose={() => choose(now.recipe_id)}
                       />
                     </div>

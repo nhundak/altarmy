@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { robeResult } from '../test/results'
-import { craftUntil, perPoint, runLead, runText, scaleRun, stepsText } from './skill'
+import { climbExtra, craftUntil, perPoint, runLead, runText, scaleRun, stepsText } from './skill'
+
+describe('climbExtra', () => {
+  it('is what the whole climb costs more than starting with the best, when that is known', () => {
+    expect(climbExtra({ climb_cost: 950 }, { climb_cost: 900 })).toBe(50)
+    expect(climbExtra({ climb_cost: 900 }, { climb_cost: 900 })).toBeNull() // the best itself
+    expect(climbExtra({ climb_cost: null }, { climb_cost: 900 })).toBeNull() // a pattern of unknown price
+    expect(climbExtra({ climb_cost: 950 }, { climb_cost: null })).toBeNull()
+    expect(climbExtra({ climb_cost: 950 }, undefined)).toBeNull()
+  })
+})
 
 describe('perPoint', () => {
   it('is what an expected skill point costs, negative when the run earns', () => {

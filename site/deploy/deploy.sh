@@ -2,14 +2,20 @@
 # Deploy an image to an environment, in order:
 #   1. define the Cloud Run jobs with the new image (migrate, merge, ingest-tbc, ingest-forever, prune);
 #      `setup.sh scheduler ENV` schedules all but migrate
-#   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts
+#   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts;
+#      skipped when no file under MIGRATIONS changed since the commit the service runs (below)
 #   3. deploy the Cloud Run service (its instances never migrate); prod: the Discord relay too, if
 #      `setup.sh discord` made it
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
 #      `staging` preview channel, whose /api rewrites to the staging service), and the Firestore rules
 #      to the environment's Firebase project (price signals, firestore.rules)
-#   5. run the ingest jobs and wait: they reload the game data when the new image's ingest code or
-#      hand-maintained CSVs changed (`ingest.fingerprint`), and otherwise find it loaded and stop
+#   5. run the ingest jobs side by side and wait: they reload the game data when the new image's ingest
+#      code or hand-maintained CSVs changed (`ingest.fingerprint`), and otherwise find it loaded and stop;
+#      skipped when none of INGEST_INPUTS changed since the commit the service runs
+#
+# A job takes minutes to start whatever it does, hence the skips. The commit the service runs is its image's
+# tag (build.sh's); a tag that isn't a commit here (a -dirty build, a shallow clone, no service yet) skips
+# nothing, and neither does DEPLOY_ALL=1.
 #
 #   deploy/deploy.sh prod|staging IMAGE
 set -euo pipefail
@@ -19,6 +25,24 @@ ENV_NAME="${1:?prod or staging}"
 IMAGE="${2:?image, e.g. from deploy/build.sh}"
 env_config "$ENV_NAME"
 FIREBASE_VARS="$(firebase_env)" # its own Firebase project: prod's from hosted.env, staging's from staging.env
+
+# What a job's work depends on, relative to site/ (git pathspecs). INGEST_INPUTS mirrors `ingest.fingerprint`
+# and the pinned builds (tests/test_deploy.py keeps it in step).
+MIGRATIONS=(src/altarmy_profit/migrations)
+INGEST_INPUTS=(src/altarmy_profit/ingest.py src/altarmy_profit/itemstats.py src/altarmy_profit/spelltext.py
+  data/game-data.json 'data/*/*.csv')
+
+# The commit the environment's service runs now, if this checkout has it; else nothing.
+DEPLOYED="$(gcloud run services describe "$SERVICE" --region "$REGION" "${GCLOUD_FLAGS[@]}" \
+  --format 'value(spec.template.spec.containers[0].image)' 2>/dev/null |
+  sed -n 's/.*:\([0-9a-f]\{7,\}\)$/\1/p')" || true
+if [ -n "$DEPLOYED" ] && ! git cat-file -e "$DEPLOYED^{commit}" 2>/dev/null; then DEPLOYED=""; fi
+echo "== deployed: ${DEPLOYED:-unknown}"
+
+changed() { # changed PATHSPEC...: whether the checkout (untracked files too) differs there from the deployed commit
+  [ "${DEPLOY_ALL:-}" = 1 ] || [ -z "$DEPLOYED" ] || ! git diff --quiet "$DEPLOYED" -- "$@" ||
+    [ -n "$(git ls-files --others --exclude-standard -- "$@")" ]
+}
 
 COMMON=(--image "$IMAGE" --region "$REGION" --service-account "$RUN_SA"
   --set-cloudsql-instances "$SQL_CONNECTION" --set-secrets "DATABASE_URL=$SECRET:latest")
@@ -40,8 +64,12 @@ job "$JOB_PREFIX-ingest-tbc" --game-version tbc ingest --only-if-new --cache /tm
 job "$JOB_PREFIX-ingest-forever" --game-version forever ingest --only-if-new --cache /tmp/cache
 job "$JOB_PREFIX-prune" prune
 
-echo "== migrate"
-gcloud run jobs execute "$JOB_PREFIX-migrate" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"
+if changed "${MIGRATIONS[@]}"; then
+  echo "== migrate"
+  gcloud run jobs execute "$JOB_PREFIX-migrate" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"
+else
+  echo "== migrate: no migration changed since $DEPLOYED, skipped"
+fi
 
 echo "== service $SERVICE"
 # the jobs the Admin page's Run now starts (launch.CloudRunJobs; setup.sh job-runner lets the service)
@@ -70,7 +98,16 @@ else
   npx --yes firebase-tools@14 --project "$STAGING_AUTH_PROJECT" --non-interactive --config firebase.staging.json     deploy --only firestore:rules
 fi
 
-echo "== game data"
-for v in forever tbc; do
-  gcloud run jobs execute "$JOB_PREFIX-ingest-$v" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}"
-done
+if changed "${INGEST_INPUTS[@]}"; then
+  echo "== game data"
+  pids=()
+  for v in forever tbc; do
+    gcloud run jobs execute "$JOB_PREFIX-ingest-$v" --region "$REGION" --wait "${GCLOUD_FLAGS[@]}" &
+    pids+=("$!")
+  done
+  failed=0
+  for pid in "${pids[@]}"; do wait "$pid" || failed=1; done
+  exit "$failed"
+else
+  echo "== game data: neither the ingest code, its CSVs nor the pins changed since $DEPLOYED, skipped"
+fi

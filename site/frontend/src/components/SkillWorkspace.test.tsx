@@ -144,8 +144,8 @@ describe('SkillWorkspace', () => {
     expect(screen.queryByRole('region', { name: 'Run details' })).not.toBeInTheDocument()
   })
 
-  it('shows each option as picking it gives, those before it passed over', async () => {
-    // listed, the cap stops where the robe gets cheaper; as an option, the robe passed over, at 60
+  it('shows each option as picking it gives', async () => {
+    // listed, the cap stops where the robe gets cheaper; as an option, as the first run of its own climb, at 60
     const asOption: RankResult = { ...capRun, crafts: 30, stop_skill: 60, overtaken_by: 'Linen Boots', overtaken_by_item: 9004 }
     api({ '/api/rank': { ...ranked, options: [robeRun, asOption] } })
     show()
@@ -153,6 +153,29 @@ describe('SkillWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Choose Linen Cap' })).toHaveTextContent(
       'Craft until 60 skill (~30 times), at which point Linen Boots becomes a cheaper option',
     )
+  })
+
+  it('says what starting with another option adds to the whole climb, and may come back to a recipe', async () => {
+    const best: RankResult = { ...robeRun, climb_cost: 9000 }
+    const dearer: RankResult = { ...capRun, climb_cost: 9550 }
+    api({ '/api/rank': { ...ranked, results: [best, dearer], options: [best, dearer], chain: [beltRun, bootsRun, beltRun] } })
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    expect(chainNames(chain)).toEqual(['Linen Belt', 'Linen Boots', 'Linen Belt'])
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
+    expect(within(options).getByRole('button', { name: 'Choose Linen Cap' })).toHaveTextContent(
+      /The whole climb costs .*more than with the best/,
+    )
+    expect(within(options).getByRole('button', { name: 'Choose Green Robe' })).not.toHaveTextContent(/whole climb/)
+    // picked, the one crafted now still says so
+    await userEvent.click(within(options).getByRole('button', { name: 'Choose Linen Cap' }))
+    await waitFor(() =>
+      expect(within(options).getAllByRole('button', { name: /^Choose / }).map((c) => c.getAttribute('aria-label'))).toEqual([
+        'Choose Linen Cap',
+      ]),
+    )
+    expect(within(options).getByRole('button', { name: 'Choose Linen Cap' })).toHaveTextContent(/The whole climb costs/)
   })
 
   it('shows four more runs after the chain on asking', async () => {
@@ -177,7 +200,7 @@ describe('SkillWorkspace', () => {
   })
 
   it('makes a picked option the one to craft now, with what comes after it', async () => {
-    // without the robe, passed over, the cap's run goes on to 60, where the boots take over
+    // the cheapest climb starting with the cap: its run goes on to 60, where the boots take over
     const longer: RankResult = { ...capRun, crafts: 30, stop_skill: 60, overtaken_by: 'Linen Boots', overtaken_by_item: 9004 }
     const capChain = { ...ranked, results: [longer], chain: [bootsRun], chain_start: longer }
     const fetch = api({
@@ -197,7 +220,7 @@ describe('SkillWorkspace', () => {
     const asked = urls(fetch, '/api/rank').find((u) => u.searchParams.get('chain_from'))
     expect(asked?.searchParams.get('chain_from')).toBe('101')
     expect(asked?.searchParams.get('top')).toBe('1')
-    expect(asked?.searchParams.getAll('skip')).toEqual(['100'])
+    expect(asked?.searchParams.getAll('skip')).toEqual([]) // nothing passed over: its climb may come back to the robe
     const card = within(options).getByRole('button', { name: 'Choose Linen Cap' })
     expect(card).toHaveTextContent('Craft until 60 skill (~30 times), at which point Linen Boots becomes a cheaper option')
     // opened and closed, it is still the one to craft now

@@ -275,13 +275,17 @@ By hand (Git Bash, with gcloud and the Firebase CLI signed in; no Docker needed)
 
 ```bash
 IMAGE=$(BUILDER=cloudbuild deploy/build.sh)   # build on Cloud Build, push to Artifact Registry
-deploy/deploy.sh staging "$IMAGE"             # jobs, migrate, service, front end to the staging channel, ingest
+deploy/deploy.sh staging "$IMAGE"             # jobs, migrate*, service, front end to the staging channel, ingest* (*: if changed)
 deploy/deploy.sh prod "$IMAGE"
 ```
 
-Each deploy ends by running both ingest jobs: they reload the game data when the build, the ingest code
-(`ingest.py`, `itemstats.py`, `spelltext.py`) or the version's hand-maintained CSVs changed
-(`ingest.fingerprint`, kept in `game_versions.ingest_fingerprint`), and otherwise stop at once. A new
+Each deploy ends by running both ingest jobs side by side: they reload the game data when the build, the
+ingest code (`ingest.py`, `itemstats.py`, `spelltext.py`) or the version's hand-maintained CSVs changed
+(`ingest.fingerprint`, kept in `game_versions.ingest_fingerprint`), and otherwise stop at once. A Cloud Run
+job takes minutes to start, so the deploy runs the ingest jobs only when one of those files (or
+`data/game-data.json`) changed since the commit the service runs (its image's tag), and the migrate job only
+when something under `migrations/` did; an image tag that isn't a commit in the checkout, or `DEPLOY_ALL=1`,
+runs both. A new
 database gets its game data the same way, or by hand: `gcloud run jobs execute altarmy-ingest-tbc --wait`
 (prod) or `altarmy-staging-ingest-tbc` (staging)
 (add `--region us-central1 --project alt-army-prod --billing-project alt-army-prod` to both).

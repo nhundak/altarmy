@@ -688,14 +688,17 @@ SKILL_UP: dict[str, str | bool | list[str]] = {
 }
 
 
-def test_skill_up_ranks_each_recipe_as_a_run_until_another_gets_cheaper(
+def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     client: TestClient, priced: Connection
 ) -> None:
     # Tailor Guy has Tailoring 50: the robe is yellow from 30, green from 45 and grey from 60; it is the only
-    # recipe, so nothing gets cheaper and its run goes on until it is about to turn grey
-    (r,) = client.get("/api/rank", params={**SKILL_UP, "runs": True}).json()["results"]
+    # recipe, so the climb is its run until it turns grey (~30/(60 - s) crafts a point at skill s)
+    body = client.get("/api/rank", params={**SKILL_UP, "runs": True}).json()
+    (r,) = body["results"]
     assert (r["learn_skill"], r["trivial_low"], r["trivial_high"]) == (50, 30, 60)
-    assert (r["crafts"], r["stop_skill"], r["stop_reason"], r["overtaken_by"]) == (68, 59, "trivial", "")
+    assert (r["crafts"], r["stop_skill"], r["stop_reason"], r["overtaken_by"]) == (88, 60, "trivial", "")
+    assert body["chain"] == [] and body["options"] == [r]
+    assert r["climb_cost"] is not None and r["climb_cost"] > -r["profit"]  # what it costs, spares too
     assert r["overtaken_by_item"] == 0
     assert r["crafts_p80"] >= r["crafts"]
     assert r["reach_chances"][r["crafts_p80"] - 1] >= 0.8  # the odds of reaching stop_skill by each craft
@@ -705,8 +708,14 @@ def test_skill_up_ranks_each_recipe_as_a_run_until_another_gets_cheaper(
     service.replace_characters(priced, ME, FOREVER, [novice])
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     params = {**SKILL_UP, "skill_crafters": ["Novice"], "runs": True}
-    (r,) = client.get("/api/rank", params=params).json()["results"]
-    assert (r["crafts"], r["stop_reason"]) == (100, "ceiling")  # the most crafts a run asks for
+    ranked = client.get("/api/rank", params=params).json()
+    (r,) = ranked["results"]
+    # from 20 the robe takes ~130 crafts to grey: more than a run asks for (100), so another run of it follows
+    assert r["stop_reason"] == "ceiling" and r["crafts"] <= 100 and r["overtaken_by"] == ""
+    (then,) = ranked["chain"]
+    assert (then["recipe_id"], then["stop_skill"], then["stop_reason"]) == (r["recipe_id"], 60, "trivial")
+    assert then["climb_cost"] is None  # a later run of the climb
+    assert then["skill_chance"] < 1  # planned from where the first run stops: yellow by then
     body = {
         "recipe_id": r["recipe_id"],
         "choices": {},
@@ -714,7 +723,10 @@ def test_skill_up_ranks_each_recipe_as_a_run_until_another_gets_cheaper(
         "skill_crafters": ["Novice"],
     }
     got = client.post("/api/evaluate", json={**body, "exits": ["vendor", "keep"], "runs": True}).json()
-    assert got["result"]["crafts"] == 100
+    assert (got["result"]["crafts"], got["result"]["climb_cost"]) == (
+        r["crafts"],
+        r["climb_cost"],
+    )  # as ranked
     got = client.post("/api/evaluate", json={**body, "runs": True, "copies": 12}).json()
     assert got["result"]["crafts"] == 12  # copies asked for win
 
@@ -726,7 +738,7 @@ def test_skill_up_keeps_what_no_vendor_buys(client: TestClient, priced: Connecti
     assert (r["best_exit"], r["revenue"]) == ("keep", 0)
 
 
-def test_the_skill_run_ranks_again(
+def test_a_climb_is_ranked_once(
     client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[object] = []
@@ -738,8 +750,8 @@ def test_the_skill_run_ranks_again(
 
     monkeypatch.setattr(service, "search", spy)
     client.get("/api/rank", params={**SKILL_UP, "runs": True})
-    # the ranking, what comes after its first, and the next options with the ones before passed over
-    assert calls and set(calls) == {engine.SkillRuns(), engine.SkillRuns(skip=frozenset({100}))}
+    # the ranking alone: its options and chain are the climbs it worked out
+    assert calls == [engine.SkillRuns()]
     ranked = len(calls)
     client.get("/api/rank", params={**SKILL_UP, "runs": True})
     assert len(calls) == ranked  # all cached
@@ -1697,7 +1709,12 @@ def test_skill_up_counts_the_pattern_and_says_what_comes_next(client: TestClient
     low = Character("Realm", "Low", "Horde", "MAGE", 60, (Profession("Tailoring", 40, 150, frozenset()),))
     service.replace_characters(priced, ME, FOREVER, [low])
     set_prices(priced, {1: 20, 2: 100}, realm="Realm")
-    params = {**SKILL_UP, "skill_crafters": ["Low"], "runs": True, "unlearned": "train", "look_ahead": 10}
+    # at 40 the robe (learned at 50) can't give them the next point: no run of it to rank, look-ahead or not
+    ahead = {**SKILL_UP, "skill_crafters": ["Low"], "runs": True, "unlearned": "train", "look_ahead": 10}
+    assert client.get("/api/rank", params=ahead).json()["results"] == []
+    low = replace(low, professions=(Profession("Tailoring", 50, 150, frozenset()),))
+    service.replace_characters(priced, ME, FOREVER, [low])
+    params = {**SKILL_UP, "skill_crafters": ["Low"], "runs": True, "unlearned": "train"}
     body = client.get("/api/rank", params=params).json()
     (r,) = body["results"]
     assert r["learn_cost"] == 2000  # the pattern, from Borya
@@ -1714,7 +1731,7 @@ def test_skill_up_counts_the_pattern_and_says_what_comes_next(client: TestClient
         client.get("/api/rank", params={**params, "chain_length": api.MAX_SKILL_CHAIN + 1}).status_code == 422
     )
     service.replace_characters(
-        priced, ME, FOREVER, [replace(low, professions=(Profession("Tailoring", 40, 150, frozenset({900})),))]
+        priced, ME, FOREVER, [replace(low, professions=(Profession("Tailoring", 50, 150, frozenset({900})),))]
     )
     (known,) = client.get("/api/rank", params=params).json()["results"]
     assert known["learn_cost"] == 0
@@ -1751,16 +1768,13 @@ def test_rank_says_whether_a_sale_will_sell_and_narrows_to_the_sure_ones(
         assert client.get("/api/rank", params={"sort": sort}).json()["total"] == 1
 
 
-def test_a_chained_run_names_the_run_after_it_as_the_cheaper_option() -> None:
-    def run(name: str, item: int, reason: str = "rival") -> api.RankResult:
+def test_a_recipe_the_climb_took_up_before_is_not_learned_again() -> None:
+    def run(recipe_id: int) -> api.RankResult:
         return api.RankResult.model_construct(
-            output_name=name, output_item_id=item, stop_reason=reason, overtaken_by="Barbaric Leggings"
+            recipe_id=recipe_id, crafter="Low", crafters=[], learn_cost=2000
         )
 
-    gloves, harness, last = run("Hillman's Leather Gloves", 1), run("Raptor Hide Harness", 2), run("Cap", 3)
-    grey = run("Grey", 4, reason="trivial")
-    api._link_chain([gloves, harness, grey, last])
-    assert (gloves.overtaken_by, gloves.overtaken_by_item) == ("Raptor Hide Harness", 2)
-    assert harness.overtaken_by == "Grey"
-    assert grey.overtaken_by == "Barbaric Leggings"  # it stops turning grey: nothing to name
-    assert last.overtaken_by == "Barbaric Leggings"  # nothing after it is shown
+    belt, pants, again, first_again = run(2), run(3), run(2), run(1)
+    api._learned_on_the_way(1, [belt, pants, again, first_again])
+    assert [(r.learn_cost, r.crafters) for r in (belt, pants)] == [(2000, []), (2000, [])]  # new to the climb
+    assert [(r.learn_cost, r.crafters) for r in (again, first_again)] == [(0, ["Low"]), (0, ["Low"])]

@@ -24,20 +24,25 @@ from .engine import (
     ALL_EXITS,
     MAIL_POSTAGE,
     MAX_LOOK_AHEAD,
+    Candidate,
     Choices,
     Crafter,
     Filters,
     Learning,
     Market,
+    Memo,
+    Recipe,
     Result,
-    Rival,
+    SkillRun,
     SkillRuns,
     TimeModel,
     Unlearned,
     ah_net,
+    can_learn,
     city_prices,
     recipes_for_characters,
     recipes_using,
+    useful_crafts,
 )
 from .versions import GameVersion
 
@@ -176,6 +181,7 @@ def search(
     skill_name: str | None = None,
     skill_run: SkillRuns | None = None,
     gathered: Mapping[int, int] | None = None,
+    learn_costs: Mapping[int, float | None] | None = None,
 ) -> list[Result]:
     """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
     and keep what `filters` accepts. Chains sub-craft through any of their recipes too. Most profitable
@@ -191,10 +197,11 @@ def search(
     the city (`time.fastest`), each recipe is planned where it pays best per hour (`best_of`): vendors
     charge a character by their reputation, so cities differ in copper too. With `arcane_salvager` every
     disenchant is done at an Arcane Salvager (see `Market`). With `skill_name`, only that profession's
-    recipes are ranked. With a `skill_run`, each recipe is ranked as the final crafter's run of it
-    (`engine.run_until_cheaper`: the crafts until another recipe would give a cheaper skill point, those they
-    can learn on the way included: `later_rivals`), not as a batch. `gathered`
-    items (with what a unit is worth: `gather_values`) may be gathered instead of bought.
+    recipes are ranked. With a `skill_run`, each recipe is ranked as the final crafter's run of it, not as a
+    batch: the first run of the cheapest climb up the profession that starts with it (`engine.Climb`, over
+    the recipes they can craft now and those they can learn on the way: `later_recipes`; `learn_costs` is
+    what learning each costs the climber, by recipe id). `gathered` items (with what a unit is worth:
+    `gather_values`) may be gathered instead of bought.
     """
     crafts = 1
     if time is not None:
@@ -202,8 +209,18 @@ def search(
         time = session_model(time, (), None)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     models, differ = _models(base, chars, time)
-    rivals = later_rivals(
-        base, chars, unlearned, exits, no_ah, skill_crafters, arcane_salvager, skill_name, skill_run, gathered
+    later = later_recipes(
+        base,
+        chars,
+        unlearned,
+        exits,
+        no_ah,
+        skill_crafters,
+        arcane_salvager,
+        skill_name,
+        skill_run,
+        gathered,
+        models[0],
     )
     markets = [
         _market(
@@ -218,7 +235,8 @@ def search(
             "",
             arcane_salvager,
             gathered,
-            rivals,
+            later,
+            learn_costs,
         )
         for model in models
     ]
@@ -256,24 +274,32 @@ def evaluate(
     arcane_salvager: bool = False,
     skill_run: SkillRuns | None = None,
     gathered: Mapping[int, int] | None = None,
+    learn_costs: Mapping[int, float | None] | None = None,
+    stretch: SkillRun | None = None,
 ) -> Result | None:
     """One recipe with the user's `choices` of sources and exit, for `crafts` crafts at once (timed by a
     `session_model`: with `time`'s batch as `crafts` and no city, as `search` ranks it), or as a useful run
-    (`skill_run`, as `search` ranks it then); None if the characters can't make or sell it. A `crafter`
-    does the final craft (see `Market`'s `final_crafter`)."""
+    (`skill_run` and `learn_costs`, as `search` ranks it then; or the `stretch` of a climb given, planned
+    from where it starts); None if the characters can't make or sell it. A `crafter` does the final craft
+    (see `Market`'s `final_crafter`)."""
     models, differ = _models(base, chars, time)
     recipe_skill = next((r.skill_name for r in base.recipes if r.id == recipe_id), None)
-    rivals = later_rivals(
-        base,
-        chars,
-        unlearned,
-        exits,
-        no_ah,
-        skill_crafters,
-        arcane_salvager,
-        recipe_skill,
-        skill_run,
-        gathered,
+    later = (
+        later_recipes(
+            base,
+            chars,
+            unlearned,
+            exits,
+            no_ah,
+            skill_crafters,
+            arcane_salvager,
+            recipe_skill,
+            skill_run,
+            gathered,
+            models[0],
+        )
+        if stretch is None
+        else []
     )
     found = []
     same = False  # whether the recipe costs the same in every city: nothing in it is priced differently
@@ -290,7 +316,8 @@ def evaluate(
             crafter,
             arcane_salvager,
             gathered,
-            rivals,
+            later,
+            learn_costs,
         )
         recipe = next((r for r in market.recipes if r.id == recipe_id), None)
         if recipe is None:
@@ -299,7 +326,7 @@ def evaluate(
             same = recipe.id not in recipes_using(market.recipes, differ)
         elif same:
             break  # as `search` ranks it: planned once, with the first model
-        result = market.evaluate(recipe, choices, crafts=crafts, skill_run=skill_run)
+        result = market.evaluate(recipe, choices, crafts=crafts, skill_run=skill_run, stretch=stretch)
         if result is not None:
             found.append(result)
     if not found:
@@ -421,7 +448,8 @@ def _market(
     crafter: str = "",
     arcane_salvager: bool = False,
     gathered: Mapping[int, int] | None = None,
-    rivals: Sequence[Rival] = (),
+    later: Sequence[Candidate] = (),
+    learn_costs: Mapping[int, float | None] | None = None,
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters. Without
     characters every recipe counts, crafted by one unnamed character (so nothing is mailed)."""
@@ -447,7 +475,8 @@ def _market(
         reputation_discounts=base.reputation_discounts,
         arcane_salvager=arcane_salvager,
         gathered=gathered,
-        later_rivals=rivals,
+        later_recipes=later,
+        learn_costs=learn_costs,
     )
 
 
@@ -738,18 +767,22 @@ def by_skill(
     """`results` by what an expected skill point costs, cheapest first (so profitable ones lead), those that
     can't give one last; ties go to the surer skill point, then the more profitable. With `learn_cost`,
     what learning the recipe costs (`learn_cost`) counts too, and a recipe whose cost is unknown comes after
-    every one whose cost is known."""
+    every one whose cost is known. Runs that start a climb (`Result.climb_cost`) go by the whole climb
+    instead, its patterns included, before the rest: the one starting the cheapest climb first, those
+    buying fewer patterns of unknown price before the others."""
 
-    def key(r: Result) -> tuple[bool, bool, float, float, int]:
+    def key(r: Result) -> tuple[bool, bool, int, float, float, int]:
         ups = r.skill_ups
+        if r.climb_cost is not None:
+            return (ups == 0, False, r.climb_unknown, r.climb_cost, -r.skill_chance, -r.profit)
         learn = learn_cost(r) if learn_cost is not None else 0
         spent = -r.profit + (learn or 0)
-        return (ups == 0, learn is None, spent / ups if ups else 0.0, -r.skill_chance, -r.profit)
+        return (ups == 0, True, int(learn is None), spent / ups if ups else 0.0, -r.skill_chance, -r.profit)
 
     return sorted(results, key=key)
 
 
-def later_rivals(
+def later_recipes(
     base: Market,
     chars: Sequence[Character],
     unlearned: Learning | Unlearned,
@@ -760,32 +793,51 @@ def later_rivals(
     skill_name: str | None,
     skill_run: SkillRuns | None,
     gathered: Mapping[int, int] | None,
-) -> list[Rival]:
-    """The recipes of `skill_name`'s profession the one character skilled up can't learn yet but could within
-    `MAX_LOOK_AHEAD` points, each with what a craft of it comes to and the skill they can learn it from: a run
-    may meet them on the way (`engine.run_until_cheaper`). None without runs, one profession and one
-    character."""
-    if skill_run is None or not skill_name or len(skill_crafters) != 1:
+    time: TimeModel | None = None,
+) -> list[Candidate]:
+    """The recipes of `skill_name`'s profession (every profession's, without one) the one character skilled up
+    can't learn yet but can on the way to their cap (taught by `unlearned`'s sources), each with the skill
+    they can learn it from and what a craft of it comes to then: planned as the climb's run of it will be,
+    with the climber at that skill and everything else as it is (`unlearned` for every other recipe and
+    character, the `time` model), for its `useful_crafts`. A climb may take them up there (`engine.Climb`).
+    None without runs or one character, or with `unlearned` "none" (the recipes they know only)."""
+    learning = Learning.of(unlearned)
+    if skill_run is None or len(skill_crafters) != 1 or learning.unlearned == "none":
         return []
     (name,) = skill_crafters
     climber = next((c for c in chars if c.name == name), None)
-    wanted = skill_name.lower()
-    held = next((p for p in climber.professions if p.name.lower() == wanted), None) if climber else None
-    if climber is None or held is None:
+    held = {
+        p.name.lower(): p
+        for p in (climber.professions if climber else ())
+        if skill_name is None or p.name.lower() == skill_name.lower()
+    }
+    if climber is None or not held:
         return []
-    ahead = Learning("train", MAX_LOOK_AHEAD, Learning.of(unlearned).sources)
-    market = _market(
-        base, chars, ahead, exits, no_ah, False, None, skill_crafters, "", arcane_salvager, gathered
+    # what they can learn on the way: a look-ahead to the cap, for the climber's climbed professions alone
+    ahead = Learning(
+        "train", max(MAX_LOOK_AHEAD, *(p.max_rank - p.rank for p in held.values())), learning.sources
     )
+    (crafter,) = as_crafters([climber])
+    later: dict[tuple[str, int], list[Recipe]] = {}
+    for r in base.recipes:
+        p = held.get(r.skill_name.lower())
+        if r.anyone or p is None or r.required_skill <= p.rank or r.spell_id in climber.known_recipes:
+            continue
+        if can_learn(r, crafter, ahead):
+            later.setdefault((r.skill_name, r.required_skill), []).append(r)
     out = []
-    for r in market.recipes:
-        if r.anyone or r.skill_name.lower() != wanted or r.required_skill <= held.rank:
-            continue
-        if r.spell_id in climber.known_recipes:
-            continue
-        one = market.evaluate(r)
-        if one is not None and one.crafter == name:
-            out.append(Rival(r, float(-one.profit), r.required_skill))
+    for (profession, level), recipes in sorted(later.items()):
+        there = at_skill(chars, name, profession, level)
+        market = _market(
+            base, there, unlearned, exits, no_ah, False, time, skill_crafters, "", arcane_salvager, gathered
+        )
+        (raised,) = (c for c in market.crafters if c.name == name)
+        memo: Memo = {}
+        for r in recipes:
+            n = useful_crafts(r, raised)
+            one = market.evaluate(r, memo=memo, crafts=n)
+            if one is not None and one.crafter == name:
+                out.append(Candidate(r, -one.profit / n, level))
     return out
 
 
@@ -803,105 +855,21 @@ def gather_values(base: Market, item_ids: Iterable[int]) -> dict[int, int]:
     return out
 
 
-def raise_skill(chars: Sequence[Character], first: Result, skill_name: str) -> list[Character]:
-    """`chars` with `first`'s crafter's `skill_name` at where `first`'s run stops (never lowered)."""
+def at_skill(chars: Sequence[Character], name: str, skill_name: str, level: int) -> list[Character]:
+    """`chars` with `name`'s `skill_name` at `level` (never lowered)."""
     wanted = skill_name.lower()
 
     def raised(c: Character) -> Character:
-        if c.name != first.crafter:
+        if c.name != name:
             return c
         return replace(
             c,
             professions=tuple(
-                replace(p, rank=max(p.rank, first.stop_skill)) if p.name.lower() == wanted else p
-                for p in c.professions
+                replace(p, rank=max(p.rank, level)) if p.name.lower() == wanted else p for p in c.professions
             ),
         )
 
     return [raised(c) for c in chars]
-
-
-def then_up(
-    base: Market,
-    chars: Sequence[Character],
-    unlearned: Learning | Unlearned,
-    exits: frozenset[str],
-    no_ah: frozenset[int],
-    include_trivial: bool,
-    time: TimeModel | None,
-    skill_crafters: frozenset[str],
-    arcane_salvager: bool,
-    skill_name: str,
-    skill_run: SkillRuns,
-    *,
-    first: Result,
-    gathered: Mapping[int, int] | None = None,
-) -> list[Result]:
-    """What could come after `first` (the best useful run) once it is done: the ranking with its crafter's
-    `skill_name` at where that run stops, cheapest skill point first, without `first`'s recipe."""
-    later = search(
-        base,
-        raise_skill(chars, first, skill_name),
-        unlearned,
-        Filters(),
-        exits,
-        no_ah,
-        include_trivial,
-        time,
-        skill_crafters,
-        arcane_salvager,
-        skill_name=skill_name,
-        skill_run=skill_run,
-        gathered=gathered,
-    )
-    return [r for r in by_skill(later) if r.recipe.id != first.recipe.id]
-
-
-def passed_over_options(
-    base: Market,
-    chars: Sequence[Character],
-    unlearned: Learning | Unlearned,
-    exits: frozenset[str],
-    no_ah: frozenset[int],
-    include_trivial: bool,
-    time: TimeModel | None,
-    skill_crafters: frozenset[str],
-    arcane_salvager: bool,
-    skill_name: str,
-    skill_run: SkillRuns,
-    *,
-    first: Result,
-    count: int,
-    order: Callable[[list[Result]], list[Result]] = by_skill,
-    gathered: Mapping[int, int] | None = None,
-) -> list[Result]:
-    """The best `count` options to craft now, `first` (the best run) first: each the best run once those
-    before it are passed over (`SkillRuns.skip`: neither crafted nor ending a run), so an option's run is what
-    picking it would give."""
-    out = [first]
-    while len(out) < count:
-        run = replace(skill_run, skip=skill_run.skip | {r.recipe.id for r in out})
-        later = order(
-            search(
-                base,
-                chars,
-                unlearned,
-                Filters(),
-                exits,
-                no_ah,
-                include_trivial,
-                time,
-                skill_crafters,
-                arcane_salvager,
-                skill_name=skill_name,
-                skill_run=run,
-                gathered=gathered,
-            )
-        )
-        if not later or not later[0].skill_ups:
-            break
-        out.append(later[0])
-    return out
 
 
 def skill_chain(
@@ -914,45 +882,46 @@ def skill_chain(
     time: TimeModel | None,
     skill_crafters: frozenset[str],
     arcane_salvager: bool,
-    skill_name: str,
     skill_run: SkillRuns,
     *,
     first: Result,
     steps: int,
-    order: Callable[[list[Result]], list[Result]] = by_skill,
     gathered: Mapping[int, int] | None = None,
     done: Sequence[Result] = (),
 ) -> list[Result]:
-    """The runs that follow `first`, up to `steps` of them: each the best (`order`'s first) once the one
-    before is done (`then_up`, the crafter's skill raised run by run). It ends early at the skill cap or when
-    nothing after gives a skill point. `done`: the first runs of the chain, already worked out (a shorter
-    `skill_chain` of the same `first`), continued from rather than worked out again."""
+    """The runs of `first`'s climb after it (`Result.climb_after`), up to `steps` of them, each planned for
+    its own crafts with the climber at the skill it starts from (as `search` plans a run: timed by a
+    `session_model`). Fewer when the climb ends sooner (at the cap, or where nothing gives a point). `done`:
+    the first runs, already planned (a shorter `skill_chain` of the same `first`), kept rather than planned
+    again."""
     out: list[Result] = list(done[:steps])
-    for r in [first, *out[:-1]]:
-        chars = raise_skill(chars, r, skill_name)
-    prev = out[-1] if out else first
-    while len(out) < steps and prev.stop_reason != "cap" and prev.stop_skill > 0:
-        later = then_up(
+    if time is not None:
+        time = session_model(time, (), None)
+    for stretch in first.climb_after[len(out) : steps]:
+        if stretch.recipe is None:
+            break
+        there = at_skill(chars, first.crafter, stretch.recipe.skill_name, stretch.start_skill)
+        r = evaluate(
             base,
-            chars,
+            there,
             unlearned,
             exits,
+            stretch.recipe.id,
+            {},
             no_ah,
             include_trivial,
             time,
+            stretch.crafts,
             skill_crafters,
+            "",
             arcane_salvager,
-            skill_name,
-            skill_run,
-            first=prev,
+            skill_run=skill_run,
             gathered=gathered,
+            stretch=stretch,
         )
-        ordered = order(later)
-        if not ordered or not ordered[0].skill_ups:
+        if r is None:
             break
-        chars = raise_skill(chars, prev, skill_name)
-        prev = ordered[0]
-        out.append(prev)
+        out.append(r)
     return out
 
 
@@ -978,18 +947,50 @@ def learn_cost(
     ah_prices: Mapping[int, int],
     faction: str,
 ) -> int | None:
-    """What the result's crafter must spend to learn its recipe: 0 when they know it (or it needs no
-    learning, or a trainer teaches it: fees are not known yet), else what its pattern costs
-    (`pattern_price`; `taught` by spell id), None when nothing says."""
+    """What the result's crafter must spend to learn its recipe (`recipe_learn_cost`)."""
     who = next((c for c in chars if c.name == r.crafter), None)
-    if (
-        who is None
-        or r.recipe.anyone
-        or r.recipe.spell_id in who.known_recipes
-        or r.recipe.source == "trainer"
-    ):
+    return recipe_learn_cost(r.recipe, who, taught, ah_prices, faction)
+
+
+def recipe_learn_cost(
+    recipe: Recipe,
+    who: Character | None,
+    taught: Mapping[int, Sequence[store.RecipeItem]],
+    ah_prices: Mapping[int, int],
+    faction: str,
+) -> int | None:
+    """What `who` must spend to learn `recipe`: 0 when they know it (or it needs no learning, or a trainer
+    teaches it: fees are not known yet), else what its pattern costs (`pattern_price`; `taught` by spell
+    id), None when nothing says."""
+    if who is None or recipe.anyone or recipe.spell_id in who.known_recipes or recipe.source == "trainer":
         return 0
-    return pattern_price(taught.get(r.recipe.spell_id, ()), ah_prices, faction)
+    return pattern_price(taught.get(recipe.spell_id, ()), ah_prices, faction)
+
+
+def needs_pattern(recipe: Recipe, who: Character | None) -> bool:
+    """Whether what learning `recipe` costs `who` is a pattern's price (`recipe_learn_cost`)."""
+    return recipe_learn_cost(recipe, who, {}, {}, "") is None
+
+
+def climb_learn_costs(
+    base: Market,
+    who: Character,
+    skill_name: str | None,
+    taught: Mapping[int, Sequence[store.RecipeItem]],
+    faction: str,
+) -> dict[int, float | None]:
+    """What learning each recipe of `skill_name`'s profession (every profession's, without one) costs `who`
+    (`recipe_learn_cost`), by recipe id, for a climb (`search`'s `learn_costs`); those that cost nothing left
+    out. `taught`: the patterns of the recipes that `needs_pattern`, by spell id."""
+    wanted = skill_name.lower() if skill_name else None
+    out: dict[int, float | None] = {}
+    for r in base.recipes:
+        if wanted is not None and r.skill_name.lower() != wanted:
+            continue
+        cost = recipe_learn_cost(r, who, taught, base.prices, faction)
+        if cost != 0:
+            out[r.id] = cost
+    return out
 
 
 def favorites_first(results: Iterable[Result], favorites: frozenset[int]) -> list[Result]:

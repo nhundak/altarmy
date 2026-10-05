@@ -118,8 +118,8 @@ export type RankParams = {
   sort: RankSort
   /** only sales at least this sure to sell; null or unset for any */
   minVerdict?: VerdictLevel | null
-  /** skilling up: rank each recipe as a run, the crafts until another would give a cheaper skill point; false: a
-   * session */
+  /** skilling up: rank each recipe as a run, the first of the cheapest climb up the profession starting with it;
+   * false: a session */
   runs: boolean
   /** items the user gathers themselves: had for what selling them would make, instead of bought */
   gathered?: number[]
@@ -127,8 +127,6 @@ export type RankParams = {
   chainFrom?: number
   /** skilling up a run: the runs `chain` may hold; unset for the API's default (`CHAIN`) */
   chainLength?: number
-  /** skilling up a run: recipes passed over, neither ranked as runs nor what ends one */
-  skip?: number[]
   top: number
 }
 
@@ -189,7 +187,6 @@ export function useRank(
               gathered: params.gathered?.length ? params.gathered : undefined,
               chain_from: params.chainFrom,
               chain_length: params.chainLength,
-              skip: params.skip?.length ? params.skip : undefined,
               top: params.top,
               price_version: priceVersion,
             },
@@ -206,7 +203,7 @@ export function useRank(
 export type EvaluateParams = Pick<
   RankParams,
   'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
-> & { runs?: boolean; gathered?: number[]; skip?: number[]; version?: string }
+> & { runs?: boolean; gathered?: number[]; version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -214,13 +211,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip ?? [], choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -236,7 +233,6 @@ export function useEvaluations(
               arcane_salvager: arcaneSalvager,
               runs: runs ?? false,
               gathered: gathered ?? [],
-              skip: skip ?? [],
               choices: choices[id] ?? {},
               price_version: priceVersion,
             },
@@ -259,7 +255,7 @@ export function useEvaluations(
  * until they move: never stale. */
 function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -268,7 +264,7 @@ function sessionPlanQuery(
 ) {
   return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, skip ?? [], choices ?? {}, 'session', copies, city, crafter],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -284,7 +280,6 @@ function sessionPlanQuery(
             arcane_salvager: arcaneSalvager,
             runs: runs ?? false,
             gathered: gathered ?? [],
-            skip: skip ?? [],
             choices: choices ?? {},
             copies: copies ?? undefined,
             city: city ?? undefined,

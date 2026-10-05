@@ -1,3 +1,5 @@
+import itertools
+import math
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
@@ -953,46 +955,281 @@ def _recipe(i: int, low: int, high: int) -> Recipe:
     return Recipe(i, f"R{i}", 100 + i, 1, ((COPPER, 1),), "Blacksmithing", trivial_low=low, trivial_high=high)
 
 
+def _climb(crafter: Crafter, *candidates: engine.Candidate, ceiling: int = 1000) -> engine.Climb:
+    """Near grey a point takes many crafts: a high ceiling keeps the runs whole."""
+    return engine.plan_climb(crafter, "Blacksmithing", candidates, ceiling)
+
+
+def _route(plan: engine.ClimbPlan | None) -> list[tuple[str, int, int]]:
+    """A plan's runs as (recipe, from, to)."""
+    assert plan is not None
+    return [(r.recipe.name, r.start_skill, r.stop_skill) for r in plan.runs if r.recipe is not None]
+
+
+def _brute_cost(crafter: Crafter, candidates: Sequence[engine.Candidate], start: int, end: int) -> float:
+    """The cheapest climb from `start` to `end` found by trying every recipe at every level: each stretch of
+    one recipe costs its expected crafts, its spare materials (`engine.SPARE_Z` standard deviations of its
+    crafts, when it costs anything), the grind of its points (`engine.GRIND` x the cheapest point there x the
+    square of the crafts a point wastes) and its pattern."""
+    best = math.inf
+
+    # the smallest point at each level, spent or earned
+    def cheapest_at(lvl: int) -> float:
+        return min(
+            (
+                abs(c.cost / engine._chance_at(c.recipe, crafter, lvl))
+                for c in candidates
+                if lvl >= c.from_skill and engine._chance_at(c.recipe, crafter, lvl) > 0
+            ),
+            default=0.0,
+        )
+
+    cheapest = {lvl: cheapest_at(lvl) for lvl in range(start, end)}
+    for picks in itertools.product(range(len(candidates)), repeat=end - start):
+        total, ok = 0.0, True
+        for idx, group in itertools.groupby(enumerate(picks, start), key=lambda x: x[1]):
+            levels = [lvl for lvl, _ in group]
+            c = candidates[idx]
+            chances = [engine._chance_at(c.recipe, crafter, lvl) for lvl in levels]
+            if any(p <= 0 for p in chances) or levels[0] < c.from_skill:
+                ok = False
+                break
+            crafts = sum(1 / p for p in chances)
+            spread = math.sqrt(sum((1 - p) / p**2 for p in chances))
+            grind = sum(
+                engine.GRIND * cheapest[lvl] * (1 / p - 1) ** 2
+                for lvl, p in zip(levels, chances, strict=True)
+            )
+            total += c.cost * crafts + max(c.cost, 0.0) * engine.SPARE_Z * spread + grind + (c.learn or 0)
+        if ok:
+            best = min(best, total)
+    return best
+
+
 # GREY_AT_60: orange below 40, then a point at (60 - skill) / 20 a craft
-def test_a_run_lasts_until_a_recipe_it_was_beating_gives_a_cheaper_point() -> None:
-    # 100 a craft against another's 150, orange until 50: once the chance falls under 2/3 (past 46.7), the
-    # other wins
-    rival = engine.Rival(_recipe(2, 50, 70), 150.0)
-    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [rival])
-    assert (run.crafts, run.reason, run.rival, run.stop_skill) == (18, "rival", rival.recipe, 47)
-    assert run.crafts_p80 >= run.crafts
-    assert len(run.reach) >= run.crafts_p80 + 20 and run.reach[run.crafts_p80 - 1] >= 0.8
-    # one it never beat doesn't end it: the run goes on until it is about to turn grey, then names it as
-    # what to craft next
-    beaten = engine.Rival(_recipe(3, 50, 70), 50.0)
-    alone = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [beaten])
-    assert (alone.crafts, alone.reason, alone.rival, alone.stop_skill) == (69, "rival", beaten.recipe, 59)
-    # with nothing cheaper by then, it just stops there
-    none = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [])
-    assert (none.crafts, none.reason, none.rival, none.stop_skill) == (69, "trivial", None, 59)
+def test_a_climb_switches_once_a_recipe_falls_behind_and_never_back() -> None:
+    # The chain the planner used to give: a belt (yellow 70, grey 110), then pants (75-115) costing more a
+    # craft. Both fall evenly over 40 points, the pants 5 later, so once the pants give the cheaper point
+    # (past 100) they always do: the belt, then the pants, and never the belt again. The switch comes a
+    # little early: the belt's last points before grey would need many spares, and grinding.
+    belt = engine.Candidate(
+        Recipe(1, "Belt", 101, 1, (), "Blacksmithing", trivial_low=70, trivial_high=110), 100.0
+    )
+    pants = engine.Candidate(
+        Recipe(2, "Pants", 102, 1, (), "Blacksmithing", trivial_low=75, trivial_high=115), 160.0
+    )
+    route = _route(_climb(_smith(84), belt, pants).best)
+    assert [name for name, _, _ in route] == ["Belt", "Pants"]
+    (_, start, switch), (_, again, end) = route
+    assert (start, end) == (84, 115) and switch == again and 90 <= switch <= 100
+    # pants at 121 give the cheaper point from 87, and three points of belt don't pay for a run's spares
+    dear = replace(pants, cost=121.0)
+    assert [name for name, _, _ in _route(_climb(_smith(84), belt, dear).best)] == ["Pants"]
 
 
-def test_a_run_ends_at_the_cap_or_the_ceiling() -> None:
-    capped = engine.run_until_cheaper(GREY_AT_60, _smith(30, cap=35), 100.0, [])
-    assert (capped.crafts, capped.reason, capped.stop_skill) == (5, "cap", 35)
-    short = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [], ceiling=12)
-    assert (short.crafts, short.reason) == (12, "ceiling")
+def test_a_climb_is_the_cheapest_way_up() -> None:
+    # every way of crafting three recipes level by level, against the plan
+    a = engine.Candidate(_recipe(1, 30, 50), 100.0)
+    b = engine.Candidate(_recipe(2, 38, 46), 120.0)
+    c = engine.Candidate(_recipe(3, 42, 60), 160.0, from_skill=36, learn=200)
+    smith = _smith(32, cap=41)
+    best = _climb(smith, a, b, c, ceiling=1000).best
+    assert best is not None
+    assert _route(best)[0][1] == 32 and _route(best)[-1][2] == 41
+    assert best.cost == pytest.approx(_brute_cost(smith, (a, b, c), 32, 41))
+
+
+def test_a_short_detour_must_pay_for_the_spare_materials_it_adds() -> None:
+    # A from 40 (100 a craft, yellow 30, grey 70). B, learned at 44, is orange until 46 and cheaper per point
+    # there (and gives a point at 46 too); switching to it for three points and back splits A's run, whose
+    # spares then cost ~124 more.
+    a = engine.Candidate(_recipe(1, 30, 70), 100.0)
+    near = engine.Candidate(_recipe(2, 46, 47), 152.0, from_skill=44)  # saves ~25 over A: not worth it
+    assert _route(_climb(_smith(40), a, near).best) == [("R1", 40, 70)]
+    cheap = engine.Candidate(_recipe(2, 46, 47), 80.0, from_skill=44)  # saves ~240: worth it
+    assert _route(_climb(_smith(40), a, cheap).best) == [("R1", 40, 44), ("R2", 44, 47), ("R1", 47, 70)]
+
+
+def test_the_last_points_before_grey_are_left_to_another_recipe_unless_it_costs_far_more() -> None:
+    # A is cheap (10 a craft) but its last points before grey at 60 take up to 20 crafts each; B (yellow 50,
+    # grey 90) costs 200 a craft. In copper alone A's grind to 59 is still cheaper (10 and 20 crafts at 10
+    # against ~260 a point): the grind is what hands those points to B.
+    a = engine.Candidate(_recipe(1, 40, 60), 10.0)
+    b = engine.Candidate(_recipe(2, 50, 90), 200.0)
+    route = _route(_climb(_smith(45), a, b).best)
+    assert [n for n, _, _ in route] == ["R1", "R2"] and route[0][2] <= 57
+    # no hard cutoff: with B dear enough, A goes on to grey (its last point, at 1 in 20, weighs ~37 of its
+    # points: B's must cost more)
+    dear = engine.Candidate(_recipe(2, 50, 90), 20000.0)
+    assert _route(_climb(_smith(45), a, dear).best)[0] == ("R1", 45, 60)
+
+
+def test_the_grind_counts_the_chance_after_talents() -> None:
+    # Working Overtime's 20% keeps A's chance up to the end: it goes further before B takes over
+    a = engine.Candidate(_recipe(1, 40, 60), 10.0)
+    b = engine.Candidate(_recipe(2, 50, 90), 200.0)
+    plain = _route(_climb(_smith(45), a, b).best)
+    overtime = _route(_climb(replace(_smith(45), skill_bonus=0.2), a, b).best)
+    assert overtime[0][0] == "R1" and overtime[0][2] > plain[0][2]
+
+
+def test_a_pattern_is_bought_only_when_it_pays_for_itself() -> None:
+    # A alone gets there (grey at 100); B's orange points save a few thousand at most
+    a = engine.Candidate(_recipe(1, 30, 100), 100.0)
+    pricey = engine.Candidate(_recipe(2, 50, 90), 60.0, learn=100_000)
+    assert _route(_climb(_smith(40), a, pricey).best)[0][0] == "R1"
+    cheap = engine.Candidate(_recipe(2, 50, 90), 60.0, learn=50)
+    assert _route(_climb(_smith(40), a, cheap).best)[0][0] == "R2"
+    # a pattern of unknown price comes after every plan whose costs are known
+    unknown = engine.Candidate(_recipe(2, 50, 90), 1.0, learn=None)
+    climb = _climb(_smith(40), a, unknown)
+    assert climb.best is not None and climb.best.unknown == 0
+    assert _route(climb.best)[0][0] == "R1"
+    forced = climb.first(2)
+    assert forced is not None and forced.unknown == 1
+
+
+def test_a_recipe_learned_on_the_way_joins_the_climb_there() -> None:
+    later = engine.Candidate(_recipe(4, 50, 70), 10.0, from_skill=45)
+    route = _route(_climb(_smith(30), engine.Candidate(GREY_AT_60, 100.0), later).best)
+    assert route == [("Heavy Copper Maul", 30, 45), ("R4", 45, 70)]
+
+
+def test_a_run_says_why_it_stops_and_how_many_crafts_to_buy_for() -> None:
+    maul = engine.Candidate(GREY_AT_60, 100.0)
+    belt = engine.Candidate(_recipe(2, 50, 70), 150.0)
+    plan = _climb(_smith(30), maul, belt).best
+    assert plan is not None
+    first, then = plan.runs
+    assert (first.recipe, first.reason, first.rival) == (GREY_AT_60, "rival", belt.recipe)
+    assert first.start_skill == 30 and then.start_skill == first.stop_skill
+    # orange to 40 (a craft a point), then a point at (60 - skill) / 20 a craft
+    expected = sum(1 / engine._chance_at(GREY_AT_60, _smith(30), s) for s in range(30, first.stop_skill))
+    assert first.crafts == round(expected)
+    assert first.crafts_p80 >= first.crafts
+    assert len(first.reach) >= first.crafts_p80 + engine.REACH_MORE
+    assert first.reach[first.crafts_p80 - 1] >= 0.8
+    assert (then.reason, then.rival, then.stop_skill) == ("trivial", None, 70)
+    # alone it runs until it is about to turn grey
+    alone = _climb(_smith(30), maul).best
+    assert alone is not None and [(r.reason, r.stop_skill) for r in alone.runs] == [("trivial", 60)]
+    # or to the cap
+    capped = _climb(_smith(30, cap=35), maul).best
+    assert capped is not None and [(r.reason, r.crafts, r.stop_skill) for r in capped.runs] == [
+        ("cap", 5, 35)
+    ]
+
+
+def test_a_run_longer_than_the_ceiling_goes_on_as_another() -> None:
     unknown = replace(GREY_AT_60, trivial_low=0, trivial_high=0)  # a point every craft, for ever
-    assert engine.run_until_cheaper(unknown, _smith(30), 100.0, []).reason == "ceiling"
+    plan = _climb(_smith(30, cap=60), engine.Candidate(unknown, 100.0), ceiling=12).best
+    assert plan is not None
+    assert all(r.crafts <= 12 for r in plan.runs)
+    assert {r.reason for r in plan.runs[:-1]} == {"ceiling"}
+    assert plan.runs[-1].reason == "cap" and plan.runs[-1].stop_skill == 60
 
 
-def test_a_recipe_learned_on_the_way_can_end_a_run() -> None:
-    # cheaper than anything, but only learnable from 45: the run stops once the expected skill gets there
-    later = engine.Rival(_recipe(4, 50, 70), 10.0, from_skill=45)
-    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), 100.0, [later])
-    assert (run.crafts, run.reason, run.rival) == (16, "rival", later.recipe)
-    assert run.stop_skill == 45
+def test_a_profitable_recipe_is_crafted_until_its_grind_outweighs_what_it_earns() -> None:
+    earns = engine.Candidate(GREY_AT_60, -100.0)
+    plan = _climb(_smith(30), earns, engine.Candidate(_recipe(2, 50, 70), 150.0)).best
+    assert plan is not None
+    # earning gold per point beats spending it, well past where a craft costing as much would stop...
+    costs = _climb(
+        _smith(30), engine.Candidate(GREY_AT_60, 100.0), engine.Candidate(_recipe(2, 50, 70), 150.0)
+    ).best
+    assert costs is not None and plan.runs[0].stop_skill > costs.runs[0].stop_skill
+    # ...but its last points, at 1 in 10 and 1 in 20, are a grind even so
+    assert plan.runs[0].stop_skill == 58
+    dear = _climb(_smith(30), earns, engine.Candidate(_recipe(2, 50, 70), 100_000.0)).best
+    assert dear is not None and dear.runs[0].stop_skill == 60
 
 
-def test_a_profitable_run_is_beaten_only_by_one_more_profitable_per_point() -> None:
-    rival = engine.Rival(_recipe(2, 50, 70), 150.0)
-    run = engine.run_until_cheaper(GREY_AT_60, _smith(30), -100.0, [rival])
-    assert run.reason == "trivial"  # earning gold per point beats spending it
+def test_each_recipe_first_plans_the_rest_of_the_climb() -> None:
+    maul = engine.Candidate(GREY_AT_60, 100.0)
+    belt = engine.Candidate(_recipe(2, 50, 70), 150.0)
+    climb = _climb(_smith(30), maul, belt)
+    best, other = climb.first(GREY_AT_60.id), climb.first(2)
+    assert best is not None and other is not None
+    assert climb.best == best and best.cost < other.cost
+    assert other.runs[0].recipe == belt.recipe and other.runs[0].start_skill == 30
+    assert climb.first(999) is None
+    # a recipe that can't give the first point can't go first
+    assert _climb(_smith(30), maul, engine.Candidate(_recipe(5, 50, 70), 1.0, from_skill=40)).first(5) is None
+
+
+def test_a_run_split_at_the_ceiling_buys_its_pattern_once() -> None:
+    # A: a craft a point all the way (orange to the cap), 1 a craft and a 400 pattern; B: 5 a craft. A all the
+    # way (150 + 400) beats A then B; split into runs of at most 100 crafts, its pattern still counts once.
+    a = engine.Candidate(_recipe(1, 200, 300), 1.0, learn=400)
+    b = engine.Candidate(_recipe(2, 200, 300), 5.0)
+    plan = _climb(_smith(0, cap=150), a, b, ceiling=100).best
+    assert plan is not None
+    assert [(r.recipe and r.recipe.name, r.start_skill, r.stop_skill, r.reason) for r in plan.runs] == [
+        ("R1", 0, 100, "ceiling"),
+        ("R1", 100, 150, "cap"),
+    ]
+    assert plan.cost == pytest.approx(150 + 400)
+
+
+def test_useful_crafts_are_those_for_every_point_a_recipe_can_give() -> None:
+    # orange to 40 (10 crafts from 30), then (60 - s) / 20: 20/20 + 20/19 + ... + 20/1
+    expected = 10 + sum(20 / (60 - s) for s in range(40, 60))
+    assert engine.useful_crafts(GREY_AT_60, _smith(30)) == round(expected) == 82
+    assert engine.useful_crafts(GREY_AT_60, _smith(30), most=50) == 50  # at most a ceiling's
+    assert engine.useful_crafts(GREY_AT_60, _smith(55), from_skill=58) == round(20 / 2 + 20 / 1)
+    assert engine.useful_crafts(GREY_AT_60, _smith(60)) == 1  # grey: none, but at least one
+
+
+def test_a_climb_prices_a_recipe_up_the_ladders_its_runs_buy_from() -> None:
+    # The maul's copper is listed at 10 for one unit, then at 1000: one craft looks cheap, a run of them
+    # isn't. The belt's copper is a vendor's, at 50.
+    belt = Recipe(
+        22,
+        "Copper Belt",
+        10,
+        1,
+        ((LEATHER, 1),),
+        "Blacksmithing",
+        spell_id=952,
+        trivial_low=50,
+        trivial_high=70,
+    )
+    novice = replace(NOVICE_SMITH, known_spells=frozenset({951, 952}))
+    ladder = (book.Level(10, 1, 1), book.Level(1000, 500, 5))
+    m = maul_market(
+        novice,
+        LEATHERY,
+        recipes=(CURE, GREY_AT_60, belt),
+        skill_crafters=frozenset({"Novice"}),
+        extra_items=(Item(10, "Copper Belt", sell_price=1),),
+        exits=frozenset({"vendor", KEEP_EXIT}),
+    )
+    m.books = {COPPER: ladder}
+    crafter = m._by_name["Novice"]
+    (maul,) = [c for c in m._candidates("Blacksmithing", crafter, {}) if c.recipe.id == GREY_AT_60.id]
+    one = must_evaluate(m, GREY_AT_60)
+    assert maul.cost > -one.profit * 5  # a craft of a run, not the first craft alone
+    n = engine.useful_crafts(GREY_AT_60, crafter)
+    run = m.evaluate(GREY_AT_60, crafts=n)
+    assert run is not None and maul.cost == pytest.approx(-run.profit / n)
+
+
+def test_a_recipe_the_climber_cant_craft_yet_is_no_run() -> None:
+    # learned at 60 by anyone with the profession ("all"), but not a point to the novice at 45 yet
+    later = replace(
+        GREY_AT_60, id=23, name="Later", spell_id=953, learn_skill=60, trivial_low=60, trivial_high=80
+    )
+    m = maul_market(
+        NOVICE_SMITH,
+        LEATHERY,
+        recipes=(CURE, GREY_AT_60, later),
+        skill_crafters=frozenset({"Novice"}),
+        unlearned="all",
+    )
+    assert m.evaluate(later) is not None  # as a craft, as ever
+    assert m.evaluate(later, skill_run=engine.SkillRuns()) is None
+    ranked = [r.recipe.name for r in m.rank(min_profit=-(10**9), skill_run=engine.SkillRuns())]
+    assert "Later" not in ranked and "Heavy Copper Maul" in ranked
 
 
 def test_crafts_quantile_buys_for_unlucky_runs() -> None:
@@ -1015,16 +1252,15 @@ def test_reach_chances_give_the_odds_of_getting_there_after_each_craft() -> None
     assert reach_chances(GREY_AT_60, yellow, 0, 2) == (1.0, 1.0)
 
 
-def test_a_ranking_of_runs_plans_each_until_another_gets_cheaper() -> None:
+def test_a_ranking_of_runs_plans_each_as_the_first_run_of_the_cheapest_climb() -> None:
     # Novice at 45 skilling up blacksmithing, keeping what nobody buys: the maul (70 a craft, a point at
-    # (60 - skill) / 20) against a belt (120 a craft) that stays orange until 50. Past 48.3 the belt's point
-    # is cheaper.
+    # (60 - skill) / 20) against a belt (200 a craft) that stays orange until 50.
     belt = Recipe(
         22,
         "Copper Belt",
         10,
         1,
-        ((COPPER, 12),),
+        ((COPPER, 20),),
         "Blacksmithing",
         spell_id=952,
         trivial_low=50,
@@ -1047,11 +1283,39 @@ def test_a_ranking_of_runs_plans_each_until_another_gets_cheaper() -> None:
     assert 1 < run.crafts < 20
     assert run.skill_ups == pytest.approx(expected_skill_ups(GREY_AT_60, novice, run.crafts))
     assert run.crafts_p80 >= run.crafts
-    assert one.crafts == 1
+    # the rest of its climb: the belt from where the maul stops, to grey
+    assert [(r.recipe and r.recipe.name, r.start_skill) for r in run.climb_after] == [
+        ("Copper Belt", run.stop_skill)
+    ]
+    assert run.climb_cost is not None and run.climb_unknown == 0
+    assert one.crafts == 1 and one.climb_cost is None and one.climb_after == ()
     ranked = {r.recipe.name: r for r in m.rank(min_profit=-(10**9), skill_run=engine.SkillRuns())}
     assert ranked["Heavy Copper Maul"].crafts == run.crafts  # the same plan as evaluated alone
-    assert ranked["Copper Belt"].stop_reason in ("trivial", "rival")
+    assert ranked["Heavy Copper Maul"].climb_cost == run.climb_cost
+    belt_first = ranked["Copper Belt"].climb_cost
+    assert belt_first is not None and belt_first >= run.climb_cost
     assert m.evaluate(GREY_AT_60, crafts=3).crafts == 3  # type: ignore[union-attr]  # without runs: as asked
+
+
+def test_a_given_run_is_planned_as_it_is() -> None:
+    novice = replace(NOVICE_SMITH, known_spells=frozenset({951}))
+    m = maul_market(novice, LEATHERY, recipes=(CURE, GREY_AT_60), skill_crafters=frozenset({"Novice"}))
+    given = engine.SkillRun(7, 52, "rival", None, 9, (0.5,) * 29, GREY_AT_60, 45)
+    res = m.evaluate(GREY_AT_60, skill_run=engine.SkillRuns(), stretch=given)
+    assert res is not None
+    assert (res.crafts, res.stop_skill, res.stop_reason, res.crafts_p80) == (7, 52, "rival", 9)
+    assert res.climb_cost is None and res.climb_after == ()
+
+
+def test_a_pattern_the_climber_must_buy_is_counted_in_the_climb() -> None:
+    novice = replace(NOVICE_SMITH, known_spells=frozenset({951}))
+    free = maul_market(novice, LEATHERY, recipes=(CURE, GREY_AT_60), skill_crafters=frozenset({"Novice"}))
+    paid = maul_market(novice, LEATHERY, recipes=(CURE, GREY_AT_60), skill_crafters=frozenset({"Novice"}))
+    paid.learn_costs = {GREY_AT_60.id: 500}
+    a = free.evaluate(GREY_AT_60, skill_run=engine.SkillRuns())
+    b = paid.evaluate(GREY_AT_60, skill_run=engine.SkillRuns())
+    assert a is not None and b is not None and a.climb_cost is not None and b.climb_cost is not None
+    assert b.climb_cost == pytest.approx(a.climb_cost + 500)
 
 
 def test_keep_exit_ranks_a_craft_nobody_buys_when_skilling_up() -> None:

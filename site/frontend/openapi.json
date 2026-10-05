@@ -713,14 +713,6 @@
             "title": "Skill Crafters",
             "type": "array"
           },
-          "skip": {
-            "default": [],
-            "items": {
-              "type": "integer"
-            },
-            "title": "Skip",
-            "type": "array"
-          },
           "sources": {
             "default": [
               "trainer",
@@ -2160,6 +2152,17 @@
             },
             "title": "Cities",
             "type": "array"
+          },
+          "climb_cost": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Climb Cost"
           },
           "confidence": {
             "anyOf": [
@@ -4578,27 +4581,6 @@
               "minimum": 1,
               "title": "Chain Length",
               "type": "integer"
-            }
-          },
-          {
-            "description": "with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted)",
-            "in": "query",
-            "name": "skip",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "items": {
-                    "type": "integer"
-                  },
-                  "type": "array"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "with runs: recipes passed over, neither ranked as runs nor rivals that end one (they may still be sub-crafted)",
-              "title": "Skip"
             }
           },
           {
