@@ -40,6 +40,21 @@ export function craftUntil(r: Count): string {
   return r.stop_skill ? `${r.stop_skill} (${crafts})` : crafts
 }
 
+/** The default chance, in percent, that the crafts a run's checklist buys for reach its skill. */
+export const DEFAULT_REACH_TARGET = 80
+/** The most the user may ask for (the server's odds go at least this far). */
+export const MAX_REACH_TARGET = 95
+export const MIN_REACH_TARGET = 50
+
+/** The crafts to buy for so that a run reaches its `stop_skill` with at least `target` percent chance: never fewer
+ * than its expected crafts; when the odds the server sent never get there, as many as they go to (without them, the
+ * crafts four times in five). */
+export function craftsToReach(r: Pick<RankResult, 'crafts' | 'crafts_p80' | 'reach_chances'>, target: number): number {
+  const odds = r.reach_chances ?? []
+  const at = odds.findIndex((chance) => chance >= target / 100 - 1e-9)
+  return Math.max(r.crafts, at === -1 ? Math.max(odds.length, r.crafts_p80) : at + 1)
+}
+
 type Run = Count & Pick<RankResult, 'stop_reason' | 'overtaken_by'>
 
 /** How far to craft: "Craft until 85 skill (~17 times)", "(17 times)" when certain, "(once)"; "Craft ~17 times"

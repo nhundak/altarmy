@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { professionRanks, robeResult } from '../test/results'
-import { craftUntil, perPoint, ranksToTrain, runLead, runText, scaleRun, stepsText } from './skill'
+import { craftsToReach, craftUntil, perPoint, ranksToTrain, runLead, runText, scaleRun, stepsText } from './skill'
+
+describe('craftsToReach', () => {
+  const run = { crafts: 3, crafts_p80: 5, reach_chances: [0, 0.2, 0.5, 0.79, 0.8, 0.9, 0.95] }
+  it('buys for the first craft count whose odds reach the chance asked for, never fewer than expected', () => {
+    expect(craftsToReach(run, 80)).toBe(5)
+    expect(craftsToReach(run, 90)).toBe(6)
+    expect(craftsToReach(run, 50)).toBe(3)
+    expect(craftsToReach(run, 20)).toBe(3) // never under the expected crafts
+  })
+  it('goes as far as the odds go when they never get there, else the crafts four times in five', () => {
+    expect(craftsToReach(run, 96)).toBe(7)
+    expect(craftsToReach({ ...run, reach_chances: undefined }, 95)).toBe(5)
+  })
+})
 
 describe('perPoint', () => {
   it('is what an expected skill point costs, negative when the run earns', () => {

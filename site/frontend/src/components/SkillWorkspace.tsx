@@ -17,7 +17,12 @@ import {
 import { choose as chooseAt, type Choices } from '../lib/choices'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import type { Holder } from '../lib/setup'
-import { AT_WHICH_POINT, CHEAPER, ranksToTrain, runLead, runText, scaleRun, stepsText } from '../lib/skill'
+import {
+  AT_WHICH_POINT,
+  CHEAPER,
+  craftsToReach,
+  DEFAULT_REACH_TARGET,
+  ranksToTrain, runLead, runText, scaleRun, stepsText } from '../lib/skill'
 import { talentNote } from '../lib/talents'
 import type { PlanEditing } from './ChoiceMenu'
 import { CharacterClasses, CharacterName } from './CharacterName'
@@ -33,8 +38,10 @@ import classes from './SkillWorkspace.module.css'
 
 /** Options laid out side by side (the API's `SKILL_OPTIONS`): all the overview asks for. */
 const OPTIONS = 4
-// The runs the chain holds at first (the API's `SKILL_CHAIN`), and how many more each Show more asks for
-const CHAIN = 4
+/** The runs the chain holds at first (the API's `SKILL_CHAIN`). */
+const CHAIN = 2
+/** How many more runs each Show more asks for. */
+const CHAIN_MORE = 3
 const NO_RUNS: RankResult[] = []
 /** How a chosen option opens out into its run (as the Profit page's cards do). */
 const LAYOUT = { duration: 0.3, ease: [0.25, 0.8, 0.25, 1] as const }
@@ -177,15 +184,17 @@ const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}
 
 /** One option in the overview: the recipe, what its run comes to per skill point, how far it goes, how it is
  * learned. Without `onChoose`, a summary of a run to come (in the chain), with nothing to click; `fade`: it fades
- * in as the other options open out; `lit`: lit on hover, which says it opens (anywhere on it, as ever). `action`
- * names its button ("Choose", "Open"), `layoutId` what it opens out into (by default the option's); a run in the
- * chain stays an `article` named after its recipe. */
+ * in as the other options open out; `lit`: lit on hover, which says it opens (anywhere on it, as ever); `grow`: it
+ * also grows a little on hover, where a click opens it out (not where a click only picks it). `action` names its
+ * button ("Choose", "Open"), `layoutId` what it opens out into (by default the option's); a run in the chain stays
+ * an `article` named after its recipe. */
 function OptionCard({
   result: r,
   items,
   learn,
   fade,
   lit,
+  grow,
   onChoose,
   action = 'Choose',
   layoutId = `skill-option-${r.recipe_id}`,
@@ -197,6 +206,7 @@ function OptionCard({
   learn: Learn | undefined
   fade?: boolean
   lit?: boolean
+  grow?: boolean
   onChoose?: () => void
   action?: string
   layoutId?: string
@@ -250,7 +260,7 @@ function OptionCard({
         radius="md"
         p="sm"
         h="100%"
-        className={lit ? classes.lit : undefined}
+        className={[lit && classes.lit, grow && classes.grow].filter(Boolean).join(' ') || undefined}
         {...(article ? { component: 'article', 'aria-label': r.output_name } : {})}
       >
         <UnstyledButton
@@ -388,6 +398,7 @@ function Chain({
               action: 'Open',
               layoutId: `skill-run-${i}`,
               lit: true,
+              grow: true,
               article: true,
             })}
           />
@@ -440,10 +451,13 @@ export function SkillWorkspace({
   filters,
   climber,
   profession,
+  reachTarget = DEFAULT_REACH_TARGET,
 }: {
   filters: Filters
   climber: Holder
   profession: string
+  /** the chance, in percent, that the crafts the checklist buys for reach the run's target */
+  reachTarget?: number
 }) {
   const track = useTrack()
   const status = useStatus().data
@@ -473,7 +487,7 @@ export function SkillWorkspace({
   const picked = ranked !== undefined && ranked.recipe_id !== bestId
   // Whether the first few options are laid out side by side, the user choosing among them.
   const [expanded, setExpanded] = useState(false)
-  // How many runs the chain holds: CHAIN, and CHAIN more with each Show more (back to CHAIN on a pick).
+  // How many runs the chain holds: CHAIN, and CHAIN_MORE more with each Show more (back to CHAIN on a pick).
   const [chainLength, setChainLength] = useState(CHAIN)
   const longer = chainLength > CHAIN
   // A picked option's run and the rest of its climb (the ranking itself is the server's cached one); the best's
@@ -514,16 +528,17 @@ export function SkillWorkspace({
     // an option side by side never comes back to those before it: planned again the same way
     climbWithout: open?.climb_without,
   }
-  // The crafts the checklist buys for: what the user typed, else enough to reach the run's target four times in
-  // five; planned again (debounced) when that isn't the ranked run's own count.
+  // The crafts the checklist buys for: what the user typed, else enough to reach the run's target with the chance
+  // the Skill options ask for; planned again (debounced) when that isn't the ranked run's own count.
   const [typed, setTyped] = useState<number | null>(null)
-  const buyCount = open ? (typed ?? Math.max(open.crafts, open.crafts_p80)) : 0
+  const buyCount = open ? (typed ?? craftsToReach(open, reachTarget)) : 0
   const [settledCount] = useDebouncedValue(buyCount, 400)
   // Each option's plan for the crafts it opens with, fetched ahead: opening one finds it ready.
   usePrefetchSessionPlans(
-    [...options, ...(now && now !== ranked ? [now] : [])]
-      .filter((r) => r.crafts_p80 > r.crafts)
-      .map((r) => ({ recipeId: r.recipe_id, copies: r.crafts_p80 })),
+    [...options, ...(now && now !== ranked ? [now] : [])].flatMap((r) => {
+      const copies = craftsToReach(r, reachTarget)
+      return copies > r.crafts ? [{ recipeId: r.recipe_id, copies }] : []
+    }),
     evaluate,
   )
   const buyFor = open && !inChain && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
@@ -670,6 +685,13 @@ export function SkillWorkspace({
     setChainLength(CHAIN)
     setExpanded(false)
   }
+  // Back to the recommended climb, when another run to craft now was picked: the best and its own chain.
+  const reset = () => {
+    choose(null)
+    setPickedId(null)
+    setChainLength(CHAIN)
+    setExpanded(false)
+  }
   // The run opened out, in place of the card it grows out of
   const panel = open && (
     <motion.div
@@ -682,19 +704,22 @@ export function SkillWorkspace({
     >
         <Paper ref={runRef} withBorder p="md" radius="md" aria-label="Run details" component="section">
           <Stack gap="xs">
-            <Group justify="space-between">
-              <Button size="compact-sm" variant="subtle" onClick={() => choose(null)}>
+            {/* the recipe (and whether its plan was changed) on the left, Close on the right */}
+            <Group justify="space-between" align="center" wrap="nowrap">
+              <Group gap="xs" wrap="wrap">
+                <Title order={4}>
+                  <RecipeName result={open} items={items} />
+                </Title>
+                {modified && (
+                  <Badge size="sm" variant="light" color="yellow">
+                    Changed plan
+                  </Badge>
+                )}
+              </Group>
+              <Button size="compact-sm" variant="subtle" onClick={() => choose(null)} style={{ flexShrink: 0 }}>
                 Close
               </Button>
-              {modified && (
-                <Badge size="sm" variant="light" color="yellow">
-                  Changed plan
-                </Badge>
-              )}
             </Group>
-            <Title order={4}>
-              <RecipeName result={open} items={items} />
-            </Title>
             <Text size="lg" fw={700}>
               {/* the user's changed plan costs what it costs; otherwise the run as ranked */}
               <NetPerPoint result={(modified && planned) || open} />
@@ -792,7 +817,7 @@ export function SkillWorkspace({
       // a longer chain on its way keeps the runs already shown as they are
       muted={expanded || (chainPending && !longer)}
       pending={chainPending && !expanded}
-      onMore={!expanded && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN) : undefined}
+      onMore={!expanded && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN_MORE) : undefined}
       // in the single column each run opens out in place; not while another chain is on its way
       onOpen={expanded || chainPending ? undefined : (i) => choose(openAt === i + 1 ? null : i + 1)}
       opened={panel && openAt !== null && openAt > 0 ? { index: openAt - 1, panel } : undefined}
@@ -809,9 +834,16 @@ export function SkillWorkspace({
         {refresh}
         <LayoutGroup>
           <Stack gap="xs" component="section" aria-label="Your options">
-            <Text size="lg" fw={600} ta="center">
-              What to craft next:
-            </Text>
+            <div className={classes.heading}>
+              <Text size="lg" fw={600} ta="center" className={classes.title}>
+                What to craft next:
+              </Text>
+              {picked && (
+                <Button size="compact-sm" variant="light" className={classes.reset} onClick={reset}>
+                  Reset to recommended
+                </Button>
+              )}
+            </div>
             {expanded ? (
               <div
                 className={classes.options}
@@ -874,6 +906,7 @@ export function SkillWorkspace({
                           items={items}
                           learn={learn[now.recipe_id]}
                           lit
+                          grow
                           onChoose={() => choose(0)}
                         />
                       </Trained>

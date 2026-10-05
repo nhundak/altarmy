@@ -1,6 +1,31 @@
 /* The skill workspace's overview: the run to craft now, centred with the chain of runs after it hung below, or the
    best few options side by side with the chain still under the one it follows. */
 
+/* What to craft next, centred, with Reset to recommended at the right once another run to craft now was picked (under it on a
+   narrow screen). */
+.heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+@media (min-width: 48em) {
+  .heading {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+  }
+
+  .title {
+    grid-column: 2;
+  }
+
+  .reset {
+    grid-column: 3;
+    justify-self: end;
+  }
+}
+
 /* One option: centred, the link to the others beside it (under it on a narrow screen), the chain in the row below. */
 .single {
   display: grid;
@@ -40,6 +65,11 @@
   width: 100%;
   max-width: 300px;
   align-self: center;
+}
+
+/* The swap button holds still when pressed (Mantine nudges a pressed button down a pixel). */
+.more.more:active {
+  transform: none;
 }
 
 /* The options side by side: each option's chain under it (`--column`), in the row below. */
@@ -195,5 +225,24 @@
 .lit:hover {
   background-color: var(--mantine-color-default-hover);
   border-color: var(--mantine-primary-color-filled);
+}
+
+/* A card that opens out on a click (the single column) also grows a little on hover; one a click only picks
+   doesn't. On the card itself, not the Motion wrapper whose transform carries the layout animations. */
+.grow {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.grow:hover {
+  transform: scale(1.03);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .grow:hover {
+    transform: none;
+  }
 }
 

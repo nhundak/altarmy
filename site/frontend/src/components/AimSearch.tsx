@@ -43,6 +43,7 @@ import {
   SKILL_EXITS,
   skillCrafters,
 } from '../lib/setup'
+import { DEFAULT_REACH_TARGET, MAX_REACH_TARGET, MIN_REACH_TARGET } from '../lib/skill'
 import { useStoredState } from '../lib/storage'
 import { IconInfo } from './icons'
 import { HOW_TO_SCAN } from './PriceFreshness'
@@ -340,6 +341,59 @@ function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
   )
 }
 
+/** A chance to reach a run's target, in whole percent within what is offered. */
+const reachTarget = (v: number) => Math.min(MAX_REACH_TARGET, Math.max(MIN_REACH_TARGET, Math.round(v)))
+
+/** "a" or "an" before a percent as said aloud ("an 80%", "a 95%"), for the percents on offer. */
+const article = (percent: number) => (String(percent).startsWith('8') ? 'an' : 'a')
+
+/** How sure the materials bought for a run are to get it to its target skill, what that means in a tooltip beside it. */
+function ReachTarget({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const shown = reachTarget(value)
+  return (
+    <NumberInput
+      label={
+        <Group gap={6} wrap="nowrap" component="span">
+          Chance to reach target skill
+          <Tooltip
+            label={
+              <>
+                Since skill ups are random, we can&apos;t predict exactly how many times you&apos;ll need to craft each
+                recipe. With this setting, we&apos;ll choose the number of crafts so you have {article(shown)} {shown}% chance to reach
+                the target skill level
+                <br />
+                <br />
+                Put another way: {shown}% of the time, you won&apos;t need to make a second trip to the auction house
+              </>
+            }
+            multiline
+            w={280}
+            withArrow
+            events={{ hover: true, focus: false, touch: true }}
+          >
+            <Text component="span" c="dimmed" lh={0} aria-hidden="true">
+              <IconInfo size={15} />
+            </Text>
+          </Tooltip>
+        </Group>
+      }
+      value={value}
+      onChange={(v) => {
+        if (typeof v === 'number') onChange(v)
+      }}
+      onBlur={() => onChange(shown)}
+      min={MIN_REACH_TARGET}
+      max={MAX_REACH_TARGET}
+      clampBehavior="blur"
+      allowDecimal={false}
+      allowNegative={false}
+      suffix="%"
+      step={5}
+      styles={{ wrapper: { maxWidth: 120 } }}
+    />
+  )
+}
+
 /** A filter of the aim's search: kept under the aim's own key, starting from where every filter used to be kept. */
 function useFilter<T>(aim: Aim, name: string, schema: z.ZodType<T>, defaultValue: T) {
   return useStoredState(searchKey(aim, name), schema, defaultValue, legacySearchKey(name))
@@ -416,6 +470,8 @@ export function AimSearch({
   const [minVerdict, setMinVerdict] = useFilter<VerdictLevel | null>(aim, 'minVerdict', verdictSchema, null)
   const [goldSort, setGoldSort] = useFilter<RankSort>(aim, 'sort', goldSortSchema, 'likely')
   const [learnable, setLearnable] = useFilter(aim, 'learnable', z.boolean(), false)
+  // Skill up only: how sure the materials bought for a run are to get there, in percent.
+  const [reach, setReach] = useFilter(aim, 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
   // The newest scan's notice, dismissed per auction house.
   const [dismissed, setDismissed] = useStoredState(
     `altarmy-profit.notice.unwatched.${houseId ?? 0}`,
@@ -537,20 +593,19 @@ export function AimSearch({
                 )}
               </Stack>
             </Checkbox.Group>
-            {(skillOnlyWhy !== undefined || salvager) && (
-              <Stack gap="md">
-                {skillOnlyWhy !== undefined && (
-                  <Checkbox.Group
-                    aria-label="Casts for the skill point alone"
-                    value={skilling ? [SKILL_ONLY.value] : []}
-                    onChange={(v) => setSkillOnly(v.includes(SKILL_ONLY.value))}
-                  >
-                    <SellVia {...SKILL_ONLY} description={skillOnlyWhy} />
-                  </Checkbox.Group>
-                )}
-                {salvager}
-              </Stack>
-            )}
+            <Stack gap="md">
+              <ReachTarget value={reach} onChange={setReach} />
+              {skillOnlyWhy !== undefined && (
+                <Checkbox.Group
+                  aria-label="Casts for the skill point alone"
+                  value={skilling ? [SKILL_ONLY.value] : []}
+                  onChange={(v) => setSkillOnly(v.includes(SKILL_ONLY.value))}
+                >
+                  <SellVia {...SKILL_ONLY} description={skillOnlyWhy} />
+                </Checkbox.Group>
+              )}
+              {salvager}
+            </Stack>
           </SimpleGrid>
         </Options>
       ) : (
@@ -684,7 +739,12 @@ export function AimSearch({
       {!debouncedFilters.exits.length ? (
         <Alert>Pick at least one way to sell under Sell via.</Alert>
       ) : climber && profession !== null ? (
-        <SkillWorkspace filters={debouncedFilters} climber={climber} profession={profession} />
+        <SkillWorkspace
+          filters={debouncedFilters}
+          climber={climber}
+          profession={profession}
+          reachTarget={reachTarget(reach)}
+        />
       ) : (
         <Results filters={debouncedFilters} browsing={browsing} />
       )}

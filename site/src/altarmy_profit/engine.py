@@ -603,8 +603,11 @@ class Climb:
         crafts = max(1, round(u.expected_crafts(start, stop)))
         there = _at_skill(self.crafter, self.profession, start)
         points = stop - start
-        p80 = max(crafts, crafts_quantile(recipe, there, points, 0.8, 4 * max(self.ceiling, crafts)))
-        reach = reach_chances(recipe, there, points, max(2 * p80, p80 + REACH_MORE))
+        most = 4 * max(self.ceiling, crafts)
+        p80 = max(crafts, crafts_quantile(recipe, there, points, 0.8, most))
+        # far enough for any chance the checklist may be asked to buy for (the front end reads it off these)
+        reach_all = crafts_quantile(recipe, there, points, REACH_TOP, most)
+        reach = reach_chances(recipe, there, points, max(2 * p80, p80 + REACH_MORE, reach_all))
         run = SkillRun(crafts, stop, reason, rival, p80, reach, recipe, start)
         self._runs[key] = run
         return run
@@ -665,8 +668,10 @@ def can_start_climb(recipes: Iterable[Recipe], crafter: Crafter, profession: str
 
 
 # How far past the crafts that get there four times in five `SkillRun.reach` goes: twice them, at least
-# this many more
+# this many more, and at least to the crafts that get there this often (the most the Skill options' "Chance to
+# reach target" offers)
 REACH_MORE = 20
+REACH_TOP = 0.95
 
 
 @dataclass(frozen=True)

@@ -1125,6 +1125,7 @@ def test_a_run_says_why_it_stops_and_how_many_crafts_to_buy_for() -> None:
     assert first.crafts_p80 >= first.crafts
     assert len(first.reach) >= first.crafts_p80 + engine.REACH_MORE
     assert first.reach[first.crafts_p80 - 1] >= 0.8
+    assert first.reach[-1] >= engine.REACH_TOP  # far enough for the most the Skill options ask for
     assert (then.reason, then.rival, then.stop_skill) == ("trivial", None, 70)
     # alone it runs until it is about to turn grey
     alone = _climb(_smith(30), maul).best

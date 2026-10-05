@@ -4676,7 +4676,7 @@
             "name": "chain_length",
             "required": false,
             "schema": {
-              "default": 4,
+              "default": 2,
               "description": "with sort=skill and runs: the runs the chain may hold",
               "maximum": 40,
               "minimum": 1,

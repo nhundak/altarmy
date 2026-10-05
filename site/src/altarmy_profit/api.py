@@ -68,7 +68,7 @@ from .versions import GameVersion, GameVersionKey
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 # The runs `/api/rank` says follow the one crafted now (`RankResponse.chain`), unless `chain_length` asks for
 # more, up to `MAX_SKILL_CHAIN`
-SKILL_CHAIN = 4
+SKILL_CHAIN = 2
 MAX_SKILL_CHAIN = 40
 # The options to craft now `/api/rank` offers side by side (`RankResponse.options`)
 SKILL_OPTIONS = 4

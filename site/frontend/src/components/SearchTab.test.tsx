@@ -1013,6 +1013,34 @@ describe('SearchTab', () => {
     expect(screen.queryByRole('slider')).not.toBeInTheDocument() // only what can be trained now
   })
 
+  it('asks how sure the materials bought for a run should be to reach its target, saying what that means', async () => {
+    withSetup(SKILL)
+    const fetch = mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    const chance = await screen.findByRole('textbox', { name: 'Chance to reach target skill' })
+    expect(chance).toHaveValue('80%')
+    // the info icon beside the label says what it means
+    const info = chance.closest('.mantine-InputWrapper-root')!.querySelector('label [aria-hidden="true"]')!
+    await userEvent.hover(info)
+    expect(await screen.findByText(/Since skill ups are random/)).toHaveTextContent(
+      'so you have an 80% chance to reach the target skill level' +
+        "Put another way: 80% of the time, you won't need to make a second trip to the auction house",
+    )
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    fireEvent.change(chance, { target: { value: '95' } })
+    expect(localStorage.getItem('altarmy-profit.search.skill.reachTarget')).toBe('95')
+    expect(screen.getByText(/Since skill ups are random/)).toHaveTextContent(/so you have a 95% chance.*95% of the time/)
+    fireEvent.change(chance, { target: { value: '100' } })
+    fireEvent.blur(chance)
+    expect(chance).toHaveValue('95%') // at most 95%
+    // only the checklist follows it: the ranking isn't asked for again
+    expect(urls(fetch, '/api/rank')).toHaveLength(1)
+  })
+
   it('saves changed parameters and ignores malformed stored values', async () => {
     localStorage.setItem('altarmy-profit.search.maxProfit', 'garbage')
     localStorage.setItem('altarmy-profit.search.exits', '["trade"]')
