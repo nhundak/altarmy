@@ -21,10 +21,10 @@ export function seenSold(sold: number, watched: number, pairs: number | null): s
 }
 
 /**
- * Why this sale: the market for what is sold (what is asked, what it usually goes for, what the plan counted on), the
- * price levels listed (just listed ones marked, those plans don't count on greyed), what was seen sold against how long
- * the house was watched, every way to sell with its profit, and for a disenchant each material with what the session
- * adds to its market.
+ * Market details: every way to sell with its profit, and for a disenchant each material with what the session adds to
+ * its market; beside it the market for what is sold (what is asked, what it usually goes for, what the plan counted
+ * on), the price levels listed (just listed ones marked, those plans don't count on greyed) and what was seen sold
+ * against how long the house was watched.
  */
 export function MarketPanel({ result: r, items }: { result: RankResult; items: ItemMap }) {
   useAhCut() // loads the versions with the panel, for the sell step's prices
@@ -36,8 +36,40 @@ export function MarketPanel({ result: r, items }: { result: RankResult; items: I
   const flood = floodCheck(r, items)
   const best = Math.max(1, ...r.sell_options.map((o) => Math.abs(o.profit)))
   return (
-    <section aria-label="Why this?">
+    <div>
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+        <Stack gap={4}>
+          <Title order={6}>Other ways to sell</Title>
+          {r.sell_options.map((o) => (
+            <Group key={o.kind} gap="xs" wrap="nowrap">
+              <Text size="sm" w={110}>
+                {EXIT_SHORT[o.kind] ?? o.kind}
+              </Text>
+              <Text size="sm" ff="monospace" w={90}>
+                <Earned copper={o.profit} minus />
+              </Text>
+              <Progress
+                value={(100 * Math.abs(o.profit)) / best}
+                color={o.profit < 0 ? 'red' : 'teal'}
+                size="sm"
+                w={80}
+                aria-hidden
+              />
+            </Group>
+          ))}
+          {r.excess_units > 0 && (
+            <Text size="xs" c="dimmed">
+              The market has taken about {r.depth_units} lately: the other {r.excess_units} are counted at{' '}
+              {EXIT_SHORT[r.likely_exit === 'ah' ? 'vendor' : r.likely_exit] ?? 'the next best way'}.
+            </Text>
+          )}
+          {flood.map((f) => (
+            <Text key={f.itemId} size="xs" c="dimmed">
+              Disenchanting adds ~{f.adds} {f.name}
+              {f.listed != null && ` to the ${f.listed.toLocaleString()} listed`}
+            </Text>
+          ))}
+        </Stack>
         <Stack gap={4}>
           <Title order={6}>The market for {r.output_name}</Title>
           {item && item.ah_price != null ? (
@@ -88,39 +120,7 @@ export function MarketPanel({ result: r, items }: { result: RankResult; items: I
             </Text>
           )}
         </Stack>
-        <Stack gap={4}>
-          <Title order={6}>Other ways to sell</Title>
-          {r.sell_options.map((o) => (
-            <Group key={o.kind} gap="xs" wrap="nowrap">
-              <Text size="sm" w={110}>
-                {EXIT_SHORT[o.kind] ?? o.kind}
-              </Text>
-              <Text size="sm" ff="monospace" w={90}>
-                <Earned copper={o.profit} minus />
-              </Text>
-              <Progress
-                value={(100 * Math.abs(o.profit)) / best}
-                color={o.profit < 0 ? 'red' : 'teal'}
-                size="sm"
-                w={80}
-                aria-hidden
-              />
-            </Group>
-          ))}
-          {r.excess_units > 0 && (
-            <Text size="xs" c="dimmed">
-              The market has taken about {r.depth_units} lately: the other {r.excess_units} are counted at{' '}
-              {EXIT_SHORT[r.likely_exit === 'ah' ? 'vendor' : r.likely_exit] ?? 'the next best way'}.
-            </Text>
-          )}
-          {flood.map((f) => (
-            <Text key={f.itemId} size="xs" c="dimmed">
-              Disenchanting adds ~{f.adds} {f.name}
-              {f.listed != null && ` to the ${f.listed.toLocaleString()} listed`}
-            </Text>
-          ))}
-        </Stack>
       </SimpleGrid>
-    </section>
+    </div>
   )
 }

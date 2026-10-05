@@ -1,4 +1,5 @@
 import type { FlowNode, ProfessionRank, RankResult } from '../api/client'
+import { formatCoords } from './time'
 
 /*
  * Skilling up: what a skill point costs, and how far a run of a recipe goes (the server's `runs`: the first run of
@@ -120,13 +121,13 @@ export function scaleRun<T extends Pick<RankResult, 'crafts' | 'steps' | 'tree'>
 
 type PlainStep = Pick<RankResult['steps'][number], 'action' | 'name' | 'quantity' | 'via' | 'who' | 'enchant'>
 
-/** One step as plain text, for the checklist copied into the game session. */
-function stepText({ action, name, quantity, via, who, enchant }: PlainStep): string {
+/** One step as plain text, for the checklist copied into the game session; `vendor` names the vendor stood at. */
+function stepText({ action, name, quantity, via, who, enchant }: PlainStep, vendor?: string): string {
   const what = `${quantity}x ${name}`
   const line = (() => {
     switch (action) {
       case 'buy':
-        return `Buy ${what} ${via === 'ah' ? 'on the AH' : 'from a vendor'}`
+        return `Buy ${what} ${via === 'ah' ? 'on the AH' : `from ${vendor ?? 'a vendor'}`}`
       case 'gather':
         return `Gather ${what}`
       case 'craft':
@@ -136,7 +137,7 @@ function stepText({ action, name, quantity, via, who, enchant }: PlainStep): str
       case 'sell':
         if (via === 'keep') return `Keep the ${what}`
         if (via === 'disenchant') return `Disenchant ${what}, sell the materials`
-        return `Sell ${what} ${via === 'ah' ? 'on the AH' : 'to a vendor'}`
+        return `Sell ${what} ${via === 'ah' ? 'on the AH' : `to ${vendor ?? 'a vendor'}`}`
       default:
         return `${action} ${what}`
     }
@@ -144,7 +145,39 @@ function stepText({ action, name, quantity, via, who, enchant }: PlainStep): str
   return who ? `${who}: ${line}` : line
 }
 
-/** A plan's steps as a numbered plain-text checklist, under a heading. */
-export function stepsText(heading: string, steps: readonly PlainStep[]): string {
-  return [heading, ...steps.map((s, i) => `${i + 1}. ${stepText(s)}`)].join('\n')
+type PlainDetail = Pick<RankResult['details'][number], 'kind' | 'who' | 'location' | 'retrieve' | 'step'>
+
+/** Where a detail line goes, as plain text: "Run to Mailbox at 50.0, 70.4. Retrieve 200x Linen Cloth." */
+function placeText(verb: string, d: PlainDetail, itemName: (id: number) => string): string {
+  const { name, map_x: x, map_y: y } = d.location!
+  const at = x != null && y != null ? ` at ${formatCoords(x, y)}` : ''
+  const retrieve = d.retrieve.map((r) => `${r.count}x ${itemName(r.item_id)}`).join(', ')
+  const line = verb === 'Run to' ? `${verb} ${name}${at}.${retrieve ? ` Retrieve ${retrieve}.` : ''}` : `${verb} ${name}${at}`
+  return d.who ? `${d.who}: ${line}` : line
+}
+
+/** A plan's steps as a numbered plain-text checklist, under a heading; with `details` (the detailed view), with
+ * where to go in between, items retrieved named by `itemName`. */
+export function stepsText(
+  heading: string,
+  steps: readonly PlainStep[],
+  details: readonly PlainDetail[] = [],
+  itemName: (id: number) => string = (id) => `item ${id}`,
+): string {
+  const lines: string[] = []
+  if (details.length === 0) lines.push(...steps.map((s) => stepText(s)))
+  let vendor: string | undefined
+  for (const d of details) {
+    if (d.kind === 'switch') {
+      vendor = undefined
+      lines.push(`Switch to ${d.who}`)
+    } else if (d.kind === 'start' || d.kind === 'go') {
+      vendor = d.location?.kind === 'vendor' ? d.location.name : undefined
+      if (d.location) lines.push(placeText(d.kind === 'go' ? 'Run to' : 'Start at', d, itemName))
+    } else {
+      const step = d.step == null ? undefined : steps[d.step]
+      if (step) lines.push(stepText(step, vendor))
+    }
+  }
+  return [heading, ...lines.map((l, i) => `${i + 1}. ${l}`)].join('\n')
 }

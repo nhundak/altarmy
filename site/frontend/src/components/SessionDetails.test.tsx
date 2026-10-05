@@ -1,6 +1,6 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
 import { timedRobe } from '../test/results'
@@ -122,6 +122,30 @@ describe('the Steps view plans a session', () => {
     expect(screen.getAllByRole('listitem').map((li) => shown(li)?.split(' ')[0])).toContain('Craft')
   })
 
+  it('copies the steps as plain text, as detailed as the list shown', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    serve()
+    await openSteps()
+    await line('Purchase 200x Linen Cloth on the AH (40 0)')
+    await userEvent.click(screen.getByRole('button', { name: 'Copy steps' }))
+    const plain = (writeText.mock.calls[0] as unknown as [string])[0].split('\n')
+    expect(plain[0]).toBe('Tailoring: Green Robe, 20 crafts')
+    expect(plain[1]).toBe('1. Buy 200x Linen Cloth on the AH')
+    expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Detailed view' }))
+    expect(screen.getByRole('button', { name: 'Copy steps' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Copy steps' }))
+    const detailed = (writeText.mock.calls[1] as unknown as [string])[0].split('\n')
+    expect(detailed.slice(1, 4)).toEqual([
+      '1. Start at Auctioneer Stockton at 71.4, 46.7',
+      '2. Buy 200x Linen Cloth on the AH',
+      '3. Run to Thread Seller at 48.5, 71.2.',
+    ])
+    expect(detailed).toContain('5. Run to Mailbox at 50.0, 70.4. Retrieve 200x Linen Cloth.')
+    expect(detailed).toContain('4. Buy 20x Coarse Thread from Thread Seller')
+  })
+
   it('shows the zone map with the spot marked on hovering a run', async () => {
     localStorage.setItem('altarmy-profit.steps.detailed', 'true')
     serve()
@@ -227,10 +251,13 @@ describe('no line of a session says how long it takes', () => {
     }
     localStorage.setItem('altarmy-profit.steps.detailed', 'true')
     await openSteps(disenchanted)
-    expect(await line('Switch to Frell')).toBeInTheDocument()
-    expect(await line('Frell: Start at Auctioneer Stockton at 71.4, 46.7')).toBeInTheDocument()
-    expect(await line('Frell: Disenchant 20x Green Robe (view expected materials)')).toBeInTheDocument()
-    const sell = await screen.findByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Frell: Sell materials') === true)
+    // the switch starts Frell's steps, under their name
+    const frell = await screen.findByRole('group', { name: "Frell's steps" })
+    expect(within(frell).getAllByRole('listitem').map((li) => shown(li)).slice(0, 2)).toEqual([
+      'Start at Auctioneer Stockton at 71.4, 46.7',
+      'Disenchant 20x Green Robe (view expected materials)',
+    ])
+    const sell = within(frell).getByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Sell materials') === true)
     expect(shown(sell)).not.toMatch(/\d s$/)
   })
 })

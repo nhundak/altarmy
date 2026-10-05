@@ -116,6 +116,12 @@ async function expectDisenchantTooltip() {
 const line = (text: string) =>
   screen.getByText((_, el) => (el?.tagName === 'LI' || el?.tagName === 'TD') && shown(el) === text)
 
+/** The text of each step listed under `who`, in order. */
+const linesOf = (who: string) =>
+  within(screen.getByRole('group', { name: `${who}'s steps` }))
+    .getAllByRole('listitem')
+    .map((li) => shown(li))
+
 /** A flow chart node line whose whole text is `text` (amounts inside are coin elements). */
 const detail = (text: string) => (_: string, el: Element | null) => el?.tagName === 'DIV' && shown(el) === text
 
@@ -534,11 +540,17 @@ describe('ResultsTable', () => {
     renderRows([split])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
-    expect(line('Leathery: Purchase 6x Linen Cloth on the AH (1 20)')).toBeInTheDocument()
-    expect(line('Leathery: Craft 2x Coarse Thread')).toBeInTheDocument()
-    expect(line('Leathery: Mail 2x Coarse Thread to Smithy (30)')).toBeInTheDocument()
-    expect(line('Smithy: Craft 1x Green Robe')).toBeInTheDocument()
-    expect(line('Smithy: Sell 1x Green Robe to a vendor (Gross 5 0 · Net 2 0)')).toBeInTheDocument()
+    // each character's steps under their name, in the order they do them
+    expect(screen.getAllByRole('group').map((g) => g.getAttribute('aria-label'))).toEqual([
+      "Leathery's steps",
+      "Smithy's steps",
+    ])
+    expect(linesOf('Leathery')).toEqual([
+      'Purchase 6x Linen Cloth on the AH (1 20)',
+      'Craft 2x Coarse Thread',
+      'Mail 2x Coarse Thread to Smithy (30)',
+    ])
+    expect(linesOf('Smithy')).toEqual(['Craft 1x Green Robe', 'Sell 1x Green Robe to a vendor (Gross 5 0 · Net 2 0)'])
   })
 
   it('puts the character on its own line in flow chart nodes', async () => {
@@ -1061,11 +1073,25 @@ describe('ResultsTable: a gold list', () => {
     expect(onGoldSort).toHaveBeenLastCalledWith('ah', 'desc')
   })
 
-  it('opens with why: the market and the other ways to sell', async () => {
+  it('opens with the totals by the copies, then Market details and Steps closed around the open Flowchart', async () => {
     mockApi({})
-    renderWithProviders(<ResultsTable results={[posted]} items={market} rankBy="gold" />)
+    renderWithProviders(<ResultsTable results={[{ ...posted, crafter: 'Tailor Guy' }]} items={market} rankBy="gold" />)
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
-    const why = screen.getByRole('region', { name: 'Why this?' })
+    expect(screen.queryByRole('radiogroup', { name: 'Show the plan as' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Estimated skill points gained/)).not.toBeInTheDocument()
+    const totals = screen.getByText((_, el) => el?.tagName === 'P' && shown(el)?.startsWith('10 crafts: Investment') === true)
+    expect(totals.parentElement).toContainElement(screen.getByLabelText('Copies').closest('.mantine-InputWrapper-root') as HTMLElement)
+    const sections = ['Market details', 'Flowchart', 'Steps'].map((name) => screen.getByRole('button', { name }))
+    expect(sections.map((s) => s.getAttribute('aria-expanded'))).toEqual(['false', 'true', 'false'])
+    expect(sections[0]!.compareDocumentPosition(sections[1]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(sections[1]!.compareDocumentPosition(sections[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(within(screen.getByRole('region', { name: 'Flowchart' })).getByRole('button', { name: 'Change source of Coarse Thread' })).toBeVisible()
+    await userEvent.click(sections[2]!)
+    expect(within(screen.getByRole('region', { name: 'Steps' })).getByRole('checkbox', { name: 'Detailed view' })).toBeVisible()
+    await userEvent.click(sections[0]!)
+    const why = screen.getByRole('region', { name: 'Market details' })
+    const titles = within(why).getAllByRole('heading').map((h) => h.textContent)
+    expect(titles).toEqual(['Other ways to sell', 'The market for Green Robe'])
     expect(within(why).getByText(/Usually/)).toBeInTheDocument()
     expect(within(why).getByText(/we count on/)).toBeInTheDocument()
     expect(within(why).getByText(/the other 9 are counted at Vendor/)).toBeInTheDocument()
@@ -1135,7 +1161,7 @@ describe('ResultsTable: an enchant cast for the skill point alone', () => {
     expect(screen.getByText('Cast 5x · skill up only')).toBeInTheDocument()
     expect(screen.queryByText(/Gross/)).not.toBeInTheDocument()
     await userEvent.click(screen.getByText('Steps'))
-    expect(line(`Enchy: Cast ${NAME} 5 times`)).toBeInTheDocument()
+    expect(linesOf('Enchy')).toContain(`Cast ${NAME} 5 times`)
     expect(screen.queryByText(/^Sell \d/)).not.toBeInTheDocument()
   })
 })

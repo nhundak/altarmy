@@ -58,28 +58,11 @@ function SaleNotes({ result, items }: { result: RankResult; items: ItemMap }) {
   )
 }
 
-/** Who does a line: their name and a colon, or nothing when no characters are known. */
-const Who = ({ who }: { who: string }) =>
-  who ? (
-    <>
-      <CharacterName name={who} />:{' '}
-    </>
-  ) : null
-
 /**
- * A step as one or more instruction lines, prefixed with who does it; disenchanting splits into disenchant,
- * then sell the mats. `vendor` names the vendor bought from or sold to (the detailed view knows it).
+ * A step as one or more instruction lines (whose they are is the group they are listed under); disenchanting splits
+ * into disenchant, then sell the mats. `vendor` names the vendor bought from or sold to (the detailed view knows it).
  */
-function describe(step: Step, result: RankResult, items: ItemMap, vendor?: string, skill = false): ReactNode[] {
-  return describeAction(step, result, items, vendor, skill).map((l) => (
-    <>
-      <Who who={step.who} />
-      {l}
-    </>
-  ))
-}
-
-function describeAction(
+function describe(
   { action, item_id, name, quantity, value, via, who, discount, rep_discount, rep_faction, bonus, convert, enchant }: Step,
   result: RankResult,
   items: ItemMap,
@@ -227,23 +210,11 @@ function Place({ verb, location }: { verb: string; location: NonNullable<Detail[
   )
 }
 
-/** Where a character's stretch starts. */
-function startLine({ who, location }: Detail): ReactNode {
-  if (!location) return null
-  return (
-    <>
-      <Who who={who} />
-      <Place verb="Start at" location={location} />
-    </>
-  )
-}
-
 /** A run to somewhere, with what to take from the mailbox there. */
-function goLine({ who, location, retrieve }: Detail, items: ItemMap): ReactNode {
+function goLine({ location, retrieve }: Detail, items: ItemMap): ReactNode {
   if (!location) return null
   return (
     <>
-      <Who who={who} />
       <Place verb="Run to" location={location} />
       .
       {retrieve.length > 0 && (
@@ -263,36 +234,44 @@ function goLine({ who, location, retrieve }: Detail, items: ItemMap): ReactNode 
   )
 }
 
-/** The plan's lines: its steps, or with `detailed` its steps with where to go in between. */
-function planLines(result: RankResult, items: ItemMap, detailed: boolean): ReactNode[] {
-  if (!detailed || result.details.length === 0) return result.steps.flatMap((step) => stepLines(step, result, items))
+/** A character's stretch of the plan: the lines they do, in order. */
+type Stretch = { who: string; lines: ReactNode[] }
+
+/** The plan's lines per character in the order they do them: its steps, or with `detailed` its steps with where to
+ * go in between (a switch of character starts the next one's stretch). */
+function stretches(result: RankResult, items: ItemMap, detailed: boolean, skill: boolean): Stretch[] {
+  const all: Stretch[] = []
+  const add = (who: string, ...lines: ReactNode[]) => {
+    const last = all.at(-1)
+    if (last && last.who === who) last.lines.push(...lines)
+    else all.push({ who, lines })
+  }
+  if (!detailed || result.details.length === 0) {
+    for (const step of result.steps) add(step.who, ...stepLines(step, result, items, undefined, skill))
+    return all
+  }
   let vendor: string | undefined // the vendor the character stands at, to name in buy and sell lines
-  return result.details.flatMap((d): ReactNode[] => {
+  for (const d of result.details) {
     if (d.kind === 'switch') {
       vendor = undefined
-      return [
-        <>
-          Switch to <CharacterName name={d.who} />
-        </>,
-      ]
-    }
-    if (d.kind === 'start') {
+      add(d.who)
+    } else if (d.kind === 'start' || d.kind === 'go') {
       vendor = d.location?.kind === 'vendor' ? d.location.name : undefined
-      return [startLine(d)]
+      const line =
+        d.kind === 'go' ? goLine(d, items) : d.location && <Place verb="Start at" location={d.location} />
+      if (line) add(d.who, line)
+    } else {
+      const step = d.step == null ? undefined : result.steps[d.step]
+      if (step) add(step.who, ...stepLines(step, result, items, vendor, skill))
     }
-    if (d.kind === 'go') {
-      vendor = d.location?.kind === 'vendor' ? d.location.name : undefined
-      return [goLine(d, items)]
-    }
-    const step = d.step == null ? undefined : result.steps[d.step]
-    return step ? stepLines(step, result, items, vendor) : []
-  })
+  }
+  return all.filter((s) => s.lines.length > 0)
 }
 
 /**
- * The plan as numbered instructions; with `editing`, a step with alternatives ends in a menu of them. In `skill` mode
- * (skilling up: a checklist) the steps are grouped under each character in the order they do them, and an AH sale
- * has no posting notes; `learn`, a step learning the recipe, comes first among the final crafter's.
+ * The plan as numbered instructions grouped under each character in the order they do them; with `detailed`, with
+ * where to go in between; with `editing`, a step with alternatives ends in a menu of them. In `skill` mode (skilling
+ * up) an AH sale has no posting notes. `learn`, a step learning the recipe, comes first among the final crafter's.
  */
 export function StepList({
   result,
@@ -309,55 +288,28 @@ export function StepList({
   mode?: 'default' | 'skill'
   learn?: ReactNode
 }) {
-  if (mode === 'skill') {
-    const groups: { who: string; steps: Step[]; learn?: ReactNode }[] = []
-    for (const step of result.steps) {
-      const last = groups.at(-1)
-      if (last && last.who === step.who) last.steps.push(step)
-      else groups.push({ who: step.who, steps: [step] })
-    }
-    if (learn) {
-      const crafter = groups.find((g) => g.who === result.crafter)
-      if (crafter) crafter.learn = learn
-      else groups.unshift({ who: result.crafter, steps: [], learn })
-    }
-    return (
-      <ChooseContext.Provider value={editing?.onChoose}>
-        {groups.map((g, n) => (
-          <div key={n} role="group" aria-label={g.who ? `${g.who}'s steps` : 'Steps'}>
-            {g.who && (
-              <Text size="sm" fw={600} mt={n ? 'xs' : 0}>
-                <CharacterName name={g.who} />
-              </Text>
-            )}
-            <List type="ordered" size="sm">
-              {g.learn && <List.Item>{g.learn}</List.Item>}
-              {g.steps.flatMap((step, i) =>
-                describeAction(step, result, items, undefined, true).map((line, j, all) => (
-                  <List.Item key={`${i}.${j}`}>
-                    {line}
-                    {j === all.length - 1 && (
-                      <span className={classes.stepChoice}>
-                        <StepChoice step={step} result={result} />
-                      </span>
-                    )}
-                  </List.Item>
-                )),
-              )}
-            </List>
-          </div>
-        ))}
-      </ChooseContext.Provider>
-    )
+  const groups = stretches(result, items, detailed, mode === 'skill')
+  if (learn) {
+    const crafter = groups.find((g) => g.who === result.crafter)
+    if (crafter) crafter.lines.unshift(learn)
+    else groups.unshift({ who: result.crafter, lines: [learn] })
   }
-  const lines = planLines(result, items, detailed)
   return (
     <ChooseContext.Provider value={editing?.onChoose}>
-      <List type="ordered" size="sm">
-        {lines.map((line, i) => (
-          <List.Item key={i}>{line}</List.Item>
-        ))}
-      </List>
+      {groups.map((g, n) => (
+        <div key={n} role="group" aria-label={g.who ? `${g.who}'s steps` : 'Steps'}>
+          {g.who && (
+            <Text size="sm" fw={600} mt={n ? 'xs' : 0}>
+              <CharacterName name={g.who} />
+            </Text>
+          )}
+          <List type="ordered" size="sm">
+            {g.lines.map((line, i) => (
+              <List.Item key={i}>{line}</List.Item>
+            ))}
+          </List>
+        </div>
+      ))}
     </ChooseContext.Provider>
   )
 }

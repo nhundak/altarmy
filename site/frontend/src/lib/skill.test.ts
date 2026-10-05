@@ -96,6 +96,34 @@ describe('stepsText', () => {
   })
 })
 
+describe('stepsText with details', () => {
+  it('spells out where to go and whom to switch to, naming the vendor stood at', () => {
+    const steps: Parameters<typeof stepsText>[1] = [
+      { action: 'buy', name: 'Coarse Thread', quantity: 2, via: 'vendor', who: 'Bob', enchant: false },
+      { action: 'sell', name: 'Green Robe', quantity: 1, via: 'ah', who: 'Al', enchant: false },
+    ]
+    const place = (name: string, kind: string, x: number | null, y: number | null) =>
+      ({ id: name, kind, name, map_x: x, map_y: y, map_area: null })
+    const details: Parameters<typeof stepsText>[2] = [
+      { kind: 'start', who: 'Bob', step: null, location: place('Thread Seller', 'vendor', 48.5, 71.2), retrieve: [] },
+      { kind: 'step', who: 'Bob', step: 0, location: null, retrieve: [] },
+      { kind: 'switch', who: 'Al', step: null, location: null, retrieve: [] },
+      { kind: 'go', who: 'Al', step: null, location: place('Mailbox', 'mailbox', null, null), retrieve: [{ item_id: 3, count: 1 }] },
+      { kind: 'step', who: 'Al', step: 1, location: null, retrieve: [] },
+    ]
+    expect(stepsText('Green Robe', steps, details, (id) => (id === 3 ? 'Green Robe' : '?'))).toBe(
+      [
+        'Green Robe',
+        '1. Bob: Start at Thread Seller at 48.5, 71.2',
+        '2. Bob: Buy 2x Coarse Thread from Thread Seller',
+        '3. Switch to Al',
+        '4. Al: Run to Mailbox. Retrieve 1x Green Robe.',
+        '5. Al: Sell 1x Green Robe on the AH',
+      ].join('\n'),
+    )
+  })
+})
+
 describe('scaleRun', () => {
   it('scales a plan to another number of crafts, quantities rounded up', () => {
     const plan = { ...robeResult, crafts: 4 }

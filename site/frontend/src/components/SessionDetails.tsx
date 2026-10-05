@@ -1,10 +1,11 @@
 import { useContext, useState } from 'react'
-import { Button, Checkbox, Group, Loader, NumberInput, SegmentedControl, Select, Stack, Text } from '@mantine/core'
+import { Accordion, Button, Checkbox, Group, Loader, NumberInput, SegmentedControl, Select, Stack, Text } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
 import type { ItemMap, RankResult } from '../api/client'
-import { useSessionPlan, type EvaluateParams } from '../api/queries'
+import { useSessionPlan, useTrack, type EvaluateParams } from '../api/queries'
 import type { Choices } from '../lib/choices'
+import { stepsText } from '../lib/skill'
 import { useStoredState } from '../lib/storage'
 import type { PlanEditing } from './ChoiceMenu'
 import { CharacterClasses, CharacterName } from './CharacterName'
@@ -44,15 +45,22 @@ export function PlanViewSwitch({ value, onChange }: { value: PlanView; onChange:
 /** Expected skill points to one decimal, without a trailing ".0". */
 const formatSkillUps = (n: number) => String(Math.round(n * 10) / 10)
 
-/** The session's crafts, investment and profit; then the crafter's expected skill points (unknown without
- * characters, so not shown), with the part Working Overtime adds. */
+/** The session's crafts, investment and profit. */
+function Totals({ result, mb }: { result: RankResult; mb?: number }) {
+  return (
+    <Text size="sm" mb={mb}>
+      {result.crafts} {result.crafts === 1 ? 'craft' : 'crafts'}: Investment <Money copper={result.cost} cost /> · Net
+      profit <Earned copper={result.profit} minus />
+    </Text>
+  )
+}
+
+/** The session's totals; then the crafter's expected skill points (unknown without characters, so not shown), with
+ * the part Working Overtime adds. */
 function Summary({ result }: { result: RankResult }) {
   return (
     <Stack gap={2}>
-      <Text size="sm">
-        {result.crafts} {result.crafts === 1 ? 'craft' : 'crafts'}: Investment <Money copper={result.cost} cost /> · Net
-        profit <Earned copper={result.profit} minus />
-      </Text>
+      <Totals result={result} />
       {result.crafter && (
         <Text size="sm">
           Estimated skill points gained: {formatSkillUps(result.skill_ups)}
@@ -66,7 +74,8 @@ function Summary({ result }: { result: RankResult }) {
 
 /**
  * An expanded row: the plan for a session of `copies` crafts, as the server works it out (whole batches, whole
- * stacks, the route), as a flow chart or steps (optionally with where to go in between). The row's own result
+ * stacks, the route), as a flow chart or steps (optionally with where to go in between); a gold row shows its totals
+ * beside the copies and folds the market details, the flow chart and the steps into sections. The row's own result
  * already is the session of the settings' batch, so it shows at once; only other copies or another crafter are
  * planned again (until then, or if that fails, the row's plan shows). One Reset brings back the best plan, the
  * default copies and crafter. The city is the server's pick: there is no choosing one here.
@@ -84,7 +93,8 @@ export function SessionDetails({
   editing: PlanEditing
   params: EvaluateParams
   choices: Choices | undefined
-  /** a gold list's row: Why this? (the market for what is sold) comes first */
+  /** a gold list's row: no skill points; Market details (closed), the flow chart (open) and the steps (closed) as
+   * sections, instead of a switch between them */
   market?: boolean
 }) {
   const [view, setView] = useState<PlanView>('steps')
@@ -94,7 +104,6 @@ export function SessionDetails({
   const colours = useContext(CharacterClasses)
   // Who could do the final craft, the one ranked first; a pick only when there is a choice.
   const crafters = result.crafter ? [...new Set([result.crafter, ...result.crafters])] : []
-  const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
   // What differs from the row's own plan (null: as ranked); typed copies wait for the typing to stop.
   const wantedCopies = copies !== null && copies !== defaultCopies ? copies : null
   const wantedCrafter = crafter !== null && crafter !== result.crafter ? crafter : null
@@ -140,6 +149,7 @@ export function SessionDetails({
             data-class={colours[shownCrafter]}
           />
         )}
+        {market && <Totals result={shown} mb={6} />}
         {changed && (
           <Button size="compact-xs" variant="light" mb={4} onClick={reset}>
             Reset
@@ -153,23 +163,76 @@ export function SessionDetails({
           </Text>
         )}
       </Group>
-      {market && <MarketPanel result={shown} items={shownItems} />}
-      <Summary result={shown} />
-      <PlanViewSwitch value={view} onChange={setView} />
-      {view === 'steps' && (
-        <Checkbox
-          label="Detailed view"
-          size="xs"
-          checked={detailed}
-          onChange={(e) => setDetailed(e.currentTarget.checked)}
-        />
-      )}
-      {view === 'flow' ? (
-        <RecipeFlow result={shown} items={shownItems} editing={editing} />
+      {market ? (
+        <Accordion multiple variant="separated" transitionDuration={0} defaultValue={['flow']}>
+          <Accordion.Item value="market">
+            <Accordion.Control>Market details</Accordion.Control>
+            <Accordion.Panel>
+              <MarketPanel result={shown} items={shownItems} />
+            </Accordion.Panel>
+          </Accordion.Item>
+          <Accordion.Item value="flow">
+            <Accordion.Control>Flowchart</Accordion.Control>
+            <Accordion.Panel>
+              <RecipeFlow result={shown} items={shownItems} editing={editing} />
+            </Accordion.Panel>
+          </Accordion.Item>
+          <Accordion.Item value="steps">
+            <Accordion.Control>Steps</Accordion.Control>
+            <Accordion.Panel>
+              <StepsPanel result={shown} items={shownItems} editing={editing} />
+            </Accordion.Panel>
+          </Accordion.Item>
+        </Accordion>
       ) : (
-        <StepList result={shown} items={shownItems} editing={editing} detailed={detailed} />
+        <>
+          <Summary result={shown} />
+          <PlanViewSwitch value={view} onChange={setView} />
+          {view === 'flow' ? (
+            <RecipeFlow result={shown} items={shownItems} editing={editing} />
+          ) : (
+            <StepsPanel result={shown} items={shownItems} editing={editing} />
+          )}
+        </>
       )}
       <TimingNotes result={shown} items={shownItems} />
+    </Stack>
+  )
+}
+
+/**
+ * The plan's steps under each character, with the Detailed view checkbox (where to go in between, remembered) above
+ * and Copy steps (a plain checklist, as detailed as the list shown) below.
+ */
+function StepsPanel({ result, items, editing }: { result: RankResult; items: ItemMap; editing: PlanEditing }) {
+  const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
+  const [copied, setCopied] = useState<RankResult | null>(null) // the plan copied: another plan or view isn't yet
+  const track = useTrack()
+  const copy = () => {
+    const name = result.profession ? `${result.profession}: ${result.output_name}` : result.output_name
+    const heading = `${name}, ${result.crafts} ${result.crafts === 1 ? 'craft' : 'crafts'}`
+    const details = detailed ? result.details : []
+    const text = stepsText(heading, result.steps, details, (id) => items[id]?.name ?? `item ${id}`)
+    void navigator.clipboard?.writeText(text).then(() => setCopied(result))
+    track('copy_steps', { profession: result.profession, aim: 'gold' })
+  }
+  return (
+    <Stack gap="xs">
+      <Checkbox
+        label="Detailed view"
+        size="xs"
+        checked={detailed}
+        onChange={(e) => {
+          setDetailed(e.currentTarget.checked)
+          setCopied(null)
+        }}
+      />
+      <StepList result={result} items={items} editing={editing} detailed={detailed} />
+      <Group gap="xs">
+        <Button size="xs" variant="light" onClick={copy}>
+          {copied === result ? 'Copied' : 'Copy steps'}
+        </Button>
+      </Group>
     </Stack>
   )
 }
