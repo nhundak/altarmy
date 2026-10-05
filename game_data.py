@@ -14,8 +14,8 @@ generators import its package. The daily game-data workflow (.github/workflows/g
                           AltArmy_TBC/Data/Recipes/RecipeData_*.lua (generate-recipe-data.py),
                           AltArmy_TBC/Data/Economy/WaylaidCrates.lua (generate-waylaid-crates.py) and
                           Writs.lua (generate-writs.py), both from a throwaway SQLite ingest of Forever
-                   site   data/<v>/vendor_items.csv, vendor_recipes.csv, recipe_item_sources.csv
-                          (build_vendor_items.py), data/forever/cities/*.json (build_cities.py),
+                   site   data/<v>/vendor_items.csv, vendor_recipes.csv, recipe_item_sources.csv,
+                          trainer_costs.csv (build_vendor_items.py), data/forever/cities/*.json (build_cities.py),
                           frontend/public/maps/ (fetch_zone_maps.py: new areas only)
                  --message FILE writes a commit message (a subject line, then what moved and changed);
                  --notes FILE the addon's release notes (one line per changed data file; empty when the

@@ -79,6 +79,46 @@ def test_vendor_recipes_are_recipe_items_of_any_stock_unconditional_and_spawned(
     ]
 
 
+def test_trainer_costs_are_the_least_any_trainer_asks_for_the_spell_taught(world: sqlite3.Connection) -> None:
+    world.executescript(
+        """
+        CREATE TABLE npc_trainer (entry INTEGER, spell INTEGER, spellcost INTEGER, build_max INTEGER);
+        CREATE TABLE npc_trainer_template (
+            entry INTEGER, spell INTEGER, spellcost INTEGER, build_max INTEGER
+        );
+        CREATE TABLE spell_template (
+            entry INTEGER, build INTEGER, effect1 INTEGER, effectTriggerSpell1 INTEGER, effect2 INTEGER,
+            effectTriggerSpell2 INTEGER, effect3 INTEGER, effectTriggerSpell3 INTEGER
+        );
+        """
+    )
+    world.executemany(
+        "INSERT INTO spell_template VALUES (?,?,?,?,?,?,?,?)",
+        [
+            (3516, 4222, 36, 3491, 0, 0, 0, 0),  # teaches Big Bronze Knife
+            (3517, 4222, 6, 0, 0, 0, 0, 0),  # an older build's teach spell...
+            (3517, 5875, 0, 0, 36, 3492, 0, 0),  # ...teaching through its second effect now
+        ],
+    )
+    world.executemany(
+        "INSERT INTO npc_trainer VALUES (?,?,?,?)",
+        [
+            (1, 3516, 600, 5875),
+            (2, 3516, 900, 5875),  # a dearer trainer
+            (3, 3516, 100, 4695),  # a fee a later patch changed
+            (1, 7000, 50, 5875),  # listed as the spell itself: no teach spell
+        ],
+    )
+    world.execute("INSERT INTO npc_trainer_template VALUES (60, 3517, 250, 5875)")
+    assert vmangos.trainer_costs(world) == [(3491, 600), (3492, 250), (7000, 50)]
+
+
+def test_write_trainer_costs_csv(tmp_path: Path) -> None:
+    path = tmp_path / "trainer_costs.csv"
+    vmangos.write_trainer_costs_csv([(3491, 600)], path)
+    assert path.read_text(encoding="utf-8").splitlines() == ["spell_id,cost", "3491,600"]
+
+
 def test_write_csv_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "vendor_items.csv"
     vmangos.write_csv([(100, "Rune Thread"), (104, "Vial, Empty")], path)

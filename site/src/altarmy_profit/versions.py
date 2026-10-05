@@ -83,6 +83,11 @@ class GameVersion:
         return self.data_dir / "recipe_item_sources.csv"
 
     @property
+    def trainer_costs_csv(self) -> Path:
+        """What trainers charge to teach each spell (Forever: `vmangos.trainer_costs`)."""
+        return self.data_dir / "trainer_costs.csv"
+
+    @property
     def cities_dir(self) -> Path:
         """City presets for timing crafts (`timing.CityMap` JSON), from scripts/build_cities.py."""
         return self.data_dir / "cities"

@@ -1295,11 +1295,13 @@ def recipe_learn_cost(
     ah_prices: Mapping[int, int],
     faction: str,
 ) -> int | None:
-    """What `who` must spend to learn `recipe`: 0 when they know it (or it needs no learning, or a trainer
-    teaches it: fees are not known yet), else what its pattern costs (`pattern_price`; `taught` by spell
-    id), None when nothing says."""
-    if who is None or recipe.anyone or recipe.spell_id in who.known_recipes or recipe.source == "trainer":
+    """What `who` must spend to learn `recipe`: 0 when they know it (or it needs no learning), a trainer's
+    fee when a trainer teaches it (`Recipe.train_cost`, 0 when nothing says), else what its pattern costs
+    (`pattern_price`; `taught` by spell id), None when nothing says."""
+    if who is None or recipe.anyone or recipe.spell_id in who.known_recipes:
         return 0
+    if recipe.source == "trainer":
+        return recipe.train_cost
     return pattern_price(taught.get(recipe.spell_id, ()), ah_prices, faction)
 
 
@@ -1537,6 +1539,7 @@ def update_game_data(
         version.vendor_csv,
         version.vendor_recipes_csv,
         version.sources_csv,
+        version.trainer_costs_csv,
     )
     return build, True, stats
 

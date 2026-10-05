@@ -53,7 +53,17 @@ export function onlyVendor(learn: Learn): Place | undefined {
 export function LearnDetails({ learn }: { learn: Learn }) {
   const skill = learn.skill ? ` ${learn.skill}` : ''
   if (learn.source === 'trainer' || !learn.items.length) {
-    return <Text size="sm">{`Taught by ${learn.profession || 'profession'} trainers${skill ? ` (skill${skill})` : ''}`}</Text>
+    return (
+      <Text size="sm">
+        {`Taught by ${learn.profession || 'profession'} trainers${skill ? ` (skill${skill})` : ''}`}
+        {learn.train_cost > 0 && (
+          <>
+            {' '}
+            for <Money copper={learn.train_cost} cost />
+          </>
+        )}
+      </Text>
+    )
   }
   const placed = learn.items.some((i) => i.places.length)
   const vendor = onlyVendor(learn)
@@ -87,9 +97,9 @@ export function LearnDetails({ learn }: { learn: Learn }) {
 }
 
 /**
- * A skill-up checklist's first step when the climber lacks the recipe: the trainer, else buying the pattern that
- * costs `cost` (the cheapest of its items) from the vendor selling it (its zone map on hover) or on the AH, else
- * finding it. A pattern sold by a vendor is taken to be bought there.
+ * A skill-up checklist's first step when the climber lacks the recipe: the trainer and its fee (`cost`), else
+ * buying the pattern that costs `cost` (the cheapest of its items) from the vendor selling it (its zone map on
+ * hover) or on the AH, else finding it. A pattern sold by a vendor is taken to be bought there.
  */
 export function LearnStep({
   learn,
@@ -103,7 +113,17 @@ export function LearnStep({
   items: ItemMap
 }) {
   if (learn.source === 'trainer' || !learn.items.length)
-    return <>Learn {recipe} from a {learn.profession || 'profession'} trainer</>
+    return (
+      <>
+        Learn {recipe} from a {learn.profession || 'profession'} trainer
+        {!!cost && (
+          <>
+            {' '}
+            (<Money copper={cost} cost />)
+          </>
+        )}
+      </>
+    )
   const pattern = learn.items.find((i) => cost !== null && i.price === cost) ?? learn.items[0]!
   const link = <ItemLink item={items[pattern.item_id]} name={pattern.name} />
   if (cost === null)
@@ -116,7 +136,7 @@ export function LearnStep({
   const vendor = vendors[0]
   const price = (
     <>
-      (<Money copper={cost} />)
+      (<Money copper={cost} cost />)
     </>
   )
   if (!vendor)

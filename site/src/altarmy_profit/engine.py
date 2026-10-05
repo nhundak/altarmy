@@ -92,6 +92,7 @@ class Recipe:
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
     learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
     source: Source = "trainer"  # what teaches it
+    train_cost: int = 0  # copper a trainer asks to teach it (a trainer's); 0 if free or nobody knows
     # "craft"; "convert": enchanting materials turned into others with their Use spell (3 lesser essences
     # into a greater and back); "flip": gear bought on the AH to disenchant (`Market` makes these). The
     # last two need no profession: anyone does them, they never skill up, and they rank only when
@@ -327,7 +328,7 @@ class Candidate:
     """A recipe a skill-up climb may craft: what a craft of it comes to (`cost`: spent less what selling what
     it makes brings back, per craft of a run as long as its `useful_crafts`), from what skill the climber can
     craft it (0: they know it, or can learn it now) and what learning it costs them (`learn`: a pattern's
-    price; 0 when known or a trainer's, None when nothing says)."""
+    price, or a trainer's fee; 0 when known or free, None when nothing says)."""
 
     recipe: Recipe
     cost: float
@@ -372,6 +373,24 @@ class ClimbPlan:
     cost: float
     unknown: int
     runs: tuple[SkillRun, ...]
+    # each recipe's stretch of the climb: (it, from skill, to skill)
+    legs: tuple[tuple[_Usable, int, int], ...] = field(default=(), compare=False, repr=False)
+
+    def spent_by(self, skill: int) -> tuple[float, int] | None:
+        """What the climb is expected to come to by the time it reaches `skill`: its crafts' copper (spent
+        less what selling what they make brings back) and its patterns', without the spares and the grind
+        that only choose the plan, and how many of those patterns have no known price; None when the climb
+        never gets there."""
+        if not self.legs or skill > self.legs[-1][2]:
+            return None
+        copper, unknown = 0.0, 0
+        for u, start, stop in self.legs:
+            if skill <= start:
+                break
+            c = u.candidate
+            copper += c.cost * u.expected_crafts(start, min(skill, stop)) + (c.learn or 0)
+            unknown += c.learn is None
+        return copper, unknown
 
 
 # A plan's cost: (patterns of unknown price, copper). Fewer unknown patterns first, then less copper.
@@ -553,7 +572,7 @@ class Climb:
             self._run(u, start, stop, pieces[i + 1][0].candidate.recipe if i + 1 < len(pieces) else None)
             for i, (u, start, stop) in enumerate(pieces)
         )
-        return ClimbPlan(cost[1], cost[0], runs)
+        return ClimbPlan(cost[1], cost[0], runs, tuple(legs))
 
     def _pieces(self, u: _Usable, start: int, stop: int) -> list[tuple[int, int]]:
         """A run from `start` to `stop` as the runs of at most `ceiling` crafts it is bought as (one level a
@@ -817,6 +836,7 @@ class Result:
     climb_cost: float | None = field(default=None, compare=False)
     climb_unknown: int = field(default=0, compare=False)
     climb_after: tuple[SkillRun, ...] = field(default=(), compare=False, repr=False)
+    climb: ClimbPlan | None = field(default=None, compare=False, repr=False)  # the whole climb
     # the recipes (ids) the climb never crafts (`SkillRuns.banned`); empty unless the first run of a climb
     climb_without: frozenset[int] = field(default=frozenset(), compare=False)
     # With a time model: the estimated play time per craft (what the plan was chosen by), and the per-craft
@@ -1467,8 +1487,8 @@ class Market:
 
         A skill-up climb (`SkillRuns`, `Climb`) crafts the recipes of the profession the characters can do
         now and `later_recipes`, those they can't learn yet but may on the way, each from the skill they can.
-        `learn_costs` is what learning each recipe (by id) costs the one skilled up (a pattern's price; None
-        when nothing says; 0, the default, when known or a trainer's): the climb counts it."""
+        `learn_costs` is what learning each recipe (by id) costs the one skilled up (a pattern's price, or a
+        trainer's fee; None when nothing says; 0, the default, when known or free): the climb counts it."""
         self.items = items
         self.gathered = dict(gathered or {})
         self.later_recipes = tuple(later_recipes)
@@ -2092,6 +2112,7 @@ class Market:
                     climb_cost=plan.cost if plan is not None else None,
                     climb_unknown=plan.unknown if plan is not None else 0,
                     climb_after=plan.runs[1:] if plan is not None else (),
+                    climb=plan,
                     climb_without=skill_run.banned
                     if plan is not None and skill_run is not None
                     else frozenset(),

@@ -1191,6 +1191,10 @@ def test_learn_cost_counts_a_pattern_the_climber_must_buy() -> None:
     knows = replace(novice, professions=(Profession("Tailoring", 20, 75, frozenset({900})),))
     assert service.learn_cost(result, [knows], taught, {}, "Horde") == 0
     assert service.learn_cost(replace(result, recipe=trained), [novice], {}, {}, "Horde") == 0  # fee unknown
+    fee = replace(trained, train_cost=600)
+    assert service.learn_cost(replace(result, recipe=fee), [novice], {}, {}, "Horde") == 600  # the trainer's
+    learned = replace(novice, professions=(Profession("Tailoring", 20, 75, frozenset({901})),))
+    assert service.learn_cost(replace(result, recipe=fee), [learned], {}, {}, "Horde") == 0
     # ranked by what a point costs with the pattern, unknown prices last
     cheap = replace(result, cost=50, skill_ups=1.0)
     dear = replace(result, recipe=replace(robe, id=3), cost=10, skill_ups=1.0)

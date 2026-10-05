@@ -17,7 +17,8 @@
     grid-template-columns: minmax(0, 1fr) minmax(0, 300px) minmax(0, 1fr);
   }
 
-  .now {
+  .now,
+  .single > .milestones {
     grid-column: 2;
   }
 
@@ -27,22 +28,25 @@
     align-self: center;
   }
 
-  .single > .chain {
-    grid-column: 2;
+  /* the chain and a run opened out take the whole row, the chain's cards (`.link`) keeping the column's width */
+  .single > .chain,
+  .nowOpen {
+    grid-column: 1 / -1;
   }
 }
 
-/* The options side by side: each option's chain under it (`--column`), in the row below; See all
-   under the rightmost card (`--see-all-row`: below the chain should it hang there). */
+/* A run of the chain in the single column: as wide as the card above it, centred. */
+.single .link {
+  width: 100%;
+  max-width: 300px;
+  align-self: center;
+}
+
+/* The options side by side: each option's chain under it (`--column`), in the row below. */
 .options {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--mantine-spacing-sm);
-}
-
-.seeAll {
-  justify-self: end;
-  align-self: start;
 }
 
 @media (min-width: 62em) {
@@ -50,22 +54,58 @@
     grid-template-columns: repeat(var(--options), minmax(0, 1fr));
   }
 
-  .options > .chain {
+  /* each option's column: what its climb comes to by each rank, its card, its chain */
+  .options > .milestones {
+    grid-row: 1;
+    grid-column: var(--column);
+  }
+
+  .options > .option {
     grid-row: 2;
     grid-column: var(--column);
   }
 
-  .options > .seeAll {
-    grid-row: var(--see-all-row);
-    grid-column: -2;
+  .options > .chain {
+    grid-row: 3;
+    grid-column: var(--column);
   }
 }
 
-/* See all: every option as a card, as many to a row as fit. */
-.grid {
+/* An option's card in its cell, stretched to the row's height as the grid stretches the cell. */
+.option {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: var(--mantine-spacing-sm);
+}
+
+/* What a climb comes to by each rank, over its card: at the bottom of its row, so the cards line up. */
+.milestones {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  text-align: center;
+}
+
+/* Its rows: the skills aligned on their left edge, the amounts on their right. */
+.milestoneTable {
+  border-collapse: collapse;
+  font-size: var(--mantine-font-size-sm);
+}
+
+.milestoneTable th {
+  font-weight: normal;
+  text-align: left;
+  padding: 0 var(--mantine-spacing-sm) 0 0;
+}
+
+.milestoneTable td {
+  text-align: right;
+  padding: 0;
+}
+
+.milestoneTable td.milestoneNote {
+  font-size: var(--mantine-font-size-xs);
+  color: var(--mantine-color-dimmed);
+  text-align: left;
 }
 
 .chain {
@@ -126,13 +166,23 @@
     position: relative;
   }
 
-  .single .train {
+  /* not the reminders inside a run opened out */
+  .single .trained > .train {
     position: absolute;
     top: 50%;
     transform: translateY(-50%);
     right: calc(100% + var(--mantine-spacing-md));
     width: 240px;
   }
+}
+
+/* A run opened out in place of its card: centred, at most 80% of the widest the page gets (`Container size="xl"`, 82.5rem, less its
+   padding), so it narrows only once the page is narrower than that. `width`: in the Stack's flex column, auto
+   margins would otherwise shrink it to its content. */
+.opened {
+  width: 100%;
+  max-width: calc(0.8 * (82.5rem - 2 * var(--mantine-spacing-md)));
+  margin-inline: auto;
 }
 
 /* An option card that opens or picks on a click: lit on hover. */

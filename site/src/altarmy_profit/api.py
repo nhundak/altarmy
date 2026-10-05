@@ -386,8 +386,8 @@ class RankResult(BaseModel):
     # what the session is likely to make (`service.likely`): an AH sale counts on the units the market has
     # shown it takes (`depth_units`); the rest (`excess_units`) go to the best other exit, which is
     # `likely_exit` when it then pays better
-    # what the crafter must spend to learn the recipe (its pattern; 0 when known or a trainer's, whose
-    # fees aren't known yet); None when nothing says
+    # what the crafter must spend to learn the recipe (its pattern, or a trainer's fee; 0 when known or
+    # free); None when nothing says
     learn_cost: int | None = 0
     # whether the sale will sell (`service.verdict`): steady, likely or unproven, why it is no surer, and what
     # about buying the reagents makes it one less sure
@@ -419,9 +419,22 @@ class RankResult(BaseModel):
     # bought for each run, patterns); None for a later run of a climb, without a run, or when a pattern the
     # climb buys has no known price
     climb_cost: int | None = None
+    # a run that starts a climb: what the climb is expected to come to by each profession rank's cap it
+    # reaches above the crafter's skill now (`ClimbPlan.spent_by`)
+    milestones: list[MilestoneOut] = []
     # the recipes (ids) this run's climb never crafts: the options before it, passed over (`climb_options`);
     # send them as /api/evaluate's `climb_without` to plan the run again
     climb_without: list[int] = []
+
+
+class MilestoneOut(BaseModel):
+    """What a climb is expected to come to by the time it reaches `skill`: its crafts (spent less what
+    selling what they make brings back, so negative when they earn) and its patterns, `unknown` of which have
+    no known price (not counted)."""
+
+    skill: int
+    cost: int
+    unknown: int = 0
 
 
 class ConfidenceOut(BaseModel):
@@ -472,6 +485,7 @@ class LearnOut(BaseModel):
     skill: int  # the profession skill it needs
     profession: str
     items: list[RecipeItemOut]  # the items teaching it (none for a trainer's)
+    train_cost: int = 0  # a trainer's: what the cheapest trainer asks; 0 if free or nothing says
 
 
 class RankResponse(BaseModel):
@@ -1543,14 +1557,19 @@ def _climb_learn_costs(
 
 
 def _learn_costs(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, int | None]:
-    """What learning each result's recipe costs its crafter (`service.learn_cost`), by recipe id; the
-    patterns are looked up only for the recipes a crafter must learn."""
-    unknown = [r for r in results if service.learn_cost(r, s.chars, {}, {}, s.faction) is None]
+    """What learning each result's recipe costs its crafter (`service.learn_cost`), by recipe id, those that
+    cost nothing left out; the patterns are looked up only for the recipes a crafter must buy one for."""
+    known = {r.recipe.id: service.learn_cost(r, s.chars, {}, {}, s.faction) for r in results}
+    out: dict[int, int | None] = {rid: cost for rid, cost in known.items() if cost}
+    unknown = [r for r in results if known[r.recipe.id] is None]
     if not unknown:
-        return {}
+        return out
     with _connect(state) as conn:
         taught = store.load_recipe_items(conn, state.key, {r.recipe.spell_id for r in unknown})
-    return {r.recipe.id: service.learn_cost(r, s.chars, taught, s.base.prices, s.faction) for r in unknown}
+    out.update(
+        {r.recipe.id: service.learn_cost(r, s.chars, taught, s.base.prices, s.faction) for r in unknown}
+    )
+    return out
 
 
 def _learn(state: AppState, s: Selected, results: Sequence[engine.Result]) -> dict[int, LearnOut]:
@@ -1566,6 +1585,7 @@ def _learn(state: AppState, s: Selected, results: Sequence[engine.Result]) -> di
             source=r.recipe.source,
             skill=r.recipe.required_skill,
             profession=r.recipe.skill_name,
+            train_cost=r.recipe.train_cost if r.recipe.source == "trainer" else 0,
             items=[
                 RecipeItemOut(
                     item_id=i.item_id,
@@ -1694,6 +1714,18 @@ def _best_city(cities: Sequence[CityTimingOut]) -> str | None:
     return max(possible, key=lambda c: service.city_worth(True, c.profit, c.per_hour, c.total_seconds)).city
 
 
+def _milestones(climb: engine.ClimbPlan | None) -> list[MilestoneOut]:
+    """What `climb` comes to by each profession rank's cap above where it starts that it reaches."""
+    if climb is None or not climb.runs:
+        return []
+    out = []
+    for rank in versions.PROFESSION_RANKS:
+        spent = climb.spent_by(rank.cap) if rank.cap > climb.runs[0].start_skill else None
+        if spent is not None:
+            out.append(MilestoneOut(skill=rank.cap, cost=round(spent[0]), unknown=spent[1]))
+    return out
+
+
 def _result_out(
     r: engine.Result,
     base: engine.Market,
@@ -1795,6 +1827,7 @@ def _result_out(
         crafts_p80=r.crafts_p80,
         reach_chances=[round(c, 4) for c in r.reach_chances],
         climb_cost=round(r.climb_cost) if r.climb_cost is not None and not r.climb_unknown else None,
+        milestones=_milestones(r.climb),
         climb_without=sorted(r.climb_without),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
         timing=None

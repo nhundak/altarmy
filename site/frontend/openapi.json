@@ -1543,6 +1543,11 @@
             ],
             "title": "Source",
             "type": "string"
+          },
+          "train_cost": {
+            "default": 0,
+            "title": "Train Cost",
+            "type": "integer"
           }
         },
         "required": [
@@ -1762,6 +1767,30 @@
           "admin"
         ],
         "title": "Me",
+        "type": "object"
+      },
+      "MilestoneOut": {
+        "description": "What a climb is expected to come to by the time it reaches `skill`: its crafts (spent less what\nselling what they make brings back, so negative when they earn) and its patterns, `unknown` of which have\nno known price (not counted).",
+        "properties": {
+          "cost": {
+            "title": "Cost",
+            "type": "integer"
+          },
+          "skill": {
+            "title": "Skill",
+            "type": "integer"
+          },
+          "unknown": {
+            "default": 0,
+            "title": "Unknown",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "skill",
+          "cost"
+        ],
+        "title": "MilestoneOut",
         "type": "object"
       },
       "NodeOut": {
@@ -2330,6 +2359,14 @@
           "mail_to": {
             "title": "Mail To",
             "type": "string"
+          },
+          "milestones": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MilestoneOut"
+            },
+            "title": "Milestones",
+            "type": "array"
           },
           "output_count": {
             "title": "Output Count",

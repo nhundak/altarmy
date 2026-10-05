@@ -644,6 +644,27 @@ def test_a_character_skilled_up_is_told_where_to_learn_what_an_alt_knows(
     assert body["learn"][str(r["recipe_id"])]["skill"] == 50
 
 
+def test_a_trainers_recipe_costs_the_trainers_fee(client: TestClient, priced: Connection) -> None:
+    priced.execute(
+        update(schema.recipes)
+        .where(schema.recipes.c.game_version == FOREVER)
+        .values(source="trainer", train_cost=600)
+    )
+    low = Character("Realm", "Low", "Horde", "MAGE", 60, (Profession("Tailoring", 40, 150, frozenset()),))
+    service.replace_characters(priced, ME, FOREVER, [low])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
+    params: dict[str, str | int | list[str]] = {
+        "unlearned": "train",
+        "look_ahead": 10,
+        "skill_crafters": ["Low"],
+    }
+    body = client.get("/api/rank", params=params).json()
+    (r,) = body["results"]
+    assert (r["crafter"], r["learn_cost"]) == ("Low", 600)
+    learn = body["learn"][str(r["recipe_id"])]
+    assert (learn["source"], learn["train_cost"]) == ("trainer", 600)
+
+
 def test_rankings_outlive_a_rebuild_on_the_same_prices(
     client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -737,6 +758,18 @@ SKILL_UP: dict[str, str | bool | list[str]] = {
 }
 
 
+def test_a_climb_says_what_it_comes_to_by_each_rank_cap_it_reaches() -> None:
+    smith = engine.Crafter("Smith", (("Blacksmithing", 75, 300),), frozenset())
+    recipe = engine.Recipe(1, "R", 100, 1, ((1, 1),), "Blacksmithing", trivial_low=270, trivial_high=280)
+    climb = engine.plan_climb(smith, "Blacksmithing", [engine.Candidate(recipe, 10.0, learn=None)]).best
+    # 75 reached already; the climb ends where the recipe turns grey, before 300
+    assert api._milestones(climb) == [
+        api.MilestoneOut(skill=150, cost=750, unknown=1),
+        api.MilestoneOut(skill=225, cost=1500, unknown=1),
+    ]
+    assert api._milestones(None) == []
+
+
 def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     client: TestClient, priced: Connection
 ) -> None:
@@ -748,6 +781,7 @@ def test_skill_up_ranks_each_recipe_as_the_first_run_of_its_climb(
     assert (r["crafts"], r["stop_skill"], r["stop_reason"], r["overtaken_by"]) == (88, 60, "trivial", "")
     assert body["chain"] == [] and body["options"] == [r]
     assert r["climb_cost"] is not None and r["climb_cost"] > -r["profit"]  # what it costs, spares too
+    assert r["milestones"] == []  # the climb ends at 60, short of the next rank's cap (75)
     assert r["overtaken_by_item"] == 0
     assert r["crafts_p80"] >= r["crafts"]
     assert r["reach_chances"][r["crafts_p80"] - 1] >= 0.8  # the odds of reaching stop_skill by each craft

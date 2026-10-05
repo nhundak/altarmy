@@ -220,6 +220,26 @@ def test_build_db_counts_a_vendors_bind_on_pickup_recipe_as_a_normal_one(
     assert source(vendor_csv=limited) == "recipe"  # as does one with unlimited stock
 
 
+def test_build_db_charges_a_trainers_recipe_what_the_trainer_asks(
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
+) -> None:
+    fees = write_csv(tmp_path / "trainer_costs.csv", ["spell_id", "cost"], [{"spell_id": 900, "cost": 600}])
+
+    def recipe() -> tuple[str, int]:
+        ingest.build_db(db2_paths, conn, FOREVER, trainer_costs_csv=fees)
+        row = conn.execute(select(schema.recipes.c.source, schema.recipes.c.train_cost)).one()
+        return str(row.source), int(row.train_cost)
+
+    assert recipe() == ("recipe", 0)  # an item teaches it: no trainer's fee
+    effects = db2_paths["ItemEffect"]
+    rows: list[dict[str, object]] = [
+        dict(r, TriggerType="0") if r["SpellID"] == "900" else dict(r) for r in ingest._rows(effects)
+    ]
+    write_csv(effects, list(rows[0]), rows)  # no item teaches the robe any more: a trainer does
+    assert recipe() == ("trainer", 600)
+    assert ingest.trainer_costs(None) == {}
+
+
 def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str, Path]) -> None:
     assert ingest.craft_stations(db2_paths) == {1: "Anvil"}  # the robe's; the forge and fire go unused
 

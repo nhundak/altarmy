@@ -72,6 +72,7 @@ def cmd_ingest(args: argparse.Namespace) -> None:
                     v.vendor_csv,
                     v.vendor_recipes_csv,
                     v.sources_csv,
+                    v.trainer_costs_csv,
                 )
             run.say(f"Ingested {v.label} build {build}: {stats}")
     # The addon's Waylaid Crates table comes from this game data (only for a local SQLite ingest).

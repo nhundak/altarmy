@@ -31,15 +31,11 @@ import { PlanViewSwitch, type PlanView } from './SessionDetails'
 import { Earned, StepList } from './StepList'
 import classes from './SkillWorkspace.module.css'
 
-/** The runs asked for at once: Next up, the few after it, and the rest under See all. */
-const TOP = 50
-/** Options laid out side by side before See all. */
+/** Options laid out side by side (the API's `SKILL_OPTIONS`): all the overview asks for. */
 const OPTIONS = 4
 // The runs the chain holds at first (the API's `SKILL_CHAIN`), and how many more each Show more asks for
 const CHAIN = 4
 const NO_RUNS: RankResult[] = []
-/** Cards See all shows at first, and how many more each Show more adds. */
-const GRID = 20
 /** How a chosen option opens out into its run (as the Profit page's cards do). */
 const LAYOUT = { duration: 0.3, ease: [0.25, 0.8, 0.25, 1] as const }
 
@@ -48,11 +44,72 @@ type Filters = Omit<RankParams, 'top'>
 /** What a run comes to per skill point it is expected to give, its pattern included: gained in green, spent in red
  * with a minus sign. */
 function NetPerPoint({ result }: { result: RankResult }) {
-  if (!result.skill_ups) return <>no skill point</>
+  const net = netPerPoint(result)
+  if (net === null) return <>no skill point</>
   return (
     <>
-      <Earned copper={Math.round((result.profit - (result.learn_cost ?? 0)) / result.skill_ups)} minus /> per skill point
+      <Earned copper={Math.round(net)} minus /> per skill point
     </>
+  )
+}
+
+/** What a run comes to per skill point, its pattern included (gained positive, spent negative); null without one. */
+function netPerPoint(r: RankResult): number | null {
+  return r.skill_ups ? (r.profit - (r.learn_cost ?? 0)) / r.skill_ups : null
+}
+
+/** The options cheapest climb first: a run's own cost per point says little, since a run from lower down takes in
+ * cheap orange points another run doesn't; climbs of unknown cost (a pattern without a price) last. */
+function byClimbCost(options: readonly RankResult[]): RankResult[] {
+  const key = (r: RankResult) => r.climb_cost ?? Infinity
+  return [...options].sort((a, b) => key(a) - key(b))
+}
+
+/** What the climb a run starts is expected to come to by each profession rank's cap it reaches (those reached
+ * already left out): spent in red, earned in green, patterns without a price named apart. It moves with its
+ * option's card between the single column and the options side by side (by position: text isn't stretched);
+ * `fade`: it fades in as the other options open out. */
+function Milestones({ result, column, fade }: { result: RankResult | undefined; column?: number; fade?: boolean }) {
+  const milestones = result?.milestones ?? []
+  if (!result || !milestones.length) return null
+  return (
+    <motion.div
+      layout="position"
+      layoutId={`skill-milestones-${result.recipe_id}`}
+      transition={LAYOUT}
+      initial={fade ? { opacity: 0 } : false}
+      animate={{ opacity: 1 }}
+      role="group"
+      className={classes.milestones}
+      style={column ? ({ '--column': column } as CSSProperties) : undefined}
+      aria-label={`Cost to reach each rank with ${result.output_name} first`}
+    >
+      <Text size="xs" c="dimmed">
+        Estimated cost to reach
+      </Text>
+      {/* skills aligned on the left, amounts on the right; patterns without a price under their row */}
+      <table className={classes.milestoneTable}>
+        <tbody>
+          {milestones.map((m) => (
+            <Fragment key={m.skill}>
+              <tr>
+                <th scope="row">{m.skill} skill:</th>
+                <td>
+                  <Earned copper={-m.cost} minus />
+                </td>
+              </tr>
+              {m.unknown > 0 && (
+                <tr>
+                  <td colSpan={2} className={classes.milestoneNote}>
+                    + {m.unknown} pattern{m.unknown === 1 ? '' : 's'} of unknown price
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </motion.div>
   )
 }
 
@@ -96,11 +153,18 @@ const mustLearn = (r: RankResult): boolean => !!r.crafter && !r.crafters.include
 function learnNote(r: RankResult, learn: Learn | undefined): ReactNode {
   if (!mustLearn(r)) return null
   if (r.learn_cost === null) return 'You must find the pattern (price unknown)'
-  if (learn?.source === 'trainer') return 'You must learn it from a trainer'
+  if (learn?.source === 'trainer')
+    return r.learn_cost ? (
+      <>
+        You must learn it from a trainer (<Money copper={r.learn_cost} cost />)
+      </>
+    ) : (
+      'You must learn it from a trainer'
+    )
   if (!r.learn_cost) return 'You must learn it first'
   return (
     <>
-      You must buy the pattern (<Money copper={r.learn_cost} />)
+      You must buy the pattern (<Money copper={r.learn_cost} cost />)
     </>
   )
 }
@@ -113,33 +177,42 @@ const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}
 
 /** One option in the overview: the recipe, what its run comes to per skill point, how far it goes, how it is
  * learned. Without `onChoose`, a summary of a run to come (in the chain), with nothing to click; `fade`: it fades
- * in as the other options open out; `lit`: lit on hover, which says it opens (anywhere on it, as ever). */
+ * in as the other options open out; `lit`: lit on hover, which says it opens (anywhere on it, as ever). `action`
+ * names its button ("Choose", "Open"), `layoutId` what it opens out into (by default the option's); a run in the
+ * chain stays an `article` named after its recipe. */
 function OptionCard({
   result: r,
-  best,
   items,
   learn,
   fade,
   lit,
   onChoose,
+  action = 'Choose',
+  layoutId = `skill-option-${r.recipe_id}`,
+  article,
+  cheapest,
 }: {
   result: RankResult
-  best: boolean
   items: ItemMap
   learn: Learn | undefined
   fade?: boolean
   lit?: boolean
   onChoose?: () => void
+  action?: string
+  layoutId?: string
+  article?: boolean
+  /** the cheapest climb among the options side by side: badged Recommended */
+  cheapest?: boolean
 }) {
   const body = (
           <Stack gap={4}>
-            <Group justify="space-between" align="flex-start" wrap="nowrap" gap="xs">
+            <Group justify="space-between" align="flex-start" gap="xs" wrap="nowrap">
               <Text fw={600} size="sm">
                 <RecipeName result={r} items={items} />
               </Text>
-              {best && (
-                <Badge size="xs" variant="light" color="teal" style={{ flexShrink: 0 }}>
-                  Best
+              {cheapest && (
+                <Badge size="sm" variant="light" color="green" style={{ flexShrink: 0 }}>
+                  Recommended
                 </Badge>
               )}
             </Group>
@@ -166,7 +239,7 @@ function OptionCard({
   }
   return (
     <motion.div
-      layoutId={`skill-option-${r.recipe_id}`}
+      layoutId={layoutId}
       transition={LAYOUT}
       initial={fade ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
@@ -177,12 +250,12 @@ function OptionCard({
         radius="md"
         p="sm"
         h="100%"
-        data-best={best || undefined}
         className={lit ? classes.lit : undefined}
+        {...(article ? { component: 'article', 'aria-label': r.output_name } : {})}
       >
         <UnstyledButton
           onClick={onChoose}
-          aria-label={`Choose ${r.output_name}`}
+          aria-label={`${action} ${r.output_name}`}
           w="100%"
           h="100%"
           // a button centres its content: cards of three lines and of four start at the same height
@@ -253,7 +326,8 @@ function ChainArrow() {
 
 /** The runs that follow a run, each under an arrow, hung under that run's card. `muted` while it isn't the chosen
  * option's own: the options are side by side, or its chain is on its way; `preview`: side by side, only the next run,
- * fading out downwards. `onMore`: Show more under the last, when
+ * fading out downwards. `onOpen`: each card opens out in place, `opened` the one that has (its index and what it
+ * shows instead of its card). `onMore`: Show more under the last, when
  * there may be more after it. The run crafted now's chain carries `layoutId`, so it moves with its card; `column`
  * places another option's under it, side by side. */
 function Chain({
@@ -269,6 +343,8 @@ function Chain({
   column,
   training,
   preview,
+  onOpen,
+  opened,
 }: {
   runs: RankResult[]
   /** the skill the first of `runs` starts at: where the run they follow stops */
@@ -284,6 +360,8 @@ function Chain({
   /** the reminders to train the next profession rank beside the cards (the single column only) */
   training?: Training
   preview?: boolean
+  onOpen?: (index: number) => void
+  opened?: { index: number; panel: ReactNode }
 }) {
   if (preview) runs = runs.slice(0, 1)
   if (!runs.length && !pending) return null
@@ -300,9 +378,24 @@ function Chain({
     >
       {runs.map((r, i) => {
         const from = i === 0 ? start : (runs[i - 1]?.stop_skill ?? 0)
+        const card = (
+          <OptionCard
+            result={r}
+            items={items}
+            learn={learn[r.recipe_id]}
+            {...(onOpen && {
+              onChoose: () => onOpen(i),
+              action: 'Open',
+              layoutId: `skill-run-${i}`,
+              lit: true,
+              article: true,
+            })}
+          />
+        )
+        const isOpen = opened?.index === i
         return (
           // a climb may come back to a recipe: keyed by place
-          <Stack key={`${i}-${r.recipe_id}`} gap={4}>
+          <Stack key={`${i}-${r.recipe_id}`} gap={4} className={isOpen ? undefined : classes.link}>
             <div className={classes.step}>
               <ChainArrow />
               {from > 0 && (
@@ -311,12 +404,14 @@ function Chain({
                 </Text>
               )}
             </div>
-            {training ? (
+            {isOpen ? (
+              opened?.panel
+            ) : training ? (
               <Trained training={training} from={from} to={r.stop_skill} first={false}>
-                <OptionCard result={r} best={false} items={items} learn={learn[r.recipe_id]} />
+                {card}
               </Trained>
             ) : (
-              <OptionCard result={r} best={false} items={items} learn={learn[r.recipe_id]} />
+              card
             )}
           </Stack>
         )
@@ -337,7 +432,7 @@ function Chain({
  * climb goes on with another recipe, it turns trivial or the skill reaches its cap), centred, with the rest of its
  * climb hung below; Show me other options lays
  * the best few side by side, the chain muted under the one it follows until another is picked, which then folds
- * back to be the one crafted now. Choosing the run crafted now opens it out into the full run: what to make until when, what it costs,
+ * back to be the one crafted now. Clicking a card in the single column (the run crafted now or one of its chain, one at a time) opens it out in place into the full run: what to make until when, what it costs,
  * what the next best was, what comes after it, and a checklist per character to take into the game. The list holds still while new prices come in, until the
  * user refreshes it.
  */
@@ -356,30 +451,23 @@ export function SkillWorkspace({
   // The price version the list was made at: it moves only on Refresh.
   const [frozen, setFrozen] = useState<number | undefined>(undefined)
   if (frozen === undefined && status) setFrozen(livePrices)
-  const params = useMemo<RankParams>(() => ({ ...filters, top: TOP }), [filters])
+  const params = useMemo<RankParams>(() => ({ ...filters, top: OPTIONS }), [filters])
   const rank = useRank(params, { priceVersion: frozen })
   const version = useDataVersion()
-  // The option opened out; null: the overview. `fromList`: opened from See all, as that list ranks it (an option side
-  // by side leaves out those before it; the same recipe in the full list doesn't).
-  const [openId, setOpenId] = useState<number | null>(null)
-  const [fromList, setFromList] = useState(false)
-  const [all, setAll] = useState(false)
-  // How many cards the full list shows; past the ones that came with the list, more are asked for.
-  const [shown, setShown] = useState(GRID)
+  // The card opened out in the single column, at most one: 0 the run to craft now, i + 1 the chain's i-th run;
+  // null: none.
+  const [openAt, setOpenAt] = useState<number | null>(null)
   const results = rank.data?.results ?? []
-  const allRank = useRank(
-    { ...params, top: shown },
-    { priceVersion: frozen, enabled: all && shown > results.length },
-  )
-  const listed = (shown > results.length ? allRank.data?.results : undefined) ?? results
-  // The options side by side: the runs starting the cheapest climbs, each what picking it gives, else as listed.
-  const options = rank.data?.options?.length ? rank.data.options : results.slice(0, OPTIONS)
+  // The options side by side: the runs starting the cheapest climbs, each what picking it gives, else as listed;
+  // cheapest climb first.
+  const listed = rank.data?.options?.length ? rank.data.options : results.slice(0, OPTIONS)
+  const options = useMemo(() => byClimbCost(listed), [listed])
   const bestId = results[0]?.recipe_id
   // The option to craft now: the best unless the user picked another of the first few (null: the best).
   const [pickedId, setPickedId] = useState<number | null>(null)
   const nowIndex = Math.max(
     0,
-    options.findIndex((r) => r.recipe_id === pickedId),
+    options.findIndex((r) => r.recipe_id === (pickedId ?? bestId)),
   )
   const ranked = options[nowIndex]
   const picked = ranked !== undefined && ranked.recipe_id !== bestId
@@ -404,15 +492,13 @@ export function SkillWorkspace({
   const [settled, setSettled] = useState(current)
   if (!chainPending && current !== settled) setSettled(current)
   const chain = chainPending && longer ? settled : current
-  // the run crafted now as it stands after a pick, else as ranked
-  const open =
-    openId === null
-      ? undefined
-      : fromList
-        ? listed.find((r) => r.recipe_id === openId)
-        : openId === now?.recipe_id
-          ? now
-          : (options.find((r) => r.recipe_id === openId) ?? listed.find((r) => r.recipe_id === openId))
+  // the run opened out: the one crafted now as it stands after a pick (else as ranked), or one of its chain
+  const open = expanded || openAt === null ? undefined : openAt === 0 ? now : chain[openAt - 1]
+  // A run of the chain is planned at the skill it starts from, which /api/evaluate doesn't plan at: its checklist is
+  // the run as the chain has it, scaled to the crafts, and its sources and exit stay as planned.
+  const inChain = open !== undefined && openAt !== 0
+  // the skill the run opened out starts at
+  const openFrom = !openAt ? climber.rank : openAt === 1 ? (now?.stop_skill ?? 0) : (chain[openAt - 2]?.stop_skill ?? 0)
   const atCap = climber.rank >= climber.maxRank
   const training: Training = { ranks: useProfessionRanks(), maxRank: climber.maxRank, profession }
   const evaluate: EvaluateParams = {
@@ -440,7 +526,7 @@ export function SkillWorkspace({
       .map((r) => ({ recipeId: r.recipe_id, copies: r.crafts_p80 })),
     evaluate,
   )
-  const buyFor = open && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
+  const buyFor = open && !inChain && settledCount > 0 && settledCount !== open.crafts ? settledCount : null
   // The user's changes to the run's plan (another source for a reagent, another way to sell); undefined: as ranked.
   const [choices, setChoices] = useState<Choices | undefined>(undefined)
   const modified = choices !== undefined
@@ -456,7 +542,7 @@ export function SkillWorkspace({
   // Planning a count the user typed. The count a run opens with is fetched ahead; should it still be on its way, the
   // ranked run in proportion shows meanwhile, close enough to need no spinner.
   const replanning = typed !== null && plan.isFetching && !modified
-  const editing: PlanEditing = {
+  const editing: PlanEditing | undefined = inChain ? undefined : {
     onChoose: (paths, key) => setChoices((prev) => paths.reduce((c, path) => chooseAt(c, path, key), prev ?? {})),
     modified,
     onReset: () => setChoices(undefined),
@@ -464,8 +550,8 @@ export function SkillWorkspace({
     error: modified ? (plan.error?.message ?? null) : null,
   }
   const items = useMemo(
-    () => ({ ...allRank.data?.items, ...rank.data?.items, ...chainRank.data?.items, ...plan.data?.items }),
-    [allRank.data, rank.data, chainRank.data, plan.data],
+    () => ({ ...rank.data?.items, ...chainRank.data?.items, ...plan.data?.items }),
+    [rank.data, chainRank.data, plan.data],
   )
   useEffect(() => {
     if (bestId !== undefined) track('next_up_shown', { profession })
@@ -480,7 +566,7 @@ export function SkillWorkspace({
   const scrollPending = useRef(false)
   useLayoutEffect(() => {
     const el = runRef.current
-    if (openId === null || !scrollPending.current || !el) return
+    if (openAt === null || !scrollPending.current || !el) return
     scrollPending.current = false
     const target = scrollTarget(layoutTop(el), el.offsetHeight, window.scrollY, window.innerHeight)
     if (target === null) return
@@ -497,16 +583,15 @@ export function SkillWorkspace({
       window.removeEventListener('wheel', stop)
       window.removeEventListener('touchstart', stop)
     }
-  }, [openId])
-  const choose = (id: number | null, listedRun = false) => {
-    setOpenId(id)
-    setFromList(listedRun)
-    scrollPending.current = id !== null
+  }, [openAt])
+  const choose = (at: number | null) => {
+    setOpenAt(at)
+    scrollPending.current = at !== null
     setTyped(null)
     setChoices(undefined)
     setView('steps')
     setCopied(false)
-    if (id !== null) track('row_opened', { profession })
+    if (at !== null) track('row_opened', { profession })
   }
   const copy = () => {
     if (!checklist) return
@@ -552,7 +637,7 @@ export function SkillWorkspace({
 
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
-  const learn = { ...allRank.data?.learn, ...rank.data.learn }
+  const learn = rank.data.learn
   const refresh = frozen !== undefined && livePrices !== frozen && (
     <Alert color="blue" title="Prices updated since this list was made">
       <Group justify="space-between">
@@ -584,9 +669,115 @@ export function SkillWorkspace({
     setPickedId(id === bestId ? null : id)
     setChainLength(CHAIN)
     setExpanded(false)
-    setAll(false)
   }
-  // The run crafted now's chain: under its card, under it opened out, and muted under it among the options
+  // The run opened out, in place of the card it grows out of
+  const panel = open && (
+    <motion.div
+      layoutId={openAt === 0 ? `skill-option-${open.recipe_id}` : `skill-run-${(openAt ?? 1) - 1}`}
+      transition={LAYOUT}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      style={{ borderRadius: 8 }}
+      className={classes.opened}
+    >
+        <Paper ref={runRef} withBorder p="md" radius="md" aria-label="Run details" component="section">
+          <Stack gap="xs">
+            <Group justify="space-between">
+              <Button size="compact-sm" variant="subtle" onClick={() => choose(null)}>
+                Close
+              </Button>
+              {modified && (
+                <Badge size="sm" variant="light" color="yellow">
+                  Changed plan
+                </Badge>
+              )}
+            </Group>
+            <Title order={4}>
+              <RecipeName result={open} items={items} />
+            </Title>
+            <Text size="lg" fw={700}>
+              {/* the user's changed plan costs what it costs; otherwise the run as ranked */}
+              <NetPerPoint result={(modified && planned) || open} />
+            </Text>
+            <Text size="sm">
+              <RunText result={open} items={items} />
+            </Text>
+            <TrainNote training={training} from={openFrom} to={open.stop_skill} first={openAt === 0} />
+            {learn[open.recipe_id] && mustLearn(open) && (
+              <Text size="sm">
+                {learnNote(open, learn[open.recipe_id])}:{' '}
+                <LearnTooltip learn={learn[open.recipe_id]}>where to get it</LearnTooltip>
+              </Text>
+            )}
+            <Divider my={4} />
+            {open.stop_skill > 0 && (
+              <Group gap="xs" wrap="nowrap">
+                <NumberInput
+                  size="xs"
+                  w={90}
+                  min={1}
+                  max={MAX_BUY}
+                  allowDecimal={false}
+                  aria-label="Crafts to buy for"
+                  value={buyCount}
+                  onChange={(v) => setTyped(typeof v === 'number' && v >= 1 ? Math.min(v, MAX_BUY) : null)}
+                />
+                <Text size="xs" c="dimmed">
+                  {reachPercent(open, buyCount)}% chance to reach your target of {open.stop_skill} skill
+                  {overtime >= 0.05 && ` (includes ~${overtime.toFixed(1)} skill points from Working Overtime)`}
+                </Text>
+                {/* A slot of its own size, so the spinner never moves anything */}
+                <Box w={SPINNER} h={SPINNER} style={{ flexShrink: 0 }}>
+                  {replanning && <Loader size={SPINNER} aria-label="Planning" />}
+                </Box>
+              </Group>
+            )}
+            <Group gap="sm">
+              <PlanViewSwitch value={view} onChange={setView} />
+              {modified && (
+                <Button size="compact-xs" variant="light" onClick={editing?.onReset}>
+                  Reset
+                </Button>
+              )}
+              {editing?.pending && <Loader size="xs" aria-label="Re-costing" />}
+              {editing?.error && (
+                <Text size="xs" c="red">
+                  {editing?.error}
+                </Text>
+              )}
+            </Group>
+            {checklist &&
+              (view === 'flow' ? (
+                <RecipeFlow result={checklist} items={items} editing={editing} />
+              ) : (
+                <StepList
+                  result={checklist}
+                  items={items}
+                  editing={editing}
+                  mode="skill"
+                  learn={
+                    learn[open.recipe_id] &&
+                    mustLearn(open) && (
+                      <LearnStep
+                        learn={learn[open.recipe_id]!}
+                        recipe={open.output_name}
+                        cost={open.learn_cost}
+                        items={items}
+                      />
+                    )
+                  }
+                />
+              ))}
+            <Group gap="xs">
+              <Button size="xs" variant="light" onClick={copy}>
+                {copied ? 'Copied' : 'Copy steps'}
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+    </motion.div>
+  )
+  // The run crafted now's chain: under its card, opened out or not, and muted under it among the options
   const chainView = (
     <Chain
       runs={chain}
@@ -596,34 +787,19 @@ export function SkillWorkspace({
       layoutId="skill-chain"
       column={nowIndex + 1}
       // among the options side by side: the next run alone, and no reminders
-      preview={expanded && !open}
-      training={expanded && !open ? undefined : training}
+      preview={expanded}
+      training={expanded ? undefined : training}
       // a longer chain on its way keeps the runs already shown as they are
-      muted={(expanded && !open) || (chainPending && !longer)}
-      pending={chainPending && !(expanded && !open)}
-      onMore={
-        !(expanded && !open) && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN) : undefined
-      }
+      muted={expanded || (chainPending && !longer)}
+      pending={chainPending && !expanded}
+      onMore={!expanded && chain.length >= chainLength ? () => setChainLength((n) => n + CHAIN) : undefined}
+      // in the single column each run opens out in place; not while another chain is on its way
+      onOpen={expanded || chainPending ? undefined : (i) => choose(openAt === i + 1 ? null : i + 1)}
+      opened={panel && openAt !== null && openAt > 0 ? { index: openAt - 1, panel } : undefined}
     />
   )
   // Each option's chain as it came with the list, by recipe
-  const optionChains = new Map(options.map((r, i) => [r.recipe_id, rank.data?.option_chains?.[i] ?? NO_RUNS]))
-  // Under the run opened out: its chain (the one crafted now's, else an option's as listed; from the full list, none
-  // unless it is the run crafted now as ranked, leaving nothing out)
-  const openChain =
-    open === undefined || (fromList && (open.recipe_id !== now?.recipe_id || now.climb_without.length > 0)) ? null : open.recipe_id === now?.recipe_id ? (
-      chainView
-    ) : (
-      <Chain
-        runs={optionChains.get(open.recipe_id) ?? NO_RUNS}
-        start={open.stop_skill}
-        items={items}
-        learn={learn}
-        muted={false}
-        pending={false}
-        training={training}
-      />
-    )
+  const optionChains = new Map(listed.map((r, i) => [r.recipe_id, rank.data?.option_chains?.[i] ?? NO_RUNS]))
 
   return (
     <CharacterClasses.Provider value={rank.data.classes}>
@@ -632,249 +808,98 @@ export function SkillWorkspace({
         {capCard}
         {refresh}
         <LayoutGroup>
-          {open ? (
-            // grows out of its option card; opened from the full list, which has none, it fades in
-            <motion.div
-              layoutId={`skill-option-${open.recipe_id}`}
-              transition={LAYOUT}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              style={{ borderRadius: 8 }}
-            >
-              <Paper ref={runRef} withBorder p="md" radius="md" aria-label="Run details" component="section">
-                <Stack gap="xs">
-                  <Group justify="space-between">
-                    <Button size="compact-sm" variant="subtle" onClick={() => choose(null)}>
-                      ← back
-                    </Button>
-                    <Group gap={6}>
-                      {modified && (
-                        <Badge size="sm" variant="light" color="yellow">
-                          Changed plan
-                        </Badge>
-                      )}
-                      {open.recipe_id === bestId && (
-                        <Badge size="sm" variant="light" color="teal">
-                          Best
-                        </Badge>
-                      )}
-                    </Group>
-                  </Group>
-                  <Title order={4}>
-                    <RecipeName result={open} items={items} />
-                  </Title>
-                  <Text size="lg" fw={700}>
-                    {/* the user's changed plan costs what it costs; otherwise the run as ranked */}
-                    <NetPerPoint result={(modified && planned) || open} />
-                  </Text>
-                  <Text size="sm">
-                    <RunText result={open} items={items} />
-                  </Text>
-                  <TrainNote training={training} from={climber.rank} to={open.stop_skill} first />
-                  {learn[open.recipe_id] && mustLearn(open) && (
-                    <Text size="sm">
-                      {learnNote(open, learn[open.recipe_id])}:{' '}
-                      <LearnTooltip learn={learn[open.recipe_id]}>where to get it</LearnTooltip>
-                    </Text>
-                  )}
-                  <Divider my={4} />
-                  {open.stop_skill > 0 && (
-                    <Group gap="xs" wrap="nowrap">
-                      <NumberInput
-                        size="xs"
-                        w={90}
-                        min={1}
-                        max={MAX_BUY}
-                        allowDecimal={false}
-                        aria-label="Crafts to buy for"
-                        value={buyCount}
-                        onChange={(v) => setTyped(typeof v === 'number' && v >= 1 ? Math.min(v, MAX_BUY) : null)}
-                      />
-                      <Text size="xs" c="dimmed">
-                        {reachPercent(open, buyCount)}% chance to reach your target of {open.stop_skill} skill
-                        {overtime >= 0.05 && ` (includes ~${overtime.toFixed(1)} skill points from Working Overtime)`}
-                      </Text>
-                      {/* A slot of its own size, so the spinner never moves anything */}
-                      <Box w={SPINNER} h={SPINNER} style={{ flexShrink: 0 }}>
-                        {replanning && <Loader size={SPINNER} aria-label="Planning" />}
-                      </Box>
-                    </Group>
-                  )}
-                  <Group gap="sm">
-                    <PlanViewSwitch value={view} onChange={setView} />
-                    {modified && (
-                      <Button size="compact-xs" variant="light" onClick={editing.onReset}>
-                        Reset
-                      </Button>
-                    )}
-                    {editing.pending && <Loader size="xs" aria-label="Re-costing" />}
-                    {editing.error && (
-                      <Text size="xs" c="red">
-                        {editing.error}
-                      </Text>
-                    )}
-                  </Group>
-                  {checklist &&
-                    (view === 'flow' ? (
-                      <RecipeFlow result={checklist} items={items} editing={editing} />
-                    ) : (
-                      <StepList
-                        result={checklist}
-                        items={items}
-                        editing={editing}
-                        mode="skill"
-                        learn={
-                          learn[open.recipe_id] &&
-                          mustLearn(open) && (
-                            <LearnStep
-                              learn={learn[open.recipe_id]!}
-                              recipe={open.output_name}
-                              cost={open.learn_cost}
-                              items={items}
-                            />
-                          )
-                        }
-                      />
-                    ))}
-                  <Group gap="xs">
-                    <Button size="xs" variant="light" onClick={copy}>
-                      {copied ? 'Copied' : 'Copy steps'}
-                    </Button>
-                  </Group>
-                </Stack>
-              </Paper>
-              {openChain}
-            </motion.div>
-          ) : (
-            <Stack gap="xs" component="section" aria-label="Your options">
-              <Text size="lg" fw={600} ta="center">
-                What to craft next:
-              </Text>
-              {expanded && all ? (
-                // every option as a card, opened straight into its run; no chain here
-                <Stack gap="xs" aria-label="All options">
-                  <Group justify="flex-end">
-                    <Button variant="subtle" size="xs" onClick={() => setAll(false)}>
-                      Hide the full list
-                    </Button>
-                  </Group>
-                  <div className={classes.grid}>
-                    {listed.slice(0, shown).map((r) => (
-                      <OptionCard
-                        key={r.recipe_id}
-                        result={r}
-                        best={r.recipe_id === bestId}
-                        items={items}
-                        learn={learn[r.recipe_id]}
-                        onChoose={() => choose(r.recipe_id, true)}
-                      />
-                    ))}
-                  </div>
-                  {shown < rank.data.total && (
-                    <Button
-                      variant="light"
-                      size="xs"
-                      style={{ alignSelf: 'center' }}
-                      loading={allRank.isFetching}
-                      onClick={() => setShown((n) => n + GRID)}
-                    >
-                      Show more
-                    </Button>
-                  )}
-                </Stack>
-              ) : expanded ? (
-                <div
-                  className={classes.options}
-                  style={
-                    {
-                      '--options': options.length,
-                      '--now': nowIndex + 1,
-                      // under the rightmost card, below the chain should it hang there too
-                      '--see-all-row':
-                        (options.length - 1 === nowIndex ? chain : optionChains.get(options.at(-1)?.recipe_id ?? 0))
-                          ?.length
-                          ? 3
-                          : 2,
-                    } as CSSProperties
-                  }
-                >
-                  {options.map((r, i) => (
-                    <Fragment key={r.recipe_id}>
+          <Stack gap="xs" component="section" aria-label="Your options">
+            <Text size="lg" fw={600} ta="center">
+              What to craft next:
+            </Text>
+            {expanded ? (
+              <div
+                className={classes.options}
+                style={
+                  {
+                    '--options': options.length,
+                    '--now': nowIndex + 1,
+                  } as CSSProperties
+                }
+              >
+                {options.map((r, i) => (
+                  <Fragment key={r.recipe_id}>
+                    <Milestones
+                      result={r.recipe_id === now?.recipe_id ? now : r}
+                      column={i + 1}
+                      fade={r.recipe_id !== now?.recipe_id}
+                    />
+                    <div className={classes.option} style={{ '--column': i + 1 } as CSSProperties}>
                       <OptionCard
                         result={r}
-                        best={r.recipe_id === bestId}
                         items={items}
                         learn={learn[r.recipe_id]}
                         fade={r.recipe_id !== now?.recipe_id}
                         lit
+                        // the options are cheapest climb first
+                        cheapest={i === 0 && r.climb_cost != null}
                         onChoose={() => pick(r.recipe_id)}
                       />
-                      {/* every option's chain under it, muted until one is picked */}
-                      {r.recipe_id === now?.recipe_id ? (
-                        chainView
-                      ) : (
-                        <Chain
-                          runs={optionChains.get(r.recipe_id) ?? NO_RUNS}
-                          start={r.stop_skill}
-                          items={items}
-                          learn={learn}
-                          label={`What comes after ${r.output_name}`}
-                          column={i + 1}
-                          muted
-                          preview
-                          pending={false}
-                        />
-                      )}
-                    </Fragment>
-                  ))}
-                  {results.length > OPTIONS && (
-                    <Button
-                      variant="subtle"
-                      size="xs"
-                      className={classes.seeAll}
-                      onClick={() => {
-                        setShown(GRID)
-                        setAll(true)
-                      }}
-                    >
-                      See all {rank.data.total} options
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                now && (
-                  <div className={classes.single}>
+                    </div>
+                    {/* every option's chain under it, muted until one is picked */}
+                    {r.recipe_id === now?.recipe_id ? (
+                      chainView
+                    ) : (
+                      <Chain
+                        runs={optionChains.get(r.recipe_id) ?? NO_RUNS}
+                        start={r.stop_skill}
+                        items={items}
+                        learn={learn}
+                        label={`What comes after ${r.output_name}`}
+                        column={i + 1}
+                        muted
+                        preview
+                        pending={false}
+                      />
+                    )}
+                  </Fragment>
+                ))}
+              </div>
+            ) : (
+              now && (
+                <div className={classes.single}>
+                  <Milestones result={now} />
+                  {openAt === 0 && panel ? (
+                    <div className={classes.nowOpen}>{panel}</div>
+                  ) : (
                     <div className={classes.now}>
                       <Trained training={training} from={climber.rank} to={now.stop_skill} first>
                         <OptionCard
                           result={now}
-                          best={now.recipe_id === bestId}
                           items={items}
                           learn={learn[now.recipe_id]}
                           lit
-                          onChoose={() => choose(now.recipe_id)}
+                          onChoose={() => choose(0)}
                         />
                       </Trained>
                     </div>
-                    {options.length > 1 && (
-                      <Tooltip label="Show me other options" withArrow>
-                        <ActionIcon
-                          variant="subtle"
-                          size="lg"
-                          className={classes.more}
-                          aria-label="Show me other options"
-                          onClick={() => setExpanded(true)}
-                        >
-                          <IconSwap size={20} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                    {chainView}
-                  </div>
-                )
-              )}
-            </Stack>
-          )}
+                  )}
+                  {options.length > 1 && openAt !== 0 && (
+                    <Tooltip label="Show me other options" withArrow>
+                      <ActionIcon
+                        variant="subtle"
+                        size="lg"
+                        className={classes.more}
+                        aria-label="Show me other options"
+                        onClick={() => {
+                          choose(null)
+                          setExpanded(true)
+                        }}
+                      >
+                        <IconSwap size={20} />
+                      </ActionIcon>
+                    </Tooltip>
+                  )}
+                  {chainView}
+                </div>
+              )
+            )}
+          </Stack>
         </LayoutGroup>
       </Stack>
     </CharacterClasses.Provider>

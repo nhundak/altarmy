@@ -143,6 +143,7 @@ def load_market(
             station=r.station,
             learn_skill=r.learn_skill,
             source=r.source,
+            train_cost=r.train_cost,
             kind=r.kind,
         )
         for r in conn.execute(select(rt).where(rt.c.game_version == game_version).order_by(rt.c.id))

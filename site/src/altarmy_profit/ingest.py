@@ -588,6 +588,12 @@ def _item_ids(path: Path | None) -> list[int]:
     return [_int(r["item_id"]) for r in _rows(path)] if path and path.exists() else []
 
 
+def trainer_costs(path: Path | None) -> dict[int, int]:
+    """Spell -> what a trainer asks to teach it, from a version's `trainer_costs.csv`
+    (`vmangos.trainer_costs`); nothing if there is no such file."""
+    return {_int(r["spell_id"]): _int(r["cost"]) for r in _rows(path)} if path and path.exists() else {}
+
+
 def build_db(
     paths: dict[str, Path],
     conn: Connection,
@@ -597,12 +603,14 @@ def build_db(
     max_level: int = itemstats.LEVEL_60,
     vendor_recipes_csv: Path | None = None,
     sources_csv: Path | None = None,
+    trainer_costs_csv: Path | None = None,
 ) -> dict[str, int]:
     """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items/recipe_items/
     item_sources; prices, characters and other versions are left alone. `max_level` is the version's level
     cap (how ratings are shown). `vendor_recipes_csv` lists the recipe items vendors sell with limited
     stock too: with `vendor_csv`'s they count as normal recipes even when they bind on pickup
-    (`learn_sources`). `sources_csv` says where recipe items come from (`item_sources`)."""
+    (`learn_sources`). `sources_csv` says where recipe items come from (`item_sources`), `trainer_costs_csv`
+    what trainers charge (`recipes.train_cost`, for the recipes trainers teach)."""
     for table in GAME_DATA_TABLES:
         conn.execute(delete(table).where(table.c.game_version == game_version))
 
@@ -664,6 +672,7 @@ def build_db(
     cast_ms = cast_times(paths["SpellMisc"], paths["SpellCastTimes"])
     stations = spell_stations(paths["SpellCastingRequirements"], paths["SpellFocusObject"])
     learned_at = learn_skills(paths, skill_ranks)
+    fees = trainer_costs(trainer_costs_csv)
     vendor_ids = _item_ids(vendor_csv)
     taught_by = learn_sources(
         paths, bonding, frozenset(vendor_ids) | frozenset(_item_ids(vendor_recipes_csv))
@@ -729,6 +738,7 @@ def build_db(
         else:
             continue
         rid = _int(r["ID"])
+        source = taught_by.get(spell, "trainer")
         recipes[rid] = {  # a later row with the same id replaces an earlier one
             "game_version": game_version,
             "id": rid,
@@ -745,7 +755,8 @@ def build_db(
             "cast_time_ms": cast_ms.get(spell, 0),
             "station": stations.get(spell, ""),
             "learn_skill": learned_at.get(spell, 0),
-            "source": taught_by.get(spell, "trainer"),
+            "source": source,
+            "train_cost": fees.get(spell, 0) if source == "trainer" else 0,
         }
         for k in [k for k in recipe_reagents if k[0] == rid]:
             del recipe_reagents[k]
@@ -777,6 +788,7 @@ def build_db(
             "station": "",
             "learn_skill": 0,
             "source": "trainer",
+            "train_cost": 0,
         }
         recipe_reagents[rid, item] = {
             "game_version": game_version,
@@ -820,6 +832,7 @@ def update(
     vendor_csv: Path | None = None,
     vendor_recipes_csv: Path | None = None,
     sources_csv: Path | None = None,
+    trainer_costs_csv: Path | None = None,
 ) -> dict[str, int]:
     """Download `build` (cached per build) and rebuild the version's game data from it, keeping prices."""
     max_level = versions.get(game_version).max_level
@@ -832,8 +845,9 @@ def update(
         max_level,
         vendor_recipes_csv,
         sources_csv,
+        trainer_costs_csv,
     )
-    data_files = (disenchant_csv, vendor_csv, vendor_recipes_csv, sources_csv)
+    data_files = (disenchant_csv, vendor_csv, vendor_recipes_csv, sources_csv, trainer_costs_csv)
     db.set_build(conn, game_version, build, _fingerprint(data_files))
     return stats
 
@@ -843,7 +857,13 @@ def fingerprint(version: versions.GameVersion) -> str:
     the version's hand-maintained CSVs. When it differs from the loaded data's (`db.get_fingerprint`),
     `ingest --only-if-new` reloads the same build. Line endings are ignored (a Windows checkout's files)."""
     return _fingerprint(
-        (version.disenchant_csv, version.vendor_csv, version.vendor_recipes_csv, version.sources_csv)
+        (
+            version.disenchant_csv,
+            version.vendor_csv,
+            version.vendor_recipes_csv,
+            version.sources_csv,
+            version.trainer_costs_csv,
+        )
     )
 
 

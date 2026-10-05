@@ -1009,6 +1009,11 @@ export interface components {
              * @enum {string}
              */
             source: "trainer" | "recipe" | "bop";
+            /**
+             * Train Cost
+             * @default 0
+             */
+            train_cost: number;
         };
         /**
          * LegOut
@@ -1090,6 +1095,23 @@ export interface components {
             tier: "free" | "linked";
             /** Uid */
             uid: string;
+        };
+        /**
+         * MilestoneOut
+         * @description What a climb is expected to come to by the time it reaches `skill`: its crafts (spent less what
+         *     selling what they make brings back, so negative when they earn) and its patterns, `unknown` of which have
+         *     no known price (not counted).
+         */
+        MilestoneOut: {
+            /** Cost */
+            cost: number;
+            /** Skill */
+            skill: number;
+            /**
+             * Unknown
+             * @default 0
+             */
+            unknown: number;
         };
         /**
          * NodeOut
@@ -1389,6 +1411,11 @@ export interface components {
             likely_profit: number;
             /** Mail To */
             mail_to: string;
+            /**
+             * Milestones
+             * @default []
+             */
+            milestones: components["schemas"]["MilestoneOut"][];
             /** Output Count */
             output_count: number;
             /** Output Item Id */

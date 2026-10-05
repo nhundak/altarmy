@@ -968,6 +968,20 @@ def _route(plan: engine.ClimbPlan | None) -> list[tuple[str, int, int]]:
     return [(r.recipe.name, r.start_skill, r.stop_skill) for r in plan.runs if r.recipe is not None]
 
 
+def test_a_climb_says_what_it_comes_to_by_each_skill() -> None:
+    """Crafts at a craft's net cost and patterns as bought, not the spares and grind that choose the plan."""
+    early = engine.Candidate(_recipe(1, 80, 100), 10.0)
+    later = engine.Candidate(_recipe(2, 80, 100), 5.0, from_skill=30, learn=100.0)
+    plan = _climb(_smith(10, 60), early, later).best
+    assert _route(plan) == [("R1", 10, 30), ("R2", 30, 60)]
+    assert plan is not None
+    assert plan.spent_by(20) == (100.0, 0)  # orange: a point a craft
+    assert plan.spent_by(50) == (20 * 10.0 + 100.0 + 20 * 5.0, 0)
+    assert plan.spent_by(61) is None  # past where it ends
+    unknown = _climb(_smith(10, 60), replace(early, learn=None)).best
+    assert unknown is not None and unknown.spent_by(60) == (500.0, 1)
+
+
 def _brute_cost(crafter: Crafter, candidates: Sequence[engine.Candidate], start: int, end: int) -> float:
     """The cheapest climb from `start` to `end` found by trying every recipe at every level: each stretch of
     one recipe costs its expected crafts, its spare materials (`engine.SPARE_Z` standard deviations of its

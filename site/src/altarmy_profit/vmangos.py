@@ -219,6 +219,43 @@ def vendor_recipes(conn: sqlite3.Connection) -> list[tuple[int, str]]:
     return [(int(i), str(name or "")) for i, name in rows]
 
 
+# What trainers charge. They list a server-side "teach" spell whose learn effect names the spell taught (the
+# newest build of each spell_template row); rows that ended before vmangos' last build (1.12.1, 5875) are
+# fees that later patches changed.
+EFFECT_LEARN_SPELL = 36
+LATEST_BUILD = 5875
+TRAINER_COSTS_SQL = """
+WITH newest AS (
+    SELECT s.entry, s.effect1, s.effectTriggerSpell1, s.effect2, s.effectTriggerSpell2,
+           s.effect3, s.effectTriggerSpell3
+    FROM spell_template s
+    WHERE s.build = (SELECT MAX(build) FROM spell_template n WHERE n.entry = s.entry)
+),
+offered(spell, cost) AS (
+    SELECT spell, spellcost FROM npc_trainer WHERE build_max >= :latest
+    UNION ALL
+    SELECT spell, spellcost FROM npc_trainer_template WHERE build_max >= :latest
+),
+taught(spell, cost) AS (
+    SELECT CASE
+             WHEN n.effect1 = :learn AND n.effectTriggerSpell1 > 0 THEN n.effectTriggerSpell1
+             WHEN n.effect2 = :learn AND n.effectTriggerSpell2 > 0 THEN n.effectTriggerSpell2
+             WHEN n.effect3 = :learn AND n.effectTriggerSpell3 > 0 THEN n.effectTriggerSpell3
+             ELSE o.spell
+           END,
+           o.cost
+    FROM offered o LEFT JOIN newest n ON n.entry = o.spell
+)
+SELECT spell, MIN(cost) FROM taught GROUP BY spell ORDER BY spell
+"""
+
+
+def trainer_costs(conn: sqlite3.Connection) -> list[tuple[int, int]]:
+    """(spell id, copper) of every spell a trainer teaches, at the least any trainer asks."""
+    rows = conn.execute(TRAINER_COSTS_SQL, {"latest": LATEST_BUILD, "learn": EFFECT_LEARN_SPELL})
+    return [(int(spell), int(cost or 0)) for spell, cost in rows]
+
+
 # --- where recipe items come from -------------------------------------------------------------------
 MAX_DROPS = 3  # drop sources listed per item; the rest are counted in a "more" row
 WORLD_DROP_AT = 20  # more creatures than this dropping an item: a world drop, not a list
@@ -546,4 +583,11 @@ def write_csv(rows: list[tuple[int, str]], path: Path) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f, lineterminator="\n")
         w.writerow(["item_id", "name"])
+        w.writerows(rows)
+
+
+def write_trainer_costs_csv(rows: list[tuple[int, int]], path: Path) -> None:
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f, lineterminator="\n")
+        w.writerow(["spell_id", "cost"])
         w.writerows(rows)

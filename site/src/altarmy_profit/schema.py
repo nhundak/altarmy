@@ -151,6 +151,9 @@ recipes = Table(
     # what teaches it (`engine.Source`): "recipe" a recipe item that can be traded, "bop" only recipe
     # items that bind on pickup, "trainer" no item (a profession trainer)
     Column("source", Text, nullable=False, default="trainer", server_default="trainer"),
+    # copper the cheapest trainer asks to teach it (the version's trainer_costs.csv); 0 if none does or
+    # nothing says (revision 0024)
+    Column("train_cost", Integer, nullable=False, default=0, server_default="0"),
 )
 
 recipe_reagents = Table(

@@ -203,7 +203,7 @@ describe('ResultsTable', () => {
   it('shows where each run stops and how it is learned', () => {
     const run: RankResult = { ...robe, stop_skill: 45, stop_reason: 'rival', crafts: 12, skill_ups: 5 }
     const learning: RankResult = { ...run, recipe_id: 101, crafter: 'Novice', crafters: ['Tailor Guy'] }
-    const learn: Record<string, Learn> = { '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [] } }
+    const learn: Record<string, Learn> = { '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [], train_cost: 0 } }
     renderWithProviders(<ResultsTable results={[run, learning]} items={items} rankBy="skill" learn={learn} />)
     expect(screen.getAllByText('45 (~12 crafts)')).toHaveLength(2) // the skill the run stops at, and its crafts
     expect(screen.queryByRole('img', { name: /Orange|Green|Yellow/ })).not.toBeInTheDocument() // no colour letters
@@ -240,8 +240,9 @@ describe('ResultsTable', () => {
             ],
           },
         ],
+        train_cost: 0,
       },
-      '102': { source: 'trainer', skill: 30, profession: 'Tailoring', items: [] },
+      '102': { source: 'trainer', skill: 30, profession: 'Tailoring', items: [], train_cost: 600 },
     }
     renderWithProviders(<ResultsTable results={[unlearned, trained]} items={items} learn={learn} />)
     const [first, second] = screen.getAllByText('not learned')
@@ -257,7 +258,9 @@ describe('ResultsTable', () => {
     expect(within(tip).getByTestId('map-dot')).toHaveStyle({ left: '40%', top: '60.5%' })
     await userEvent.unhover(first)
     await userEvent.hover(second)
-    expect(await screen.findByText('Taught by Tailoring trainers (skill 30)')).toBeInTheDocument()
+    expect(await screen.findByText(/Taught by Tailoring trainers \(skill 30\)/)).toHaveTextContent(
+      /^Taught by Tailoring trainers \(skill 30\) for 6 0$/,
+    )
     // hovering or tapping it does not open the row
     await userEvent.click(second)
     expect(screen.getAllByLabelText(`Details for ${robe.recipe}`)[1]).toHaveAttribute('aria-expanded', 'false')
@@ -270,7 +273,7 @@ describe('ResultsTable', () => {
       { ...vendor, name: 'Kendor', zone: 'Stormwind City', area: 1519 },
     ]
     const learn: Record<string, Learn> = {
-      '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [{ item_id: 4, name: 'Pattern: Green Robe', limited: false, places }] },
+      '101': { source: 'recipe', skill: 50, profession: 'Tailoring', items: [{ item_id: 4, name: 'Pattern: Green Robe', limited: false, places }], train_cost: 0 },
     }
     renderWithProviders(<ResultsTable results={[unlearned]} items={items} learn={learn} />)
     await userEvent.hover(screen.getByText('not learned'))
@@ -282,7 +285,7 @@ describe('ResultsTable', () => {
   it('says what a recipe item without known places is', async () => {
     const unlearned = { ...robe, recipe_id: 101, crafters: [] }
     const item = { item_id: 4, name: 'Pattern: Green Robe', limited: false, places: [] }
-    const learn: Record<string, Learn> = { '101': { source: 'bop', skill: 50, profession: 'Tailoring', items: [item] } }
+    const learn: Record<string, Learn> = { '101': { source: 'bop', skill: 50, profession: 'Tailoring', items: [item], train_cost: 0 } }
     renderWithProviders(<ResultsTable results={[unlearned]} items={items} learn={learn} />)
     await userEvent.hover(screen.getByText('not learned'))
     const tip = await screen.findByRole('tooltip')

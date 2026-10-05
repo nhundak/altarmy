@@ -77,6 +77,7 @@ export const robeResult: RankResult = {
   crafts_p80: 0,
   reach_chances: [],
   climb_without: [],
+  milestones: [],
   exits: [
     { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     { kind: 'ah', value: 475, materials: [], postage: 0, mail_to: '' },

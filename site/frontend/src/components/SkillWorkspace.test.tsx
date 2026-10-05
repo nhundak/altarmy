@@ -126,22 +126,65 @@ describe('SkillWorkspace', () => {
     expect(within(options).getAllByRole('button', { name: /^Choose / }).map((c) => c.getAttribute('aria-label'))).toEqual([
       'Choose Green Robe',
     ])
-    // the runs that follow it, nothing to click on them
+    // the runs that follow it, each opening out in place
     let chain = within(options).getByRole('region', { name: 'What comes after' })
     expect(chainNames(chain)).toEqual(['Linen Belt', 'Linen Boots'])
     // each arrow says the skill the next run starts at: where the one before stops
     expect(within(chain).getAllByText(/^At \d+ skill$/).map((e) => e.textContent)).toEqual(['At 45 skill', 'At 45 skill'])
-    expect(within(chain).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(chain).getAllByRole('button', { name: /^Open / })).toHaveLength(2)
     expect(chain).not.toHaveAttribute('aria-disabled')
     // the others side by side, the cheapest point first, the chain muted until one is picked
     await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
     const cards = within(options).getAllByRole('button', { name: /^Choose / })
     expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual(['Choose Green Robe', 'Choose Linen Cap'])
-    expect(within(cards[0]!).getByText('Best')).toBeInTheDocument()
-    expect(within(cards[1]!).queryByText('Best')).not.toBeInTheDocument()
+    expect(within(options).queryByText('Best')).not.toBeInTheDocument()
     chain = within(options).getByRole('region', { name: 'What comes after' })
     expect(chain).toHaveAttribute('aria-disabled', 'true')
     expect(screen.queryByRole('region', { name: 'Run details' })).not.toBeInTheDocument()
+  })
+
+  it('lays the options out cheapest climb first, each with what its climb comes to by each rank', async () => {
+    // the belt's own run is the cheapest per point, but its climb the dearest: the climbs decide
+    const milestones = (at75: number, at150: number) => [
+      { skill: 75, cost: at75, unknown: 0 },
+      { skill: 150, cost: at150, unknown: 0 },
+    ]
+    api({
+      '/api/rank': {
+        ...ranked,
+        options: [
+          { ...beltRun, climb_cost: 9000, milestones: milestones(3000, 9000) },
+          { ...capRun, climb_cost: 8000, milestones: milestones(2000, 8000) },
+          { ...robeRun, climb_cost: 5000, milestones: [...milestones(1000, 4000), { skill: 225, cost: 5000, unknown: 1 }] },
+        ],
+        option_chains: [[robeRun], [bootsRun], ranked.chain],
+      },
+    })
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    // the best climb's run is the one to craft now, with what its climb comes to over it
+    expect(within(options).getAllByRole('button', { name: /^Choose / }).map((c) => c.getAttribute('aria-label'))).toEqual([
+      'Choose Green Robe',
+    ])
+    const robe = within(options).getByRole('group', { name: 'Cost to reach each rank with Green Robe first' })
+    expect(robe).toHaveTextContent('75 skill:-10 0')
+    expect(robe).toHaveTextContent('225 skill:-50 0+ 1 pattern of unknown price')
+    await userEvent.click(within(options).getByRole('button', { name: 'Show me other options' }))
+    const cards = within(options).getAllByRole('button', { name: /^Choose / })
+    expect(cards.map((c) => c.getAttribute('aria-label'))).toEqual([
+      'Choose Green Robe',
+      'Choose Linen Cap',
+      'Choose Linen Belt',
+    ])
+    // the cheapest climb is badged Recommended, the others not
+    expect(within(cards[0]!).getByText('Recommended')).toBeInTheDocument()
+    expect(within(options).getAllByText('Recommended')).toHaveLength(1)
+    // each column has its own milestones and chain
+    expect(within(options).getByRole('group', { name: 'Cost to reach each rank with Linen Belt first' })).toHaveTextContent(
+      '150 skill:-90 0',
+    )
+    expect(chainNames(within(options).getByRole('region', { name: 'What comes after Linen Cap' }))).toEqual(['Linen Boots'])
+    expect(chainNames(within(options).getByRole('region', { name: 'What comes after Linen Belt' }))).toEqual(['Green Robe'])
   })
 
   it('shows each option as picking it gives', async () => {
@@ -175,19 +218,44 @@ describe('SkillWorkspace', () => {
     expect(screen.queryByText(/whole climb/)).not.toBeInTheDocument()
   })
 
-  it("offers the top card's details, and keeps its chain under it opened out", async () => {
+  it("offers the top card's details in place, its chain still under it", async () => {
     api()
     show()
     const options = await screen.findByRole('region', { name: 'Your options' })
     const card = within(options).getByRole('button', { name: 'Choose Green Robe' })
     await userEvent.click(card)
-    const run = screen.getByRole('region', { name: 'Run details' })
+    const run = within(options).getByRole('region', { name: 'Run details' })
     expect(chainNames(screen.getByRole('region', { name: 'What comes after' }))).toEqual([
       'Linen Belt',
       'Linen Boots',
     ])
-    await userEvent.click(within(run).getByRole('button', { name: '← back' }))
-    expect(await screen.findByRole('region', { name: 'Your options' })).toBeInTheDocument()
+    await userEvent.click(within(run).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('region', { name: 'Run details' })).not.toBeInTheDocument()
+  })
+
+  it('opens any card of the single column in place, one at a time, under What to craft next', async () => {
+    api()
+    show()
+    const options = await screen.findByRole('region', { name: 'Your options' })
+    const chain = within(options).getByRole('region', { name: 'What comes after' })
+    await userEvent.click(within(chain).getByRole('button', { name: 'Open Linen Boots' }))
+    let run = within(chain).getByRole('region', { name: 'Run details' })
+    expect(within(run).getByRole('heading')).toHaveTextContent(/Linen Boots/)
+    expect(within(options).getByText('What to craft next:')).toBeInTheDocument()
+    // the cards around it stay
+    expect(within(options).getByRole('button', { name: 'Choose Green Robe' })).toBeInTheDocument()
+    expect(within(chain).getByRole('button', { name: 'Open Linen Belt' })).toBeInTheDocument()
+    // opening another closes it
+    await userEvent.click(within(chain).getByRole('button', { name: 'Open Linen Belt' }))
+    expect(screen.getAllByRole('region', { name: 'Run details' })).toHaveLength(1)
+    // in place of the belt's card (whose item, in these fixtures, is the robe's)
+    expect(within(chain).queryByRole('button', { name: 'Open Linen Belt' })).not.toBeInTheDocument()
+    expect(within(chain).getByRole('region', { name: 'Run details' })).toBeInTheDocument()
+    expect(within(chain).getByRole('button', { name: 'Open Linen Boots' })).toBeInTheDocument()
+    await userEvent.click(within(options).getByRole('button', { name: 'Choose Green Robe' }))
+    expect(screen.getAllByRole('region', { name: 'Run details' })).toHaveLength(1)
+    expect(within(screen.getByRole('region', { name: 'Run details' })).getByRole('heading')).toHaveTextContent(/Green Robe/)
+    expect(within(options).getByText('What to craft next:')).toBeInTheDocument()
   })
 
   it('shows four more runs after the chain on asking', async () => {
@@ -240,7 +308,7 @@ describe('SkillWorkspace', () => {
     const run = screen.getByRole('region', { name: 'Run details' })
     expect(within(run).getByRole('heading')).toHaveTextContent(/Linen Cap/)
     expect(run).toHaveTextContent(/Craft until 60 skill/) // the run as it stands after the pick
-    await userEvent.click(within(run).getByRole('button', { name: '← back' }))
+    await userEvent.click(within(run).getByRole('button', { name: 'Close' }))
     const back = await screen.findByRole('region', { name: 'Your options' })
     expect(within(back).getByRole('button', { name: 'Choose Linen Cap' })).toBeInTheDocument()
   })
@@ -306,7 +374,7 @@ describe('SkillWorkspace', () => {
     expect(within(run).getByText('95% chance to reach your target of 45 skill')).toBeInTheDocument()
     await waitFor(async () => expect((await bodies(fetch, '/api/events')).map((b) => b.name)).toContain('row_opened'))
     // and back to the options
-    await userEvent.click(within(run).getByRole('button', { name: '← back' }))
+    await userEvent.click(within(run).getByRole('button', { name: 'Close' }))
     expect(await screen.findByRole('region', { name: 'Your options' })).toBeInTheDocument()
   })
 
@@ -374,6 +442,7 @@ describe('SkillWorkspace', () => {
         skill: 50,
         profession: 'Tailoring',
         items: [{ item_id: 9001, name: 'Pattern: Linen Cap', price: 1200, limited: false, places: [vendor] }],
+        train_cost: 0,
       },
     }
     api({ '/api/rank': { ...ranked, results: [robeRun, pattern, unknown], total: 3, learn } })
@@ -394,6 +463,24 @@ describe('SkillWorkspace', () => {
     )
     await userEvent.hover(within(first).getByText(/Rann Flamespinner/))
     expect(await screen.findByRole('img', { name: /Rann Flamespinner/ })).toBeInTheDocument()
+  })
+
+  it('says what a trainer asks to teach a recipe the climber lacks', async () => {
+    const trained: RankResult = { ...capRun, crafters: [], learn_cost: 600 }
+    const learn = { '101': { source: 'trainer', skill: 0, profession: 'Tailoring', items: [], train_cost: 600 } }
+    api({ '/api/rank': { ...ranked, results: [robeRun, trained], total: 2, learn } })
+    show()
+    const run = await choose('Linen Cap')
+    expect(within(run).getByText(/You must learn it from a trainer/)).toHaveTextContent(
+      /^You must learn it from a trainer \(6 0\)/,
+    )
+    const steps = within(run).getByRole('group', { name: "Tailor Guy's steps" })
+    expect(within(steps).getAllByRole('listitem')[0]!).toHaveTextContent(
+      /^Learn Linen Cap from a Tailoring trainer \(6 0\)$/,
+    )
+    // an expense, in red like the others
+    const fee = within(steps).getAllByRole('listitem')[0]!.querySelector('[data-cost]')
+    expect(fee).toHaveTextContent('6 0')
   })
 
   it('opens an option other than the best', async () => {
@@ -423,22 +510,14 @@ describe('SkillWorkspace', () => {
     }
   })
 
-  it('opens a card of the full list as its run, and goes back to the list', async () => {
+  it('asks only for the options side by side, with no full list', async () => {
     const many = [robeRun, capRun, beltRun, { ...beltRun, recipe_id: 103, recipe: 'Linen Boots', output_name: 'Linen Boots' }]
-    api({ '/api/rank': { ...ranked, results: [...many, { ...beltRun, recipe_id: 104, recipe: 'Linen Bag', output_item_id: 9002, output_name: 'Linen Bag' }], total: 5 } })
+    const fetch = api({ '/api/rank': { ...ranked, results: many, total: 9 } })
     show()
-    // only once the options are side by side
-    await screen.findByRole('region', { name: 'Your options' })
-    expect(screen.queryByRole('button', { name: 'See all 5 options' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Show me other options' }))
-    await userEvent.click(screen.getByRole('button', { name: 'See all 5 options' }))
-    expect(screen.queryByRole('region', { name: 'What comes after' })).not.toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: 'Choose Linen Bag' }))
-    const run = screen.getByRole('region', { name: 'Run details' })
-    expect(within(run).getByRole('heading')).toHaveTextContent('Linen Bag')
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    await userEvent.click(within(run).getByRole('button', { name: '← back' }))
-    expect(await screen.findByRole('button', { name: 'Choose Linen Bag' })).toBeInTheDocument() // the list again
+    await userEvent.click(await screen.findByRole('button', { name: 'Show me other options' }))
+    expect(screen.queryByRole('button', { name: /See all/ })).not.toBeInTheDocument()
+    expect(urls(fetch, '/api/rank').map((u) => u.searchParams.get('top'))).toContain('4')
+    expect(urls(fetch, '/api/rank').every((u) => Number(u.searchParams.get('top')) <= 4)).toBe(true)
   })
 
   it('shows no spinner while the plan fetched ahead is on its way, only for a count the user types', async () => {
@@ -556,30 +635,6 @@ describe('SkillWorkspace', () => {
     expect(counted.every((b) => Array.isArray(b.climb_without) && b.climb_without.length === 0)).toBe(true)
   })
 
-  it('opens a card of the full list as the list ranks it, though its recipe is an option side by side', async () => {
-    // side by side the cap leaves out the robe and goes on to 60; the full list ranks it as it is, to 45
-    const capOption: RankResult = { ...capRun, stop_skill: 60, stop_reason: 'trivial', overtaken_by: '', climb_without: [100] }
-    const extra = (i: number): RankResult => ({ ...beltRun, recipe_id: 200 + i, recipe: `Run ${i}`, output_name: `Run ${i}` })
-    const results = [robeRun, capRun, beltRun, extra(1), extra(2)]
-    const fetch = api({ '/api/rank': { ...ranked, results, total: 5, options: [robeRun, capOption] } })
-    show()
-    await userEvent.click(await screen.findByRole('button', { name: 'Show me other options' }))
-    expect(screen.getByRole('button', { name: 'Choose Linen Cap' })).toHaveTextContent('Craft until 60 skill')
-    await userEvent.click(screen.getByRole('button', { name: 'See all 5 options' }))
-    await userEvent.click(screen.getByRole('button', { name: 'Choose Linen Cap' }))
-    const run = screen.getByRole('region', { name: 'Run details' })
-    expect(run).toHaveTextContent('Craft until 45 skill (~12 times), at which point Linen Cap becomes a cheaper option')
-    // nothing hangs under it: the chain shown is the option's, which leaves the robe out
-    expect(screen.queryByRole('region', { name: 'What comes after' })).not.toBeInTheDocument()
-    // planned again (a source changed) as listed: nothing left out
-    await userEvent.click(await within(run).findByRole('button', { name: 'Change source of Coarse Thread' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: /Buy on the AH/ }))
-    await waitFor(async () =>
-      expect((await bodies(fetch, '/api/evaluate')).at(-1)).toMatchObject({ recipe_id: 101, choices: { 'r.1': 'ah' } }),
-    )
-    expect((await bodies(fetch, '/api/evaluate')).every((b) => (b.climb_without as number[]).length === 0)).toBe(true)
-  })
-
   it('offers the menus in the flow chart too, and forgets the changes on another option', async () => {
     api()
     show()
@@ -588,7 +643,7 @@ describe('SkillWorkspace', () => {
     await userEvent.click(await within(run).findByRole('button', { name: 'Change source of Coarse Thread' }))
     await userEvent.click(await screen.findByRole('menuitem', { name: /Buy on the AH/ }))
     expect(await within(run).findByRole('button', { name: 'Reset' })).toBeInTheDocument()
-    await userEvent.click(within(run).getByRole('button', { name: '← back' }))
+    await userEvent.click(within(run).getByRole('button', { name: 'Close' }))
     run = await choose('Linen Cap')
     expect(within(run).queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
   })
