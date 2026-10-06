@@ -1,6 +1,7 @@
 import { useSyncExternalStore, type MouseEvent } from 'react'
 
-/** The site's pages. Hosting (and the local server) serve index.html for each, so they are real paths. */
+/** The site's pages. Hosting (and the local server) serve index.html for each, so they are real paths; a page may
+ * have paths under it (`/profit/gold`), which are still that page. */
 export const ROUTES = ['/', '/addon', '/profit', '/manage', '/admin'] as const
 export type Route = (typeof ROUTES)[number]
 
@@ -15,15 +16,23 @@ function subscribe(listener: () => void) {
   }
 }
 
-/** The page for a path; anything unknown is the main page. */
+/** A path without its trailing slashes ("/" stays). */
+const normalized = (pathname: string) => (pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname)
+
+/** The page for a path (a path under a page is that page); anything unknown is the main page. */
 export function routeOf(pathname: string): Route {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname
-  return ROUTES.find((r) => r === path) ?? '/'
+  const path = normalized(pathname)
+  return ROUTES.find((r) => r === path || (r !== '/' && path.startsWith(`${r}/`))) ?? '/'
 }
 
 /** The current page; re-renders on navigation and the browser's back and forward buttons. */
 export function useRoute(): Route {
   return useSyncExternalStore(subscribe, () => routeOf(window.location.pathname))
+}
+
+/** The current path, without trailing slashes: for a page that shows different things at paths under it. */
+export function usePath(): string {
+  return useSyncExternalStore(subscribe, () => normalized(window.location.pathname))
 }
 
 // The page shown now and the one before it (null on the first), so a page can tell where the visitor came from.
@@ -45,11 +54,17 @@ function moved() {
 
 window.addEventListener('popstate', moved)
 
-/** Go to a page, adding a history entry. */
-export function navigate(to: Route) {
-  if (window.location.pathname !== to) window.history.pushState(null, '', to)
+/**
+ * Go to a path, adding a history entry; with `replace`, in place of the current one (a redirect: the back button then
+ * skips it), and without scrolling to the top.
+ */
+export function navigate(to: string, { replace = false }: { replace?: boolean } = {}) {
+  if (window.location.pathname !== to) {
+    if (replace) window.history.replaceState(null, '', to)
+    else window.history.pushState(null, '', to)
+  }
   moved()
-  window.scrollTo?.({ top: 0 })
+  if (!replace) window.scrollTo?.({ top: 0 })
   listeners.forEach((l) => l())
 }
 
@@ -57,7 +72,7 @@ export function navigate(to: Route) {
  * Props that make an anchor (or a Mantine Anchor/Button with `component="a"`) navigate within the app: a real
  * `href`, so modified clicks (new tab, copy link) still work, and plain left clicks handled here.
  */
-export function linkProps(to: Route) {
+export function linkProps(to: string) {
   return {
     href: to,
     onClick: (e: MouseEvent<HTMLElement>) => {

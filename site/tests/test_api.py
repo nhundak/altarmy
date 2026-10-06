@@ -1634,7 +1634,8 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
     client = make_client(database, game_versions, dist)
-    for page in ("/addon", "/profit", "/manage", "/admin"):
+    pages = ("/addon", "/profit", "/profit/gold", "/profit/skill/dreamscythe-horde/Tailor%20Guy/tailoring")
+    for page in (*pages, "/manage", "/admin"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"
     assert client.get("/assets/missing.js").status_code == 404

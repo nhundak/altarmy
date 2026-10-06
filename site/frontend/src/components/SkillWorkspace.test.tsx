@@ -10,7 +10,7 @@ import { status } from '../test/status'
 import { mockApi, renderWithProviders } from '../test/utils'
 import type { Holder } from '../lib/setup'
 import { scaleRun } from '../lib/skill'
-import { BARTERING, WORKING_OVERTIME } from '../lib/talents'
+import { WORKING_OVERTIME } from '../lib/talents'
 import { SkillWorkspace } from './SkillWorkspace'
 
 const capItem = { ...robeItem, id: 4, name: 'Linen Cap', quality: 2 }
@@ -70,7 +70,6 @@ const FILTERS: Omit<RankParams, 'top'> = {
 }
 const CLIMBER = { name: 'Tailor Guy', classFile: 'MAGE', level: 30, rank: 20, maxRank: 75 }
 const overtime = (rank: number) => ({ spellId: WORKING_OVERTIME, name: 'Working Overtime', rank, maxRank: 5 })
-const bartering = (rank: number) => ({ spellId: BARTERING, name: 'Bartering', rank, maxRank: 2 })
 
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([r]) => new URL(r.url)).filter((u) => u.pathname === pathname)
@@ -419,7 +418,7 @@ describe('SkillWorkspace', () => {
     expect(await screen.findByRole('region', { name: 'Your options' })).toBeInTheDocument()
   })
 
-  it('buys for the chance to reach the target the Skill options ask for', async () => {
+  it('buys for the chance to reach the target the Options ask for', async () => {
     const fetch = api()
     renderWithProviders(
       <SkillWorkspace filters={FILTERS} climber={CLIMBER} profession="Tailoring" reachTarget={90} />,
@@ -444,109 +443,6 @@ describe('SkillWorkspace', () => {
       ),
     ).toBeInTheDocument()
     expect(within(run).queryByText(/· .* points from Working Overtime/)).not.toBeInTheDocument()
-  })
-
-  it("names the character's crafting talents beside their skill, only when they have some", async () => {
-    api()
-    const { unmount } = show({ ...CLIMBER, name: 'Frell Ofelements', talents: [overtime(1), bartering(2)] })
-    expect(await screen.findByText('(1/5 Working Overtime, 2/2 Bartering)')).toBeInTheDocument()
-    expect(screen.getByText("Frell Ofelements'")).toBeInTheDocument()
-    unmount()
-    api()
-    show()
-    await screen.findByRole('region', { name: 'Your options' })
-    expect(screen.queryByText(/Working Overtime/)).not.toBeInTheDocument()
-    expect(screen.getByText("Tailor Guy's")).toBeInTheDocument()
-  })
-
-  it("switches to another character's profession from the header's menu, grouped by character", async () => {
-    api()
-    const onSwitch = vi.fn()
-    const holder = (name: string, rank: number) => ({ name, classFile: 'MAGE', level: 22, rank, maxRank: 75 })
-    const professions = [
-      { name: 'Cooking', holders: [holder('Tailor Guy', 5), holder('Amy', 30)] },
-      { name: 'Tailoring', holders: [holder('Tailor Guy', 20)] },
-    ]
-    renderWithProviders(
-      <SkillWorkspace
-        filters={FILTERS}
-        climber={CLIMBER}
-        profession="Tailoring"
-        professions={professions}
-        onSwitch={onSwitch}
-      />,
-    )
-    await userEvent.click(await screen.findByRole('button', { name: 'Switch character or profession' }))
-    const list = await screen.findByRole('listbox')
-    const options = () => within(list).getAllByRole('option')
-    const names = () => options().map((o) => o.textContent?.replace(/\d+\/\d+$/, ''))
-    // Amy before Tailor Guy, each with their professions
-    expect(names()).toEqual(['Cooking', 'Cooking', 'Tailoring'])
-    expect(within(list).getByText('Amy').compareDocumentPosition(within(list).getByText('Tailor Guy'))).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    )
-    // each character with their level and class, only the name in its colour
-    expect(within(list).getByText('Amy').parentElement).toHaveTextContent('Amy (level 22 mage)')
-    expect(within(list).getByText('Amy')).toHaveAttribute('data-class', 'MAGE')
-    expect(options()[2]).toHaveAttribute('aria-selected', 'true')
-    // typing narrows it by profession or character
-    const search = screen.getByRole('textbox', { name: 'Search characters or professions' })
-    await userEvent.type(search, 'cook')
-    expect(names()).toEqual(['Cooking', 'Cooking'])
-    await userEvent.clear(search)
-    await userEvent.type(search, 'amy')
-    expect(names()).toEqual(['Cooking'])
-    await userEvent.click(options()[0]!)
-    expect(onSwitch).toHaveBeenCalledWith('Cooking', 'Amy')
-  })
-
-  it('switches with the keyboard alone: arrows through the options, Enter picks, Tab closes', async () => {
-    api()
-    const onSwitch = vi.fn()
-    const holder = (name: string, rank: number) => ({ name, classFile: 'MAGE', level: 22, rank, maxRank: 75 })
-    const professions = [
-      { name: 'Cooking', holders: [holder('Tailor Guy', 5), holder('Amy', 30)] },
-      { name: 'Tailoring', holders: [holder('Tailor Guy', 20)] },
-    ]
-    renderWithProviders(
-      <SkillWorkspace
-        filters={FILTERS}
-        climber={CLIMBER}
-        profession="Tailoring"
-        professions={professions}
-        onSwitch={onSwitch}
-      />,
-    )
-    const select = await screen.findByRole('button', { name: 'Switch character or profession' })
-    select.focus()
-    await userEvent.keyboard(' ')
-    const search = await screen.findByRole('textbox', { name: 'Search characters or professions' })
-    await waitFor(() => expect(search).toHaveFocus())
-    // Tab goes back to the select, closed
-    await userEvent.tab()
-    expect(select).toHaveFocus()
-    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
-    await userEvent.keyboard(' ')
-    await waitFor(() => expect(search).toHaveFocus())
-    // from the current one (Tailor Guy's Tailoring, last) the arrows wrap round to Amy's Cooking
-    await waitFor(() =>
-      expect(screen.getByRole('option', { name: /Tailoring/ })).toHaveAttribute('data-combobox-selected'),
-    )
-    await userEvent.keyboard('{ArrowDown}{Enter}')
-    expect(onSwitch).toHaveBeenCalledWith('Cooking', 'Amy')
-  })
-
-  it('says what each talent does when they are hovered', async () => {
-    api()
-    show({ ...CLIMBER, talents: [overtime(2), bartering(1)] })
-    await userEvent.hover(await screen.findByText('(2/5 Working Overtime, 1/2 Bartering)'))
-    const tooltip = await screen.findByRole('tooltip')
-    expect(within(tooltip).getByText('Working Overtime')).toBeInTheDocument()
-    expect(within(tooltip).getByText('Rank 2/5')).toBeInTheDocument()
-    expect(within(tooltip).getByText('Increases your chance to gain a skill increase by 8%')).toBeInTheDocument()
-    expect(within(tooltip).getByText('Bartering')).toBeInTheDocument()
-    expect(within(tooltip).getByText('Rank 1/2')).toBeInTheDocument()
-    expect(within(tooltip).getByText('Reduces the gold price of items from all vendors by 5%')).toBeInTheDocument()
   })
 
   it('says what to do to learn a recipe the climber lacks', async () => {

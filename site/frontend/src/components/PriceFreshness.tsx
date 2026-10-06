@@ -22,7 +22,7 @@ export function PriceFreshness({ lastScan }: { lastScan: string | null }) {
   const stale = Number.isNaN(scanned) || now.getTime() - scanned > STALE_AFTER_MS
   const text =
     lastScan === null
-      ? `Nobody has scanned this auction house yet. ${HOW_TO_SCAN}`
+      ? 'No data collected for this auction house'
       : stale
         ? `Auction house prices are from a scan ${age(lastScan, now)}.`
         : `Auction house prices scanned ${age(lastScan, now)}.`

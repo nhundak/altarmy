@@ -22,6 +22,9 @@ function readRaw(key: string): string | undefined {
   }
 }
 
+/** Whether anything is stored under `key` (false when storage is blocked). */
+export const isStored = (key: string): boolean => readRaw(key) !== undefined
+
 /** Store `value` as JSON under `key` (nothing when storage is blocked), for a `useStoredState` mounted later. */
 export function writeStored(key: string, value: unknown) {
   try {

@@ -61,6 +61,14 @@ describe('the shell by tier', () => {
     expect(await screen.findByRole('link', { name: 'Put your army to work' })).toBeInTheDocument()
   })
 
+  it('opens a path under the profit page on that page', async () => {
+    hostedApi()
+    window.history.pushState(null, '', '/profit/gold')
+    renderApp()
+    expect(await screen.findByRole('region', { name: 'Realm' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^3 characters,/ })).toBeInTheDocument()
+  })
+
   it('gives anonymous users everything, with a way to sign in', async () => {
     hostedApi()
     window.history.pushState(null, '', '/profit')

@@ -5,20 +5,23 @@ import { notifications } from '@mantine/notifications'
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'motion/react'
 import { z } from 'zod'
 import type { CharacterGroup, Characters, UploadResult } from '../api/client'
-import { useCharacters } from '../api/queries'
+import { useCharacters, useTrack } from '../api/queries'
 import { CharacterList } from './CharacterList'
 import { age, parseUtc } from '../lib/age'
 import { realmLabel } from '../lib/realms'
-import { linkProps, previousRoute } from '../lib/router'
+import { parseProfitPath, profitPath } from '../lib/profitRoute'
+import { linkProps, navigate, previousRoute, usePath } from '../lib/router'
 import { useSession } from '../lib/session'
+import { setupSchema, storePresets, type Aim, type Setup as SetupAnswers } from '../lib/setup'
 import { useStoredState } from '../lib/storage'
 import { Hero } from './Hero'
 import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
-import { IconChevron, IconCompass, IconDownload, IconPaste } from './icons'
+import { IconChevron, IconCompass, IconPaste } from './icons'
 import classes from './Profit.module.css'
 import { PasteForm } from './PasteForm'
 import { SearchTab } from './SearchTab'
+import { AimQuestion } from './Setup'
 import { type CardSpec, EASE, LAYOUT, type Phase, StartCard } from './StartCard'
 
 type CardKey = 'import' | 'auto' | 'browse'
@@ -26,6 +29,7 @@ type CardKey = 'import' | 'auto' | 'browse'
 const landingSchema = z.object({ browsed: z.boolean() })
 const NOT_BROWSED = { browsed: false }
 const NO_GROUPS: readonly CharacterGroup[] = []
+const storedSetup = setupSchema.nullable()
 /** Alt Army Sync counts as set up while it has uploaded anything within this many days. */
 const AUTO_IMPORT_DAYS = 30
 
@@ -92,7 +96,7 @@ function ImportBody({ onImported }: { onImported: (r: UploadResult) => void }) {
 
 /**
  * Once started: what the search works with (how many characters, when they were gathered, whether auto-upload is
- * on; it opens to show every character), and ways to change it.
+ * on; it opens to show every character), and Upload again, which opens the start cards (Auto-upload among them).
  */
 function Strip({
   data,
@@ -155,14 +159,10 @@ function Strip({
               </Text>
             </Text>
           )}
-          <Group gap="xs">
-            <Button size="xs" variant="light" leftSection={<IconPaste size={16} />} onClick={() => onOpen('import')}>
-              {count > 0 ? 'Upload again' : 'Upload your characters'}
-            </Button>
-            <Button size="xs" variant="default" leftSection={<IconDownload size={16} />} onClick={() => onOpen('auto')}>
-              Auto-upload
-            </Button>
-          </Group>
+          {/* Auto-upload is the card beside the paste once the start cards are open. */}
+          <Button size="xs" variant="light" leftSection={<IconPaste size={16} />} onClick={() => onOpen('import')}>
+            {count > 0 ? 'Upload again' : 'Upload your characters'}
+          </Button>
         </Group>
       </motion.div>
       <AnimatePresence initial={false}>
@@ -187,13 +187,18 @@ function Strip({
 }
 
 /**
- * The Profit page: the welcome banner and three ways to start (paste an upload, set up the auto-upload, skip) and,
- * once the visitor has characters or skipped, the search (which starts by asking for their goal) in their place. Whether they browsed is remembered per user;
- * having characters comes from the server, so another browser's upload counts too.
+ * The Profit page. At /profit: the welcome banner and three ways to start (paste an upload, set up the auto-upload,
+ * skip) and, once the visitor has characters or skipped, what they are after, which leads to /profit/gold or
+ * /profit/skill: the search (`SearchTab`), with the characters (the strip, or the start cards again) beside its realm
+ * card. Whether they browsed is remembered per user; having characters comes from the server, so another browser's
+ * upload counts too.
  */
 export function ProfitPage() {
   const { uid } = useSession()
+  const view = parseProfitPath(usePath())
   const characters = useCharacters()
+  const track = useTrack()
+  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
   const [landing, setLanding] = useStoredState(`altarmy-profit.landing.${uid}`, landingSchema, NOT_BROWSED)
   const [open, setOpenKey] = useState<CardKey | null>(null)
   // The card the strip grows into and shrinks back from: the one picked last.
@@ -210,13 +215,21 @@ export function ProfitPage() {
   const shownBefore = useRef<boolean | null>(null)
 
   const groups = characters.data?.groups ?? NO_GROUPS
-  const started = groups.length > 0 || landing.browsed
+  // Past the start (a path under /profit), the visitor has started whatever they did before.
+  const atStart = view?.kind === 'start'
+  const started = !atStart || groups.length > 0 || landing.browsed
   const phase: Phase = open ? 'expanded' : started ? 'collapsed' : 'choose'
   const ready = characters.data !== undefined
   // Arriving from the main page, its card turns into the banner, so the banner is there at once (not after the
   // characters load) and folds away once they show the visitor has already started.
   const [carried] = useState(() => previousRoute() === '/')
-  const showHero = (ready && !started) || (carried && !ready)
+  const showHero = atStart && ((ready && !started) || (carried && !ready))
+
+  // A path under /profit that means nothing is the start.
+  const unknown = view === null
+  useEffect(() => {
+    if (unknown) navigate(profitPath({ kind: 'start' }), { replace: true })
+  }, [unknown])
 
   // Bring the search into view when it first appears, not when the page loads with it.
   useEffect(() => {
@@ -255,6 +268,13 @@ export function ProfitPage() {
     }
   }
 
+  const pickAim = (aim: Aim) => {
+    setLastSetup((prev) => ({ ...prev, aim }))
+    storePresets(aim)
+    track('aim_chosen', { aim })
+    navigate(profitPath({ kind: aim }))
+  }
+
   const imported = (r: UploadResult) => {
     setOpen(null)
     notifications.show({
@@ -265,6 +285,31 @@ export function ProfitPage() {
       }.`,
     })
   }
+
+  // The strip, or the start cards while one is open (or nothing is started): beside the realm card past the start,
+  // taking the whole width while open.
+  const charactersArea =
+    phase === 'collapsed' ? (
+      <Strip key="strip" data={characters.data} onOpen={setOpen} layoutId={cardLayoutId(lastPicked)} />
+    ) : (
+      <div key="cards" className={cards.cards} data-phase={phase} data-wide role="group" aria-label="Ways to start">
+        {cardsFor(groups.length > 0).map((spec) => (
+          <StartCard
+            key={spec.key}
+            spec={spec}
+            phase={phase}
+            layoutId={cardLayoutId(spec.key)}
+            fade={moved && spec.key !== lastPicked}
+            open={open === spec.key}
+            onPick={() => pick(spec.key)}
+            onClose={() => setOpen(null)}
+          >
+            {spec.key === 'import' && <ImportBody onImported={imported} />}
+            {spec.key === 'auto' && <AutoImportBody />}
+          </StartCard>
+        ))}
+      </div>
+    )
 
   return (
     <Stack gap="lg">
@@ -292,33 +337,7 @@ export function ProfitPage() {
           {/* The strip and the card picked last share a layout id, so one resizes into the other (as the Realm card
               does) while the other cards fade in. No AnimatePresence: Motion would hold a leaving shared-layout box
               until the new one's animation ends, and the resize needs nothing more than the old box's last layout. */}
-          {phase === 'collapsed' ? (
-            <Strip key="strip" data={characters.data} onOpen={setOpen} layoutId={cardLayoutId(lastPicked)} />
-          ) : (
-            <div
-              key="cards"
-              className={cards.cards}
-              data-phase={phase}
-              role="group"
-              aria-label="Ways to start"
-            >
-              {cardsFor(groups.length > 0).map((spec) => (
-                <StartCard
-                  key={spec.key}
-                  spec={spec}
-                  phase={phase}
-                  layoutId={cardLayoutId(spec.key)}
-                  fade={moved && spec.key !== lastPicked}
-                  open={open === spec.key}
-                  onPick={() => pick(spec.key)}
-                  onClose={() => setOpen(null)}
-                >
-                  {spec.key === 'import' && <ImportBody onImported={imported} />}
-                  {spec.key === 'auto' && <AutoImportBody />}
-                </StartCard>
-              ))}
-            </div>
-          )}
+          {atStart && charactersArea}
           <AnimatePresence>
             {started && (
               <motion.section
@@ -330,7 +349,21 @@ export function ProfitPage() {
                 transition={{ duration: 0.35, delay: 0.1, ease: EASE }}
                 style={{ scrollMarginTop: 16 }}
               >
-                <SearchTab />
+                {atStart ? (
+                  <AimQuestion
+                    current={lastSetup}
+                    unavailable={
+                      groups.length === 0 ? { skill: 'Upload your characters first, so we know which skills they have.' } : {}
+                    }
+                    onPick={pickAim}
+                  />
+                ) : (
+                  <SearchTab
+                    characters={charactersArea}
+                    charactersOpen={phase !== 'collapsed'}
+                    onUploadCharacters={() => setOpen('import')}
+                  />
+                )}
               </motion.section>
             )}
           </AnimatePresence>

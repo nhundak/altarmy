@@ -1,5 +1,5 @@
 import { Notifications } from '@mantine/notifications'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { UploadResult } from '../api/client'
@@ -58,6 +58,7 @@ describe('ProfitPage', () => {
   })
 
   it('skipping folds the cards away, asks the setup questions, then ranks, remembering both', async () => {
+    window.history.replaceState(null, '', '/profit') // so the back button comes back here
     const fetch = mockApi({ '/api/status': status({ characters: 0 }), '/api/characters': nobody, '/api/rank': noResults })
     const { unmount } = renderWithProviders(<ProfitPage />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
@@ -69,19 +70,59 @@ describe('ProfitPage', () => {
     // nothing is ranked until the setup is complete
     const aims = within(search).getByRole('group', { name: 'What are you after?' })
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
-    // making gold asks nothing more: the list shows both ways to sell
+    // making gold asks nothing more: its own path, where the list shows both ways to sell
     await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
+    expect(window.location.pathname).toBe('/profit/gold')
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
-    expect(within(search).queryByRole('group', { name: 'How do you want to sell?' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'What are you after?' })).not.toBeInTheDocument()
     expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('likely')
+    expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({ aim: 'gold' })
+
+    // the back button asks again, the answer given marked
+    act(() => window.history.back())
+    const again = await screen.findByRole('group', { name: 'What are you after?' })
+    expect(within(again).getByRole('button', { name: 'Make gold' })).toHaveAttribute('aria-pressed', 'true')
 
     unmount()
     renderWithProviders(<ProfitPage />)
-    expect(await screen.findByRole('region', { name: 'Search' })).toBeInTheDocument()
-    expect(await screen.findByRole('button', { name: 'Making gold' })).toBeInTheDocument()
-    expect(screen.queryByRole('group', { name: 'What are you after?' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'What are you after?' })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
+  })
+
+  it('skilling up goes on to which profession, at its own path', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<ProfitPage />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
+    expect(window.location.pathname).toBe('/profit/skill')
+    expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^3 characters/ })).toBeInTheDocument() // the characters above it
+    await userEvent.click(screen.getByRole('button', { name: 'Tailoring' }))
+    expect(window.location.pathname).toBe('/profit/skill/classic-beta-pve-horde/Tailor%20Guy/tailoring')
+  })
+
+  it('shows the characters beside the realm card past the start, across the whole width while uploading', async () => {
+    navigate('/profit/gold')
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<ProfitPage />)
+    const summary = await screen.findByRole('button', { name: /^3 characters/ })
+    const realm = await screen.findByRole('region', { name: 'Realm' })
+    const strip = summary.closest('[class*="strip"]')!
+    expect(strip.parentElement).toBe(realm.parentElement)
+    expect(strip).not.toHaveAttribute('data-wide')
+    await userEvent.click(screen.getByRole('button', { name: 'Upload again' }))
+    const ways = await screen.findByRole('group', { name: 'Ways to start' })
+    expect(ways).toHaveAttribute('data-wide')
+    expect(ways.parentElement).toBe(realm.parentElement)
+    expect(window.location.pathname).toBe('/profit/gold')
+  })
+
+  it('takes a path under it that means nothing back to the start', async () => {
+    navigate('/profit/nope')
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<ProfitPage />)
+    await waitFor(() => expect(window.location.pathname).toBe('/profit'))
+    expect(await screen.findByRole('group', { name: 'What are you after?' })).toBeInTheDocument()
   })
 
   it('uploads pasted characters, then shows them above the search', async () => {
@@ -125,6 +166,10 @@ describe('ProfitPage', () => {
     expect(screen.getByRole('button', { name: '3 characters, Auto-upload off' })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
+    // the strip has no Auto-upload of its own: it is one of the start cards Upload again opens
+    expect(screen.queryByRole('button', { name: 'Auto-upload' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Upload again' }))
+    expect(await screen.findByRole('group', { name: 'Ways to start' })).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Auto-upload' }))
     expect(await screen.findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(screen.getByText(/never changes a game file/)).toBeInTheDocument()
@@ -170,6 +215,7 @@ describe('ProfitPage', () => {
   it('offers Continue instead of Skip for now once the user has characters', async () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Upload again' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Auto-upload' }))
     expect(await screen.findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Skip for now' })).not.toBeInTheDocument()

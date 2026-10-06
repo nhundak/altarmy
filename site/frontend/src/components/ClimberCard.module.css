@@ -1,0 +1,47 @@
+/* Who skills up what, a button looking like a select, across the card. */
+.select {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+/* A character in the menu, under their realm's heading: like a group label, set in a little. */
+.character {
+  padding: 6px 8px 2px;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 600;
+  color: var(--mantine-color-dimmed);
+}
+
+/* One profession in the menu: icon, name, then the skill bar, at the same place on every row. */
+.row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
+}
+
+.row[data-active] {
+  font-weight: 700;
+}
+
+/* The option the keyboard is on: a light shade, not Mantine's filled primary, which would hide the skill bar (class
+ * doubled to win over Mantine's own rule whatever the load order). */
+.option.option[data-combobox-selected] {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
+  color: inherit;
+}
+
+/* The one being skilled up now: bold (above) and a bar of the primary colour down its left edge. */
+.option[data-combobox-active] {
+  box-shadow: inset 3px 0 0 var(--mantine-primary-color-filled);
+}
+
+/* The climber's talents, which say what they do on hover: underlined dotted, as the step list's hints are. */
+.hint {
+  align-self: flex-start;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}

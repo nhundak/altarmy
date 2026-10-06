@@ -1,9 +1,11 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { robeResult } from '../test/results'
 import { characters, status, withEnchanter } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
+import { navigate } from '../lib/router'
 import { SearchTab, SHOW_ARCANE_SALVAGER } from './SearchTab'
 import { SYNC_DOWNLOAD } from './SyncCard'
 
@@ -39,17 +41,16 @@ function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([request]) => new URL(request.url)).filter((u) => u.pathname === pathname)
 }
 
-/** Seed the stored setup for both test sessions; most tests make gold, selling anything. */
-const withSetup = (setup: object | null) => {
-  for (const uid of ['g1', 'guest']) {
-    if (setup) localStorage.setItem(`altarmy-profit.setup.${uid}`, JSON.stringify(setup))
-    else localStorage.removeItem(`altarmy-profit.setup.${uid}`)
-  }
-}
-const GOLD = { aim: 'gold', selling: 'any' }
-const SKILL = { aim: 'skill', profession: 'Tailoring' }
+/** Open the search at `path` (most tests make gold). */
+const at = (path: string) => window.history.replaceState(null, '', path)
+const GOLD = '/profit/gold'
+/** Tailor Guy skilling up Tailoring on Classic Beta PvE (Horde). */
+const TAILOR = '/profit/skill/classic-beta-pve-horde/Tailor%20Guy/tailoring'
 
 /** The buttons of the question named `name`, by label. */
+/** Open skilling up's Options, closed at first. */
+const openOptions = async () => userEvent.click(await screen.findByRole('button', { name: 'Options' }))
+
 const answers = (name: string) =>
   within(screen.getByRole('group', { name }))
     .getAllByRole('button')
@@ -58,7 +59,7 @@ const answers = (name: string) =>
 describe('SearchTab', () => {
   const realm = () => screen.getByRole('combobox', { name: 'Realm' })
 
-  beforeEach(() => withSetup(GOLD))
+  beforeEach(() => at(GOLD))
 
   it('says so when no game data is loaded', async () => {
     mockApi({
@@ -148,7 +149,7 @@ describe('SearchTab', () => {
     vi.unstubAllGlobals()
   })
 
-  it("opens Alt Army Sync's steps from the realm card's Auto-upload button", async () => {
+  it('offers only Upload your scan on the realm card, Auto-upload being a card beside the upload', async () => {
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -157,7 +158,10 @@ describe('SearchTab', () => {
     })
     renderWithProviders(<SearchTab />)
     const card = await screen.findByRole('region', { name: 'Realm' })
-    await userEvent.click(await within(card).findByRole('button', { name: 'Auto-upload' }))
+    expect(await within(card).findByRole('button', { name: 'Upload your scan' })).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: 'Auto-upload' })).not.toBeInTheDocument()
+    await userEvent.click(within(card).getByRole('button', { name: 'Upload your scan' }))
+    await userEvent.click(within(card).getByRole('button', { name: 'Auto-upload' }))
     expect(await within(card).findByRole('heading', { name: 'Auto-upload' })).toBeInTheDocument()
     expect(within(card).getByRole('link', { name: 'Download Alt Army Sync' })).toHaveAttribute('href', SYNC_DOWNLOAD)
     await userEvent.click(within(card).getByRole('button', { name: 'Back to the realm' }))
@@ -188,31 +192,21 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />, GUEST)
-    expect(
-      await screen.findByText(/No prices yet for this realm\. At the auction house, press Alt Army scan/),
-    ).toBeInTheDocument()
+    expect(await screen.findByText('No data collected for this auction house')).toBeInTheDocument()
     expect(screen.queryByText(/guest/i)).not.toBeInTheDocument()
     expect(realm()).toHaveValue('')
     expect(screen.queryByRole('button', { name: 'Advanced Filters' })).not.toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toEqual([])
   })
 
-  it('asks what the user is after, then ranks by profit, both ways to sell side by side', async () => {
-    withSetup(null)
+  it('makes gold at its path, ranking by profit, both ways to sell side by side', async () => {
     localStorage.setItem('altarmy-profit.search.unlearned', '"soon"')
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
-    renderWithProviders(<SearchTab />)
-    await screen.findByRole('group', { name: 'What are you after?' })
-    expect(screen.getByRole('heading', { name: 'What are you after?' })).toBeInTheDocument()
-    expect(answers('What are you after?')).toEqual(['Make gold', 'Skill up'])
-    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
-
-    // making gold asks nothing more: the list shows playing it safe and the auction house side by side
-    await userEvent.click(screen.getByRole('button', { name: 'Make gold' }))
+    renderWithProviders(<SearchTab characters={<div>the characters</div>} />)
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
     expect(screen.queryByRole('group', { name: 'How do you want to sell?' })).not.toBeInTheDocument()
     const [rank] = urls(fetch, '/api/rank')
@@ -222,32 +216,32 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.has('sources')).toBe(false)
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'ah'])
     expect(rank?.searchParams.has('professions')).toBe(false)
-    expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({ aim: 'gold' })
-    const summary = await screen.findByRole('group', { name: 'Your setup' })
-    expect(
-      within(summary)
-        .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Making gold'])
-    expect(realm()).toBeInTheDocument()
+    // no summary of the answers: the path says them
+    expect(screen.queryByRole('group', { name: 'Your setup' })).not.toBeInTheDocument()
     expect(screen.queryByText('Rank by')).not.toBeInTheDocument()
+    // the characters beside the realm card
+    expect(screen.getByText('the characters').nextElementSibling).toBe(screen.getByRole('region', { name: 'Realm' }))
+    expect(realm()).toBeInTheDocument()
   })
 
-  it('no longer asks how to sell, even with that answer kept from before', async () => {
-    withSetup({ aim: 'gold', selling: 'reliable' })
-    const fetch = mockApi({
+  it('opens the realm card across the whole width while uploading a scan', async () => {
+    mockApi({
       '/api/status': status(),
       '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', 'Horde')],
       '/api/rank': noResults,
     })
-    renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
-    const summary = await screen.findByRole('group', { name: 'Your setup' })
-    expect(within(summary).queryByRole('button', { name: 'Play it safe' })).not.toBeInTheDocument()
+    renderWithProviders(<SearchTab characters={<div>the characters</div>} />)
+    const card = await screen.findByRole('region', { name: 'Realm' })
+    expect(card).not.toHaveAttribute('data-wide')
+    await userEvent.click(await within(card).findByRole('button', { name: 'Upload your scan' }))
+    expect(card).toHaveAttribute('data-wide')
+    await userEvent.click(within(card).getByRole('button', { name: 'Continue' }))
+    await waitFor(() => expect(card).not.toHaveAttribute('data-wide'))
   })
 
   it('skills up one profession: each recipe as a run until it turns grey, losing ones included', async () => {
-    withSetup(null)
+    at('/profit/skill')
     localStorage.setItem('altarmy-profit.search.minProfit', JSON.stringify(0.5))
     localStorage.setItem('altarmy-profit.search.minRoi', JSON.stringify(0))
     const fetch = mockApi({
@@ -256,8 +250,8 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
     await screen.findByRole('group', { name: 'Which profession?' })
+    expect(screen.getByRole('heading', { name: 'Which profession?' })).toBeInTheDocument()
     expect(answers('Which profession?')).toEqual(['Tailoring', 'Cooking']) // one profession, never any
     // the primary professions first, then the secondary ones
     expect(answers('Primary professions')).toEqual(['Tailoring'])
@@ -274,6 +268,8 @@ describe('SearchTab', () => {
     ).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toEqual([])
     await userEvent.click(tailoring)
+    // the only tailor, picked at once: the path names them
+    expect(window.location.pathname).toBe(TAILOR)
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.get('include_trivial')).toBe('false')
@@ -287,18 +283,13 @@ describe('SearchTab', () => {
     // sold to a vendor or disenchanted, else kept
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'keep'])
     expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
-    expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy']) // the only tailor, picked at once
+    expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy'])
     expect(screen.queryByRole('radio')).not.toBeInTheDocument() // no colour to stop at
     expect(screen.queryByRole('checkbox', { name: /Disenchant/ })).not.toBeInTheDocument()
     expect(localStorage.getItem('altarmy-profit.search.minProfit')).toBe('0.5') // where it used to be: left alone
-    const summary = await screen.findByRole('group', { name: 'Your setup' })
-    expect(
-      within(summary)
-        .getAllByRole('button')
-        .map((b) => b.textContent),
-    ).toEqual(['Skilling up', 'Tailoring'])
+    expect(screen.queryByRole('group', { name: 'Your setup' })).not.toBeInTheDocument()
     // none of making gold's options
-    expect(screen.getByRole('button', { name: 'Skill options' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Options' })).toBeInTheDocument()
     for (const gone of ['Advanced Filters', 'Filters']) {
       expect(screen.queryByRole('button', { name: gone })).not.toBeInTheDocument()
     }
@@ -306,8 +297,62 @@ describe('SearchTab', () => {
     expect(screen.queryByRole('radio', { name: 'Include recipes I can train' })).not.toBeInTheDocument()
   })
 
-  it('asks which one of several tailors is skilling up before searching', async () => {
-    withSetup({ aim: 'skill' })
+  it("lays out a run's page: the climber's card beside the auction house's and the Options button under it", async () => {
+    at(TAILOR)
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/coverage': [house('Classic Beta PvE', 'Horde')],
+      '/api/rank': noResults,
+    })
+    renderWithProviders(<SearchTab />)
+    const climber = await screen.findByRole('region', { name: 'Skilling up' })
+    const house_ = screen.getByRole('region', { name: 'Realm' })
+    // one grid: the climber's cell, the auction house's, then the Options button (the grid sets the climber's as tall
+    // as the other two)
+    const grid = climber.parentElement!.parentElement!
+    expect(house_.parentElement!.parentElement).toBe(grid)
+    expect(within(climber).getByRole('button', { name: 'Switch character or profession' })).toBeInTheDocument()
+    expect(within(climber).getByRole('button', { name: 'Upload again' })).toBeInTheDocument()
+    // the realm is the climber's: no picker, only how old its prices are and the upload
+    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
+    expect(await within(house_).findByRole('status', { name: 'Price freshness' })).toBeInTheDocument()
+    expect(within(house_).getByRole('button', { name: 'Upload your scan' })).toBeInTheDocument()
+    // the Options button under the auction house's, closed; open, one column: what teaches the recipes, then the
+    // chance to reach
+    const options = screen.getByRole('button', { name: 'Options' })
+    expect(options).toHaveAttribute('aria-expanded', 'false')
+    expect(options.parentElement).toBe(grid)
+    expect(options.previousElementSibling).toBe(house_.parentElement)
+    expect(screen.queryByRole('group', { name: 'Recipes taught by' })).not.toBeInTheDocument()
+    await userEvent.click(options)
+    expect(options).toHaveAttribute('aria-expanded', 'true')
+    expect(document.getElementById(options.getAttribute('aria-controls')!)?.parentElement).toBe(grid)
+    const taught = screen.getByRole('group', { name: 'Recipes taught by' })
+    const chance = screen.getByRole('textbox', { name: 'Chance to reach target skill' })
+    expect(taught.compareDocumentPosition(chance)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it("shows the Profit page's characters in the climber's card's place while they upload again", async () => {
+    at(TAILOR)
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/rank': noResults,
+    })
+    function Page() {
+      const [open, setOpen] = useState(false)
+      return <SearchTab characters={<div>the start cards</div>} charactersOpen={open} onUploadCharacters={() => setOpen(true)} />
+    }
+    renderWithProviders(<Page />)
+    expect(screen.queryByText('the start cards')).not.toBeInTheDocument()
+    await userEvent.click(await screen.findByRole('button', { name: 'Upload again' }))
+    expect(screen.getByText('the start cards')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Skilling up' })).not.toBeInTheDocument()
+  })
+
+  it('asks which one of several tailors is skilling up before searching, offering them first next time', async () => {
+    at('/profit/skill')
     const [first, ...rest] = characters.groups
     const seamstress = {
       name: 'Seamstress',
@@ -337,25 +382,27 @@ describe('SearchTab', () => {
     expect(guy).not.toBeChecked()
     expect(urls(fetch, '/api/rank')).toEqual([])
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(window.location.pathname).toBe('/profit/skill/classic-beta-pve-horde/Seamstress/tailoring')
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
     expect(urls(fetch, '/api/rank')[0]?.searchParams.getAll('skill_crafters')).toEqual(['Seamstress'])
-    const summary = await screen.findByRole('group', { name: 'Your setup' })
-    await userEvent.click(within(summary).getByRole('button', { name: 'Tailoring (Seamstress)' }))
+    // back to the question: the one picked last is offered first
+    act(() => navigate('/profit/skill'))
     await userEvent.click(await screen.findByRole('button', { name: 'Tailoring' }))
     expect(screen.getByRole('radio', { name: /Seamstress/ })).toBeChecked()
     await userEvent.click(screen.getByRole('radio', { name: /Tailor Guy/ }))
     await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(window.location.pathname).toBe(TAILOR)
     await waitFor(() =>
       expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy']),
     )
   })
 
-  it('asks for the profession again when the characters picked for it are gone', async () => {
-    withSetup({
-      aim: 'skill',
-      profession: 'Tailoring',
-      characters: ['Retired'],
-    })
+  it.each([
+    ['a character who is gone', '/profit/skill/classic-beta-pve-horde/Retired/tailoring'],
+    ['a profession nobody has', '/profit/skill/classic-beta-pve-horde/Tailor%20Guy/alchemy'],
+    ['a realm without the character', '/profit/skill/dreamscythe-horde/Tailor%20Guy/tailoring'],
+  ])('asks for the profession again at a run of %s', async (_, path) => {
+    at(path)
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -363,11 +410,13 @@ describe('SearchTab', () => {
     })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profit/skill')
     expect(urls(fetch, '/api/rank')).toEqual([])
+    expect(urls(fetch, '/api/selection')).toEqual([])
   })
 
   it('offers only professions that have recipes', async () => {
-    withSetup({ aim: 'skill' })
+    at('/profit/skill')
     const fishers = {
       ...characters,
       groups: [
@@ -395,86 +444,20 @@ describe('SearchTab', () => {
     await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring']))
   })
 
-  it('asks for the profession again after a setup that skilled up any profession', async () => {
-    withSetup({ aim: 'skill', profession: 'any' }) // saved before Any profession was dropped
-    mockApi({
-      '/api/status': status(),
-      '/api/characters': characters,
-      '/api/rank': noResults,
-    })
-    renderWithProviders(<SearchTab />)
-    expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Any profession' })).not.toBeInTheDocument()
-  })
-
-  it("can't skill up without characters, saying why", async () => {
-    withSetup({ aim: 'skill', profession: 'Tailoring' })
+  it.each([['/profit/skill'], [TAILOR]])("can't skill up without characters: %s goes back to the start", async (path) => {
+    at(path)
     mockApi({
       '/api/status': status({ characters: 0 }),
       '/api/characters': { groups: [], selection: null },
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    const aims = await screen.findByRole('group', {
-      name: 'What are you after?',
-    })
-    expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
-    expect(within(aims).getByText(/Upload your characters first/)).toBeInTheDocument()
-    expect(within(aims).getByRole('button', { name: 'Make gold' })).toBeEnabled()
+    await waitFor(() => expect(window.location.pathname).toBe('/profit'))
   })
 
-  it('reopens one question from the summary, hiding the search meanwhile', async () => {
-    const fetch = mockApi({
-      '/api/status': status(),
-      '/api/characters': characters,
-      '/api/rank': noResults,
-    })
-    renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
-
-    // changing what the user is after asks what the new aim needs
-    await userEvent.click(screen.getByRole('button', { name: 'Making gold' }))
-    await screen.findByRole('group', { name: 'What are you after?' })
-    expect(screen.queryByRole('combobox', { name: 'Realm' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Make gold' })).toHaveAttribute('aria-pressed', 'true')
-    await userEvent.click(screen.getByRole('button', { name: 'Skill up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Cooking' }))
-    await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('skill'))
-    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Cooking'])
-  })
-
-  it('asks the follow-up question again whenever the aim is picked', async () => {
-    withSetup({ aim: 'skill', profession: 'Cooking', selling: 'reliable' })
-    const fetch = mockApi({
-      '/api/status': status(),
-      '/api/characters': characters,
-      '/api/rank': noResults,
-    })
-    renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
-
-    // picking skill up again, with a profession already chosen, still asks which one
-    await userEvent.click(await screen.findByRole('button', { name: 'Skilling up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
-    await screen.findByRole('group', { name: 'Which profession?' })
-    expect(screen.getByRole('button', { name: 'Cooking' })).toHaveAttribute('aria-pressed', 'true')
-    await userEvent.click(screen.getByRole('button', { name: 'Tailoring' }))
-    await waitFor(() =>
-      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Tailoring']),
-    )
-
-    // making gold has no follow-up: it ranks at once, selling every way
-    await userEvent.click(await screen.findByRole('button', { name: 'Skilling up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Make gold' }))
-    await waitFor(() =>
-      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'ah']),
-    )
-    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('sort')).toBe('likely')
-  })
-
-  it('asks for the profession again on a realm where nobody has it, with the realm picker at hand', async () => {
-    withSetup({ aim: 'skill', profession: 'Tailoring' })
-    let selection = { realm: 'Classic Beta PvE', faction: 'Horde' }
+  it("opens a run on another realm than the selected one, selecting the run's", async () => {
+    at(TAILOR)
+    let selection = { realm: 'Dreamscythe', faction: 'Horde' }
     const fetch = mockApi({
       '/api/status': () => status({ selection }),
       '/api/characters': characters,
@@ -485,43 +468,87 @@ describe('SearchTab', () => {
       },
     })
     renderWithProviders(<SearchTab />)
-    await waitFor(() =>
-      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Tailoring']),
-    )
-    await userEvent.click(realm())
-    await userEvent.click(
-      await screen.findByRole('option', {
-        name: 'Dreamscythe (Horde) · 2 characters',
-      }),
-    )
-    expect(await screen.findByText(/None of your characters on this realm has a profession yet/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Which profession?' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Skill options' })).not.toBeInTheDocument()
-    await userEvent.click(realm())
-    await userEvent.click(
-      await screen.findByRole('option', {
-        name: 'Classic Beta PvE (Horde) · 1 character',
-      }),
-    )
-    expect(await screen.findByRole('group', { name: 'Your setup' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skill options' })).toBeInTheDocument()
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    expect(urls(fetch, '/api/selection')).toHaveLength(1)
+    expect(selection).toEqual({ realm: 'Classic Beta PvE', faction: 'Horde' })
+    expect(urls(fetch, '/api/rank')[0]?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy'])
   })
 
-  it('opens at the profession question when the saved one is on nobody', async () => {
-    withSetup({ aim: 'skill', profession: 'Alchemy' })
-    const fetch = mockApi({
+  it("switches to another of the realm's characters and professions in place of the current path", async () => {
+    at(TAILOR)
+    mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByRole('group', { name: 'Which profession?' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Skilling up' })).toBeInTheDocument()
-    expect(urls(fetch, '/api/rank')).toEqual([])
+    const entries = window.history.length
+    await userEvent.click(await screen.findByRole('button', { name: 'Switch character or profession' }))
+    await userEvent.click(within(await screen.findByRole('listbox')).getByRole('option', { name: /Cooking/ }))
+    expect(window.location.pathname).toBe('/profit/skill/classic-beta-pve-horde/Tailor%20Guy/cooking')
+    expect(window.history.length).toBe(entries) // the back button leaves the climb, not each switch
+  })
+
+  it("switches to a character on another realm through the climber's select, selecting that realm", async () => {
+    at(TAILOR)
+    const alchemist = {
+      ...characters,
+      groups: characters.groups.map((g) =>
+        g.realm === 'Dreamscythe'
+          ? {
+              ...g,
+              characters: g.characters.map((c) =>
+                c.name === 'Frell' ? { ...c, professions: [{ name: 'Alchemy', rank: 100, max_rank: 150, recipes: 1 }] } : c,
+              ),
+            }
+          : g,
+      ),
+    }
+    let selection = { realm: 'Classic Beta PvE', faction: 'Horde' }
+    const fetch = mockApi({
+      '/api/status': () => status({ selection }),
+      '/api/characters': alchemist,
+      '/api/rank': noResults,
+      '/api/selection': async (_: URL, request: Request) => {
+        selection = (await request.json()) as typeof selection
+        return status({ selection })
+      },
+    })
+    renderWithProviders(<SearchTab />)
+    await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+    await userEvent.click(screen.getByRole('button', { name: 'Switch character or profession' }))
+    const list = await screen.findByRole('listbox')
+    expect(within(list).getByText('Dreamscythe (Horde)')).toBeInTheDocument()
+    await userEvent.click(within(list).getByRole('option', { name: /Alchemy/ }))
+    expect(window.location.pathname).toBe('/profit/skill/dreamscythe-horde/Frell/alchemy')
+    await waitFor(() => expect(selection).toEqual({ realm: 'Dreamscythe', faction: 'Horde' }))
+    await waitFor(() =>
+      expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('skill_crafters')).toEqual(['Frell']),
+    )
+    expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Alchemy'])
+  })
+
+  it('changes realm with the picker beside the profession question', async () => {
+    at('/profit/skill')
+    let selection = { realm: 'Classic Beta PvE', faction: 'Horde' }
+    mockApi({
+      '/api/status': () => status({ selection }),
+      '/api/characters': characters,
+      '/api/rank': noResults,
+      '/api/selection': async (_: URL, request: Request) => {
+        selection = (await request.json()) as typeof selection
+        return status({ selection })
+      },
+    })
+    renderWithProviders(<SearchTab />)
+    expect(await screen.findByRole('button', { name: 'Tailoring' })).toBeInTheDocument()
+    await userEvent.click(realm())
+    await userEvent.click(await screen.findByRole('option', { name: 'Dreamscythe (Horde) · 2 characters' }))
+    expect(await screen.findByText(/None of your characters on this realm has a profession yet/)).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/profit/skill')
   })
 
   it('suggests Enchanting when nobody on the realm can disenchant', async () => {
-    withSetup({ aim: 'gold', selling: 'reliable' })
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -529,22 +556,22 @@ describe('SearchTab', () => {
     })
     const { unmount } = renderWithProviders(<SearchTab />)
     const alert = await screen.findByRole('alert')
-    expect(alert).toHaveTextContent(/None of your characters on Classic Beta PvE has Enchanting/)
-    expect(alert).toHaveTextContent(/Making an enchanter on any alt is an easy way to expand your options/)
-    expect(alert).not.toHaveTextContent(/only vendor sales count/)
+    expect(alert).toHaveTextContent('You do not have a disenchanter')
+    expect(alert).toHaveTextContent(
+      'Making a character with Enchanting can significantly increase your profits and can be done at level 1',
+    )
     unmount()
   })
 
   it('suggests making an enchanter when skilling up too, since what is made is disenchanted when it can be', async () => {
-    withSetup(SKILL)
+    at(TAILOR)
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    const alert = await screen.findByText(/Making an enchanter on any alt/)
-    expect(alert).toHaveTextContent(/disenchanting what you make often costs less than selling it to a vendor/)
+    expect(await screen.findByText('You do not have a disenchanter')).toBeInTheDocument()
   })
 
   it('says nothing about Enchanting with an enchanter, or when browsing', async () => {
@@ -555,7 +582,7 @@ describe('SearchTab', () => {
     })
     const { unmount } = renderWithProviders(<SearchTab />)
     await screen.findByText(/No recipes match these filters/)
-    expect(screen.queryByText(/has Enchanting/)).not.toBeInTheDocument()
+    expect(screen.queryByText('You do not have a disenchanter')).not.toBeInTheDocument()
     unmount()
 
     const shared = { realm: 'Classic Beta PvE', faction: '' }
@@ -566,7 +593,7 @@ describe('SearchTab', () => {
     })
     renderWithProviders(<SearchTab />)
     await screen.findByText(/Browsing every recipe on this realm/)
-    expect(screen.queryByText(/has Enchanting/)).not.toBeInTheDocument()
+    expect(screen.queryByText('You do not have a disenchanter')).not.toBeInTheDocument()
   })
 
   it('ranks with the stored parameters', async () => {
@@ -613,7 +640,7 @@ describe('SearchTab', () => {
   })
 
   it('skills up with the stored skill options', async () => {
-    withSetup(SKILL)
+    at(TAILOR)
     localStorage.setItem('altarmy-profit.search.sources', JSON.stringify(['bop', 'trainer'])) // from before
     const fetch = mockApi({
       '/api/status': status(),
@@ -621,6 +648,7 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
+    await openOptions()
     expect(await screen.findByRole('checkbox', { name: 'Taught by trainers' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Taught by normal recipes' })).not.toBeChecked()
     expect(
@@ -628,14 +656,14 @@ describe('SearchTab', () => {
         name: 'Taught by bind on pickup recipes',
       }),
     ).toBeChecked()
-    await screen.findByText(/Nothing gives Tailor Guy a Tailoring point/)
+    await screen.findByText('No path was found for Tailor Guy to gain skill in Tailoring')
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.getAll('sources')).toEqual(['trainer', 'bop'])
     expect(rank?.searchParams.getAll('exits')).toEqual(['vendor', 'disenchant', 'keep'])
   })
 
   it('keeps the filters of making gold and of skilling up apart', { timeout: 15_000 }, async () => {
-    withSetup(null)
+    at(TAILOR)
     // from before the two were kept apart: making gold starts there
     localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
     const fetch = mockApi({
@@ -646,21 +674,17 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     const exitsSent = () => urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('exits')
     const sourcesSent = () => urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('sources')
-    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Tailoring' }))
     await waitFor(() => expect(exitsSent()).toEqual(['vendor', 'disenchant', 'keep']))
-    await userEvent.click(screen.getByRole('checkbox', { name: 'Taught by trainers' }))
+    await openOptions()
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Taught by trainers' }))
     await waitFor(() => expect(sourcesSent()).toEqual(['recipe']))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Skilling up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Make gold' }))
+    act(() => navigate('/profit/gold'))
     await waitFor(() => expect(exitsSent()).toEqual(['vendor', 'disenchant', 'ah'])) // every way, whatever was stored
     expect(localStorage.getItem('altarmy-profit.search.skill.sources')).toBe('["recipe"]') // untouched by gold
 
     // back to skilling up: what may teach its recipes, as the user left it
-    await userEvent.click(screen.getByRole('button', { name: 'Making gold' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
-    await userEvent.click(await screen.findByRole('button', { name: 'Tailoring' }))
+    act(() => window.history.back())
     await waitFor(() => expect(exitsSent()).toEqual(['vendor', 'disenchant', 'keep']))
     expect(sourcesSent()).toEqual(['recipe'])
   })
@@ -936,13 +960,14 @@ describe('SearchTab', () => {
   })
 
   it('offers what may teach the recipes skilled up on', async () => {
-    withSetup(SKILL)
+    at(TAILOR)
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
+    await openOptions()
     const taught = await screen.findByRole('group', {
       name: 'Recipes taught by',
     })
@@ -974,13 +999,14 @@ describe('SearchTab', () => {
   })
 
   it('asks how sure the materials bought for a run should be to reach its target, saying what that means', async () => {
-    withSetup(SKILL)
+    at(TAILOR)
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
+    await openOptions()
     const chance = await screen.findByRole('textbox', { name: 'Chance to reach target skill' })
     expect(chance).toHaveValue('80%')
     // the info icon beside the label says what it means
@@ -1020,7 +1046,7 @@ describe('SearchTab', () => {
 })
 
 describe('SearchTab: making gold', () => {
-  beforeEach(() => withSetup(GOLD))
+  beforeEach(() => at(GOLD))
   const scanned = (watched: number) => ({
     ...house('Classic Beta PvE', 'Horde'),
     watched_hours: watched,
@@ -1113,7 +1139,7 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
   it.each([['Enchanting'], ['Engineering']])(
     'always ranks casts for the skill point while %s is skilled up, with nothing to tick',
     async (profession) => {
-      withSetup({ aim: 'skill', profession })
+      at(`/profit/skill/classic-beta-pve-horde/Enchy/${profession.toLowerCase()}`)
       const fetch = api()
       renderWithProviders(<SearchTab />)
       await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep', 'skill']))
@@ -1122,7 +1148,7 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
   )
 
   it('never sends them for another profession, even if the old option was ticked', async () => {
-    withSetup({ aim: 'skill', profession: 'Tailoring' })
+    at(TAILOR)
     localStorage.setItem('altarmy-profit.search.skill.skillOnly', 'true')
     const fetch = api()
     renderWithProviders(<SearchTab />)
@@ -1131,7 +1157,7 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
   })
 
   it('is never offered when making gold', async () => {
-    withSetup({ aim: 'gold', selling: 'any' })
+    at(GOLD)
     localStorage.setItem('altarmy-profit.search.skillOnly', 'true')
     const fetch = api()
     renderWithProviders(<SearchTab />)

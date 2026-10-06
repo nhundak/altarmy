@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
-import { linkProps, navigate, previousRoute, routeOf, useRoute } from './router'
+import { describe, expect, it, vi } from 'vitest'
+import { linkProps, navigate, previousRoute, routeOf, usePath, useRoute } from './router'
 
 function Where() {
   const route = useRoute()
@@ -19,6 +19,35 @@ describe('router', () => {
     expect(routeOf('/manage/')).toBe('/manage')
     expect(routeOf('/nope')).toBe('/')
     expect(routeOf('/')).toBe('/')
+  })
+
+  it('counts a path under a page as that page', () => {
+    expect(routeOf('/profit/gold')).toBe('/profit')
+    expect(routeOf('/profit/skill/r/Amy/tailoring/')).toBe('/profit')
+    expect(routeOf('/profiteer')).toBe('/')
+  })
+
+  it('gives the whole path, following navigate and the back button', () => {
+    function Path() {
+      return <p>path {usePath()}</p>
+    }
+    act(() => navigate('/profit'))
+    render(<Path />)
+    expect(screen.getByText('path /profit')).toBeInTheDocument()
+    act(() => navigate('/profit/gold'))
+    expect(screen.getByText('path /profit/gold')).toBeInTheDocument()
+    act(() => {
+      window.history.back()
+    })
+    return vi.waitFor(() => expect(screen.getByText('path /profit')).toBeInTheDocument())
+  })
+
+  it('replaces the current entry when asked, so the back button skips it', () => {
+    act(() => navigate('/addon'))
+    const length = window.history.length
+    act(() => navigate('/profit/skill', { replace: true }))
+    expect(window.location.pathname).toBe('/profit/skill')
+    expect(window.history.length).toBe(length)
   })
 
   it('starts at the current path and follows links, navigate and the back button', () => {

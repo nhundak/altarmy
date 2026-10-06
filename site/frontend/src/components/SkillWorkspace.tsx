@@ -1,5 +1,5 @@
 import { type CSSProperties, Fragment, type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Group, Combobox, InputBase, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton, useCombobox } from '@mantine/core'
+import { ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Group, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { LayoutGroup, animate, motion } from 'motion/react'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
@@ -8,7 +8,6 @@ import {
   type EvaluateParams,
   type RankParams,
   useDataVersion,
-  useMaxSkill,
   useProfessionRanks,
   useRank,
   usePrefetchSessionPlans,
@@ -19,23 +18,19 @@ import {
 import { choose as chooseAt, type Choices } from '../lib/choices'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import { useStoredState } from '../lib/storage'
-import { filterSkills, type Holder, type ProfessionChoice, skillsByCharacter } from '../lib/setup'
-import { classWord } from '../lib/wow'
+import type { Holder } from '../lib/setup'
 import {
   AT_WHICH_POINT,
   CHEAPER,
   craftsToReach,
   DEFAULT_REACH_TARGET,
   ranksToTrain, runLead, runText, scaleRun, stepsText } from '../lib/skill'
-import { talentNote } from '../lib/talents'
 import type { PlanEditing } from './ChoiceMenu'
-import { CharacterClasses, CharacterName } from './CharacterName'
+import { CharacterClasses } from './CharacterName'
 import { IconSwap } from './icons'
 import { ItemLink } from './ItemTooltip'
 import { LearnStep, LearnTooltip } from './LearnTooltip'
 import { Money } from './Money'
-import { ProfessionIcon } from './ProfessionIcon'
-import { SkillBar } from './SkillBar'
 import { RecipeFlow } from './RecipeFlow'
 import { PlanViewSwitch, type PlanView } from './SessionDetails'
 import { Earned, StepList } from './StepList'
@@ -183,9 +178,6 @@ function learnNote(r: RankResult, learn: Learn | undefined): ReactNode {
 
 /** An option card's last row when the climber lacks the recipe and what learning it costs is counted. */
 const TRAIN_NOTE = 'You will need to train this recipe (included in the cost)'
-
-/** "Frell's", "Frell Ofelements'". */
-const possessive = (name: string) => (name.endsWith('s') ? `${name}'` : `${name}'s`)
 
 /** One option in the overview: the recipe, what its run comes to per skill point, how far it goes, how it is
  * learned. Without `onChoose`, a summary of a run to come (in the chain), with nothing to click; `fade`: it fades
@@ -483,127 +475,6 @@ function Chain({
   )
 }
 
-const NO_PROFESSIONS: readonly ProfessionChoice[] = []
-
-/** Joins and splits a character and profession as one option's value (names never hold a line break). */
-const optionValue = (character: string, profession: string) => `${character}\n${profession}`
-
-/** Who skills up what (`children`), looking like a select: it opens a search over every character's professions to
- * switch to, grouped by character, both alphabetically, laid out as a table (icon, profession, skill out of the highest there is), the
- * current one marked. Typing narrows it to the characters or professions whose name holds what was typed. */
-function ClimberSelect({
-  climber,
-  profession,
-  professions,
-  onSwitch,
-  children,
-}: {
-  climber: string
-  profession: string
-  professions: readonly ProfessionChoice[]
-  onSwitch: (profession: string, character: string) => void
-  children: ReactNode
-}) {
-  const [search, setSearch] = useState('')
-  const combobox = useCombobox({
-    onDropdownClose: () => {
-      combobox.resetSelectedOption()
-      setSearch('')
-    },
-    onDropdownOpen: () => combobox.focusSearchInput(),
-  })
-  // every bar against the profession's highest skill, not the rank trained so far
-  const maxSkill = useMaxSkill()
-  const characters = filterSkills(skillsByCharacter(professions), search)
-  const current = optionValue(climber, profession.toLowerCase())
-  // What Enter would pick, highlighted for the arrow keys to move from: the current option on opening, the first match
-  // while searching. After the options render (the dropdown's content mounts after it opens).
-  // (The store is a new object every render, its callbacks aren't: a re-render mid-way must not move the highlight.)
-  const { dropdownOpened: opened, selectFirstOption, selectActiveOption } = combobox
-  useEffect(() => {
-    if (!opened) return
-    const timer = setTimeout(() => (search.trim() ? selectFirstOption() : selectActiveOption()), 0)
-    return () => clearTimeout(timer)
-  }, [opened, search, selectFirstOption, selectActiveOption])
-  return (
-    <Combobox
-      store={combobox}
-      width={320}
-      position="bottom-start"
-      withinPortal
-      shadow="md"
-      classNames={{ option: classes.climberOption }}
-      onOptionSubmit={(value) => {
-        combobox.closeDropdown()
-        const [character = '', name = ''] = value.split('\n')
-        if (optionValue(character, name.toLowerCase()) !== current) onSwitch(name, character)
-      }}
-    >
-      <Combobox.Target targetType="button">
-        <InputBase
-          component="button"
-          type="button"
-          pointer
-          rightSection={<Combobox.Chevron />}
-          rightSectionPointerEvents="none"
-          onClick={() => combobox.toggleDropdown()}
-          aria-label="Switch character or profession"
-          classNames={{ input: classes.climber }}
-        >
-          <Group component="span" gap="sm" wrap="nowrap">
-            {children}
-          </Group>
-        </InputBase>
-      </Combobox.Target>
-      <Combobox.Dropdown>
-        <Combobox.Search
-          value={search}
-          onChange={(e) => setSearch(e.currentTarget.value)}
-          placeholder="Search characters or professions"
-          aria-label="Search characters or professions"
-          onKeyDown={(e) => {
-            // the dropdown sits at the end of the page: Tab closes it and goes back to the select, where the next Tab
-            // carries on from (the arrow keys move through the options)
-            if (e.key !== 'Tab') return
-            e.preventDefault()
-            combobox.closeDropdown()
-            combobox.focusTarget()
-          }}
-        />
-        {/* not a Tab stop of its own, as a scrolling box otherwise is */}
-        <Combobox.Options mah={360} style={{ overflowY: 'auto' }} tabIndex={-1}>
-          {characters.length === 0 && <Combobox.Empty>Nothing matches</Combobox.Empty>}
-          {characters.map((c) => (
-            <Combobox.Group
-              key={c.name}
-              label={
-                // one span: the label is a flex box, which would drop the space before the parenthesis
-                <span>
-                  <CharacterName name={c.name} classFile={c.classFile} /> (level {c.level} {classWord(c.classFile)})
-                </span>
-              }
-            >
-              {c.professions.map((p) => {
-                const value = optionValue(c.name, p.name)
-                const active = optionValue(c.name, p.name.toLowerCase()) === current
-                return (
-                  <Combobox.Option key={value} value={value} active={active} aria-selected={active}>
-                    <div className={classes.climberRow} data-active={active || undefined}>
-                      <ProfessionIcon profession={p.name} />
-                      <span>{p.name}</span>
-                      <SkillBar rank={p.rank} maxRank={maxSkill} label={`${c.name}'s ${p.name}`} aligned />
-                    </div>
-                  </Combobox.Option>
-                )
-              })}
-            </Combobox.Group>
-          ))}
-        </Combobox.Options>
-      </Combobox.Dropdown>
-    </Combobox>
-  )
-}
-
 /**
  * Skilling up one profession on one character. First an overview: the run to craft now (the first of the cheapest
  * climb up the profession; each option counted as the first run of the cheapest climb starting with it, until the
@@ -619,18 +490,12 @@ export function SkillWorkspace({
   climber,
   profession,
   reachTarget = DEFAULT_REACH_TARGET,
-  professions = NO_PROFESSIONS,
-  onSwitch,
 }: {
   filters: Filters
   climber: Holder
   profession: string
   /** the chance, in percent, that the crafts the checklist buys for reach the run's target */
   reachTarget?: number
-  /** the realm's professions, with who has them: what the header's menu offers to skill up instead */
-  professions?: readonly ProfessionChoice[]
-  /** skill up another character's or profession instead; unset: the header is no menu */
-  onSwitch?: (profession: string, character: string) => void
 }) {
   const track = useTrack()
   const status = useStatus().data
@@ -713,7 +578,7 @@ export function SkillWorkspace({
       : // an option side by side never comes back to those before it: planned again the same way
         { ...planParams, climbWithout: open?.climb_without }
   // The crafts the checklist buys for: what the user typed, else enough to reach the run's target with the chance
-  // the Skill options ask for; planned again (debounced) when that isn't the ranked run's own count.
+  // the Options ask for; planned again (debounced) when that isn't the ranked run's own count.
   const [typed, setTyped] = useState<number | null>(null)
   const buyCount = open ? (typed ?? craftsToReach(open, reachTarget)) : 0
   const [settledCount] = useDebouncedValue(buyCount, 400)
@@ -809,55 +674,6 @@ export function SkillWorkspace({
     track('copy_steps', { profession })
   }
 
-  // the bar against the profession's highest skill, not the rank trained so far
-  const maxSkill = useMaxSkill()
-  const who = (
-    <>
-      <Text span size="sm">
-        <CharacterName name={possessive(climber.name)} classFile={climber.classFile} /> {profession}
-      </Text>
-      <SkillBar rank={climber.rank} maxRank={maxSkill} label={`${climber.name}'s ${profession}`} />
-    </>
-  )
-  const switchable = onSwitch && skillsByCharacter(professions).flatMap((c) => c.professions).length > 1
-  const header = (
-    <Group gap="sm">
-      {switchable ? (
-        <ClimberSelect climber={climber.name} profession={profession} professions={professions} onSwitch={onSwitch}>
-          {who}
-        </ClimberSelect>
-      ) : (
-        who
-      )}
-      {climber.talents && (
-        <Tooltip
-          label={
-            <Stack gap="xs">
-              {climber.talents.map((t) => (
-                <div key={t.spellId}>
-                  <Text size="sm" fw={700}>
-                    {t.name}
-                  </Text>
-                  <Text size="sm">
-                    Rank {t.rank}/{t.maxRank}
-                  </Text>
-                  <Text size="sm">{talentNote(t)}</Text>
-                </div>
-              ))}
-            </Stack>
-          }
-          multiline
-          w={260}
-          withArrow
-        >
-          <Text size="sm" c="dimmed" style={{ cursor: 'help' }}>
-            ({climber.talents.map((t) => `${t.rank}/${t.maxRank} ${t.name}`).join(', ')})
-          </Text>
-        </Tooltip>
-      )}
-    </Group>
-  )
-
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
   const learn = rank.data.learn
@@ -879,10 +695,9 @@ export function SkillWorkspace({
   if (!results.length) {
     return (
       <Stack>
-        {header}
         {capCard}
         {refresh}
-        {!atCap && <Alert>Nothing gives {climber.name} a {profession} point with the current prices.</Alert>}
+        {!atCap && <Alert>No path was found for {climber.name} to gain skill in {profession}</Alert>}
       </Stack>
     )
   }
@@ -1074,7 +889,6 @@ export function SkillWorkspace({
   return (
     <CharacterClasses.Provider value={rank.data.classes}>
       <Stack>
-        {header}
         {capCard}
         {refresh}
         <LayoutGroup>

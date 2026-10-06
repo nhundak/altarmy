@@ -28,7 +28,7 @@ describe('PriceFreshness', () => {
 
   it('warns when there is no scan', () => {
     renderWithProviders(<PriceFreshness lastScan={null} />)
-    const line = screen.getByText(/^Nobody has scanned this auction house yet\. At the auction house, press Alt Army scan/)
+    const line = screen.getByText('No data collected for this auction house')
     expect(line).toHaveStyle({ fontWeight: 500 })
   })
 })

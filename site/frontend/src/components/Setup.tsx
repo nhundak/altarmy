@@ -1,12 +1,12 @@
 import { Fragment, useState, type ReactNode } from 'react'
 import { Button, Group, List, Radio, Stack, Text, Title, UnstyledButton } from '@mantine/core'
-import { AnimatePresence, motion } from 'motion/react'
+import { motion } from 'motion/react'
 import { useMaxSkill } from '../api/queries'
 import {
   AIMS,
+  aimSchema,
   isSecondary,
   STEP_QUESTION,
-  stripParts,
   type Aim,
   type Card,
   type Holder,
@@ -27,27 +27,6 @@ const AIM_ICONS: Readonly<Record<Aim, ReactNode>> = {
 }
 
 const FADE = { initial: { opacity: 0, y: -8 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } }
-
-/** The answers given so far as small buttons, each opening its question again. */
-function Answers({ setup, skip, onOpen }: { setup: SetupAnswers; skip?: Step; onOpen: (step: Step) => void }) {
-  const parts = stripParts(setup).filter((p) => p.step !== skip)
-  return (
-    <Group gap={4} wrap="wrap">
-      {parts.map((p, i) => (
-        <Group key={p.step} gap={4} wrap="nowrap">
-          {i > 0 && (
-            <Text span c="dimmed" size="sm" aria-hidden>
-              ·
-            </Text>
-          )}
-          <Button size="compact-sm" variant="subtle" onClick={() => onOpen(p.step)}>
-            {p.text}
-          </Button>
-        </Group>
-      ))}
-    </Group>
-  )
-}
 
 function OptionCard<K extends string>({
   card,
@@ -289,55 +268,56 @@ function StepCards({
   )
 }
 
-/**
- * The questions before the search, one at a time while `step` is set (the answers so far above it, each a way back to
- * its question), else one line of the answers, each opening its question again. `children` shows under the question:
- * the realm picker, when the question depends on the realm.
- */
-export function Setup({
-  setup,
-  step,
-  professions,
+/** What the user is after: Make gold or Skill up, `current` (the answer given last) marked. */
+export function AimQuestion({
+  current,
   unavailable = {},
   onPick,
-  onOpen,
+}: {
+  current: SetupAnswers | null
+  unavailable?: Partial<Record<Aim, string>>
+  onPick: (aim: Aim) => void
+}) {
+  return (
+    <motion.div {...FADE} transition={{ duration: 0.2 }}>
+      <Stack gap="sm">
+        <Title order={3}>{STEP_QUESTION.aim}</Title>
+        <StepCards
+          step="aim"
+          setup={current}
+          professions={[]}
+          unavailable={unavailable}
+          onPick={(value) => onPick(aimSchema.parse(value))}
+        />
+      </Stack>
+    </motion.div>
+  )
+}
+
+/**
+ * Which profession to skill up, and who, among the selected realm's `professions`; `last` (the answers given last)
+ * marks the profession and who was picked then. `children` shows under the question: the realm picker, since the
+ * professions depend on the realm.
+ */
+export function ProfessionQuestion({
+  last,
+  professions,
+  onPick,
   children,
 }: {
-  setup: SetupAnswers | null
-  step: Step | null
+  last: SetupAnswers | null
   professions: readonly ProfessionChoice[]
-  unavailable?: Partial<Record<Aim, string>>
-  onPick: (step: Step, value: string, characters?: string[]) => void
-  onOpen: (step: Step) => void
+  /** the profession, with the one of its holders picked when several have it */
+  onPick: (profession: string, characters?: string[]) => void
   children?: ReactNode
 }) {
   return (
-    <AnimatePresence mode="wait" initial={false}>
-      {step !== null || setup === null ? (
-        <motion.div key={`step-${step ?? 'aim'}`} {...FADE} transition={{ duration: 0.2 }}>
-          <Stack gap="sm">
-            {setup && step !== 'aim' && <Answers setup={setup} skip={step ?? undefined} onOpen={onOpen} />}
-            <Title order={3}>{STEP_QUESTION[step ?? 'aim']}</Title>
-            {children}
-            <StepCards
-              step={step ?? 'aim'}
-              setup={setup}
-              professions={professions}
-              unavailable={unavailable}
-              onPick={(value, characters) => onPick(step ?? 'aim', value, characters)}
-            />
-          </Stack>
-        </motion.div>
-      ) : (
-        <motion.div key="setup-strip" className={cards.strip} {...FADE} transition={{ duration: 0.2 }}>
-          <Group gap="sm" wrap="nowrap" role="group" aria-label="Your setup">
-            <span className={cards.icon} data-small>
-              {AIM_ICONS[setup.aim]}
-            </span>
-            <Answers setup={setup} onOpen={onOpen} />
-          </Group>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <motion.div {...FADE} transition={{ duration: 0.2 }}>
+      <Stack gap="sm">
+        <Title order={3}>{STEP_QUESTION.profession}</Title>
+        {children}
+        <StepCards step="profession" setup={last} professions={professions} unavailable={{}} onPick={onPick} />
+      </Stack>
+    </motion.div>
   )
 }

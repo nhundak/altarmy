@@ -1,70 +1,105 @@
-import { useState } from 'react'
-import { Alert, Loader, Select, Stack } from '@mantine/core'
-import { useCharacters, useCoverage, useProfessions, useSelectRealm, useStatus, useTrack } from '../api/queries'
+import { type ReactNode, useEffect, useState } from 'react'
+import { Alert, Group, Loader, Select, Stack } from '@mantine/core'
+import type { Selection } from '../api/client'
+import { useCharacters, useCoverage, useProfessions, useSelectRealm, useStatus } from '../api/queries'
+import { parseProfitPath, resolveRun, runPath } from '../lib/profitRoute'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
+import { navigate, usePath } from '../lib/router'
 import { useSession } from '../lib/session'
-import {
-  answer,
-  hasEnchanter,
-  nextStep,
-  presetsFor,
-  professionsOf,
-  setupSchema,
-  storePresets,
-  type Setup as SetupAnswers,
-  type Step,
-} from '../lib/setup'
+import { hasEnchanter, professionsOf, setupSchema, skillsByRealm, type Setup as SetupAnswers } from '../lib/setup'
 import { useStoredState } from '../lib/storage'
-import { AimSearch } from './AimSearch'
-import { HOW_TO_SCAN } from './PriceFreshness'
+import { AimSearch, SkillOptions } from './AimSearch'
+import { ClimberCard } from './ClimberCard'
 import { PriceSignal } from './PriceSignal'
 import { RealmCard } from './RealmCard'
-import { Setup } from './Setup'
+import classes from './SearchTab.module.css'
+import { ProfessionQuestion } from './Setup'
 
 export { SHOW_ARCANE_SALVAGER } from './AimSearch'
 
 const storedSetup = setupSchema.nullable()
 
+/** Counts the moves to another path, from 0: a new count lets the search take changed filters at once. */
+function usePathMoves(path: string): number {
+  const [moves, setMoves] = useState({ path, n: 0 })
+  if (moves.path !== path) {
+    const next = { path, n: moves.n + 1 }
+    setMoves(next)
+    return next.n
+  }
+  return moves.n
+}
+
 /**
- * The search: first the setup's questions (what the user is after, then a profession, or how to sell), then the realm
- * card (realm and faction, price freshness, an upload in place) and, with a realm, the aim's own search (`AimSearch`:
- * its options, advanced filters and ranked recipes). The answers decide the ranking's order and preset the filters
- * they are about; they are remembered per user, like the Profit page's start.
+ * The search after the Profit page's start, by its path (`profitRoute.ts`): at /profit/skill which profession to skill
+ * up, and who; at /profit/gold and at a skill run's path the characters (`characters`, the Profit page's strip) and the
+ * realm card (realm and faction, price freshness, an upload in place) side by side, then the aim's own search
+ * (`AimSearch`: its options, advanced filters and ranked recipes). A run's path names its realm: opening it selects
+ * that realm. The answers given last are remembered per user, to mark them when asked again.
  */
-export function SearchTab() {
+export function SearchTab({
+  characters: charactersPanel,
+  charactersOpen = false,
+  onUploadCharacters,
+}: {
+  /** the Profit page's characters: its strip, or its start cards while one is open */
+  characters?: ReactNode
+  /** whether the start cards are open: on a run's page they take the climber's card's place meanwhile */
+  charactersOpen?: boolean
+  /** open the start cards' upload (the climber's card's Upload again) */
+  onUploadCharacters?: () => void
+}) {
   const { uid } = useSession()
+  const path = usePath()
+  const view = parseProfitPath(path)
   const status = useStatus()
   const characters = useCharacters()
   const coverage = useCoverage()
   const select = useSelectRealm()
-  const professionNames = useProfessions().data
-  const [setup, setSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
-  // Skilling up needs the characters' professions: without imported characters it can't be picked (and a saved
-  // setup asks again).
-  const noCharacters = characters.data !== undefined && characters.data.groups.length === 0
-  // A question the user reopened from the summary; otherwise the first unanswered one is shown.
-  const [editing, setEditing] = useState<Step | null>(null)
+  const professionsQuery = useProfessions()
+  const professionNames = professionsQuery.data
+  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
   const groups = characters.data?.groups ?? []
+  const noCharacters = characters.data !== undefined && groups.length === 0
   // Show the realm being switched to while the server imports its prices.
   const selection = select.isPending ? select.variables : status.data?.selection
-  const group = groups.find((g) => selection && toKey(g) === toKey(selection))
-  const professions = professionsOf(group, professionNames)
-  const [picks, setPicks] = useState(0)
-  const track = useTrack()
+  const selected = groups.find((g) => selection && toKey(g) === toKey(selection))
+  const run = view?.kind === 'run' && characters.data ? resolveRun(view, groups, professionNames) : null
+  const flush = usePathMoves(path)
   // Asks from the search to upload a scan (making gold's no-scan notice), each opening the realm card's upload.
   const [uploadAsked, setUploadAsked] = useState(0)
 
-  /** Answer one question, writing the filters that answer presets (the user may change them afterwards). */
-  const pick = (step: Step, value: string, characters?: string[]) => {
-    const next = answer(setup, step, value, characters)
-    setSetup(next)
-    // skilling up always asks which profession, even when an answer is kept from before; making gold asks nothing more
-    setEditing(step === 'aim' && next.aim === 'skill' ? 'profession' : null)
-    setPicks((n) => n + 1)
-    if (step === 'aim') track('aim_chosen', { aim: next.aim })
-    // The aim's search is not mounted while a question is open: it starts from these once the setup is complete.
-    storePresets(next.aim, presetsFor(next, step))
-  }
+  // Skilling up needs characters; a run's path needs its character, with that profession, on that realm.
+  const redirect =
+    view?.kind === 'skill' || view?.kind === 'run'
+      ? noCharacters
+        ? '/profit'
+        : view.kind === 'run' && characters.data && !professionsQuery.isPending && run === null
+          ? '/profit/skill'
+          : null
+      : null
+  useEffect(() => {
+    if (redirect) navigate(redirect, { replace: true })
+  }, [redirect])
+
+  // A run's path selects its realm, once: a switch that failed is not tried again and again, and the search then
+  // shows for whatever is selected.
+  const runRealm = run ? toKey(run.group) : null
+  const selectedKey = status.data?.selection ? toKey(status.data.selection) : null
+  const { mutate: selectRealm, isPending: selecting, isIdle } = select
+  // Whether the switch to the run's realm was made (or is being made): a success sets the status's selection.
+  const tried = !isIdle && select.variables !== undefined && toKey(select.variables) === runRealm
+  useEffect(() => {
+    if (runRealm !== null && runRealm !== selectedKey && !tried) selectRealm(fromKey(runRealm))
+  }, [runRealm, selectedKey, tried, selectRealm])
+
+  // The answers the path gives, remembered to mark them when asked again (the last pick of who skills up what).
+  const runProfession = run?.choice.name
+  const runCharacter = run?.holder.name
+  useEffect(() => {
+    if (!runProfession || !runCharacter) return
+    setLastSetup((prev) => ({ ...prev, aim: 'skill', profession: runProfession, characters: [runCharacter] }))
+  }, [runProfession, runCharacter, setLastSetup])
 
   if (status.isPending || characters.isPending) return <Loader />
   if (status.isError) return <Alert color="red">{status.error.message}</Alert>
@@ -75,10 +110,9 @@ export function SearchTab() {
       </Alert>
     )
   }
+  if (view === null || view.kind === 'start' || redirect) return null
+  if (view.kind === 'run' && run === null) return <Loader /> // the professions are still loading
 
-  // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
-  const browsing = group === undefined
-  const noEnchanter = !!selection && !browsing && !hasEnchanter(group)
   const options = realmOptions(groups, coverage.data ?? [])
   // The characters' realms come first, without a heading; the other priced realms under Browse a realm.
   const item = ({ value, label }: { value: string; label: string }) => ({ value, label })
@@ -91,10 +125,11 @@ export function SearchTab() {
     ...options.filter((o) => o.section === 'Your characters').map(item),
     ...(browse.length > 0 ? [{ group: 'Browse a realm', items: browse }] : []),
   ]
-  // The selection's auction house and its newest scan; undefined while the coverage is still loading.
-  const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
-  const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
-  const step = editing ?? nextStep(setup, professions, noCharacters)
+  /** Another realm: a run's character is on the one it names, so the question of who skills up what is asked again. */
+  const switchRealm = (to: Selection) => {
+    if (view.kind === 'run') navigate('/profit/skill')
+    select.mutate(to)
+  }
   // In the realm card the picker has no visible label (it sits beside the upload buttons), only its accessible name.
   const realmSelect = (inCard = false) => (
     <Select
@@ -103,7 +138,7 @@ export function SearchTab() {
       placeholder="No realm has prices yet"
       data={realmData}
       value={selection ? toKey(selection) : null}
-      onChange={(key) => key && select.mutate(fromKey(key))}
+      onChange={(key) => key && switchRealm(fromKey(key))}
       allowDeselect={false}
       size={inCard ? 'sm' : undefined}
       w={inCard ? 300 : undefined}
@@ -111,48 +146,108 @@ export function SearchTab() {
     />
   )
 
+  if (view.kind === 'skill') {
+    const professions = professionsOf(selected, professionNames)
+    return (
+      <Stack>
+        {charactersPanel}
+        <ProfessionQuestion
+          last={lastSetup}
+          professions={professions}
+          onPick={(profession, picked) => {
+            const choice = professions.find((p) => p.name === profession)
+            const name = picked?.[0] ?? choice?.holders[0]?.name
+            if (!selected || !name) return
+            navigate(runPath(selected, name, profession))
+          }}
+        >
+          {/* Which professions there are depends on the realm: it can be changed right there. */}
+          {realmSelect()}
+        </ProfessionQuestion>
+      </Stack>
+    )
+  }
+
+  // The realm the search is for: a run's own (being switched to), else the one selected.
+  const group = run ? run.group : selected
+  // Until the server has selected a run's realm (unless that failed), nothing is ranked for the realm before.
+  const switching = runRealm !== null && runRealm !== selectedKey && (selecting || !tried)
+  const professions = run ? run.professions : professionsOf(selected, professionNames)
+  const setup: SetupAnswers = run
+    ? { aim: 'skill', profession: run.choice.name, characters: [run.holder.name] }
+    : { aim: 'gold' }
+  // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
+  const browsing = group === undefined
+  const noEnchanter = !!selection && !browsing && !hasEnchanter(group)
+  // The selection's auction house and its newest scan; undefined while the coverage is still loading.
+  const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
+  const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
+
   return (
     <Stack>
       <PriceSignal />
-      <Setup
-        setup={setup}
-        step={step}
-        professions={professions}
-        onPick={pick}
-        onOpen={setEditing}
-        unavailable={noCharacters ? { skill: 'Upload your characters first, so we know which skills they have.' } : {}}
-      >
-        {/* Which professions there are depends on the realm: it can be changed right there. */}
-        {step === 'profession' && realmSelect()}
-      </Setup>
-      {step === null && (
-        <>
-          <RealmCard
-            select={realmSelect(true)}
-            lastScan={selection ? lastScan : undefined}
-            uploadAsked={uploadAsked}
-          />
-          {selection && setup ? (
-            <AimSearch
-              key={setup.aim}
-              setup={setup}
-              professions={professions}
-              browsing={browsing}
-              noEnchanter={noEnchanter}
-              realm={selection.realm}
-              noPrices={status.data.prices === 0}
-              salvagerDefault={characters.data?.arcane_salvager ?? false}
-              flush={characters.data ? picks : -1}
-              onUpload={() => setUploadAsked((n) => n + 1)}
-              lastScan={lastScan}
-              watchedHours={house?.watched_hours}
-              houseId={status.data.auction_house_id}
-              onSwitch={(profession, character) => pick('profession', profession, [character])}
+      {run && !charactersOpen ? (
+        // The climber's card beside the auction house's and the Options button under it, as tall as the two.
+        <div className={classes.run}>
+          <div className={classes.climberCell}>
+            <ClimberCard
+              realm={run.group}
+              climber={run.holder}
+              profession={run.choice.name}
+              realms={skillsByRealm(groups, professionNames)}
+              importedAt={characters.data?.imported_at}
+              // in place of the current entry: the back button leaves the climb, not each switch; another realm's
+              // character switches the search to that realm (above)
+              onSwitch={(realm, profession, character) =>
+                navigate(runPath(realm, character, profession), { replace: true })
+              }
+              onUploadAgain={() => onUploadCharacters?.()}
             />
-          ) : (
-            status.data.prices === 0 && <Alert color="yellow">No prices yet for this realm. {HOW_TO_SCAN}</Alert>
+          </div>
+          {/* A run's realm is its climber's: no picker, only how old the prices are. */}
+          <div className={classes.houseCell}>
+            <RealmCard lastScan={selection ? lastScan : undefined} uploadAsked={uploadAsked} />
+          </div>
+          <SkillOptions salvagerDefault={characters.data?.arcane_salvager ?? false} />
+        </div>
+      ) : (
+        <>
+          <div className={classes.panels}>
+            {charactersPanel}
+            <RealmCard
+              select={run ? undefined : realmSelect(true)}
+              lastScan={selection ? lastScan : undefined}
+              uploadAsked={uploadAsked}
+            />
+          </div>
+          {run && (
+            <div className={classes.half}>
+              <SkillOptions salvagerDefault={characters.data?.arcane_salvager ?? false} />
+            </div>
           )}
         </>
+      )}
+      {switching ? (
+        <Group justify="center" py="xl">
+          <Loader aria-label="Switching realm" />
+        </Group>
+      ) : selection ? (
+        <AimSearch
+          key={setup.aim}
+          setup={setup}
+          professions={professions}
+          browsing={browsing}
+          noEnchanter={noEnchanter}
+          noPrices={status.data.prices === 0}
+          salvagerDefault={characters.data?.arcane_salvager ?? false}
+          flush={characters.data ? flush : -1}
+          onUpload={() => setUploadAsked((n) => n + 1)}
+          lastScan={lastScan}
+          watchedHours={house?.watched_hours}
+          houseId={status.data.auction_house_id}
+        />
+      ) : (
+        status.data.prices === 0 && <Alert color="yellow">No data collected for this auction house</Alert>
       )}
     </Stack>
   )

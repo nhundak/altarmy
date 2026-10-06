@@ -1,21 +1,24 @@
 import { z } from 'zod'
-import type { CharacterGroup } from '../api/client'
+import type { CharacterGroup, Selection } from '../api/client'
 import type { Exit, Unlearned } from '../api/queries'
-import { writeStored } from './storage'
+import { realmLabel } from './realms'
+import { isStored, writeStored } from './storage'
 import { craftingTalents, type CraftingTalent } from './talents'
 
 /*
  * The Profit page's setup: a few questions asked before the search, each setting one thing about it. What the user is
- * after (gold, or skill in one profession), and for skill which profession. Making gold asks nothing more: its list shows
- * what playing it safe and what the auction house make side by side, and the user sorts by either.
+ * after (gold, or skill in one profession), and for skill which profession and who. Making gold asks nothing more: its
+ * list shows what playing it safe and what the auction house make side by side, and the user sorts by either. The
+ * answers are the page's path (`profitRoute.ts`); the last ones are also stored, to mark them when asked again.
  */
 
 export const aimSchema = z.enum(['gold', 'skill'])
 const sellingSchema = z.enum(['reliable', 'any'])
 export type Aim = z.infer<typeof aimSchema>
 
-/** The answers so far; the ones a changed aim no longer asks are kept for when it comes back. Keys it no longer
- * knows (a budget, from before that question was dropped) are stripped when read. */
+/** The answers given last, marked when the questions are asked again; the ones a changed aim no longer asks are kept
+ * for when it comes back. Keys it no longer knows (a budget, from before that question was dropped) are stripped when
+ * read. */
 export const setupSchema = z.object({
   aim: aimSchema,
   profession: z.string().optional(),
@@ -151,30 +154,44 @@ export function filterSkills(characters: readonly CharacterSkills[], query: stri
   })
 }
 
+/** A realm and faction's characters and the professions they could skill up, labelled "Realm (Faction)". */
+export type RealmSkills = { realm: Selection; label: string; characters: CharacterSkills[] }
+
+/**
+ * Every character group's characters and professions (as `professionsOf` takes `withRecipes`), by realm and faction
+ * (the one with the most characters first, ties alphabetically; groups with nobody to skill up left out), then by
+ * character, then by profession.
+ */
+export function skillsByRealm(groups: readonly CharacterGroup[], withRecipes?: readonly string[]): RealmSkills[] {
+  return groups
+    .map((g) => ({
+      realm: { realm: g.realm, faction: g.faction },
+      label: realmLabel(g),
+      size: g.characters.length,
+      characters: skillsByCharacter(professionsOf(g, withRecipes)),
+    }))
+    .filter((r) => r.characters.length > 0)
+    .sort((a, b) => b.size - a.size || a.label.localeCompare(b.label))
+    .map(({ size: _size, ...r }) => r)
+}
+
+/** `filterSkills` within each realm (every character of a realm whose label matches); realms left with none are
+ * dropped. */
+export function filterRealmSkills(realms: readonly RealmSkills[], query: string): RealmSkills[] {
+  const q = query.trim().toLowerCase()
+  return realms.flatMap((r) => {
+    if (q && r.label.toLowerCase().includes(q)) return [r]
+    const characters = filterSkills(r.characters, query)
+    return characters.length ? [{ ...r, characters }] : []
+  })
+}
+
 /** Whether anyone in the group can disenchant. */
 export const hasEnchanter = (group: CharacterGroup | undefined): boolean =>
   group?.characters.some((c) => c.professions.some((p) => p.name.toLowerCase() === 'enchanting')) ?? false
 
 const professionIn = (professions: readonly ProfessionChoice[], name: string | undefined) =>
   professions.find((p) => p.name.toLowerCase() === name?.toLowerCase())
-
-/**
- * The first question still to answer, or null when the setup is complete. Skilling up needs characters (their
- * professions) and a profession someone on the selected realm has (`professions`), one of the characters picked among
- * them, so it asks again when those change.
- */
-export function nextStep(
-  setup: Setup | null,
-  professions: readonly ProfessionChoice[],
-  noCharacters: boolean,
-): Step | null {
-  if (setup === null) return 'aim'
-  if (setup.aim === 'skill') {
-    if (noCharacters) return 'aim'
-    return skillCrafters(setup, professions).length ? null : 'profession'
-  }
-  return null
-}
 
 /**
  * The characters being skilled up: the picked profession's holders on the realm (those picked, if some were);
@@ -186,18 +203,6 @@ export function skillCrafters(setup: Setup | null, professions: readonly Profess
   const picked = setup.characters
   const names = holders.map((h) => h.name).filter((n) => !picked || picked.includes(n))
   return [...new Set(names)].sort()
-}
-
-/** `setup` with `step` answered `value` (the key of the card picked); a profession with the `characters` picked among
- * its holders (unset: all of them). */
-export function answer(setup: Setup | null, step: Step, value: string, characters?: string[]): Setup {
-  const base: Setup = setup ?? { aim: step === 'profession' ? 'skill' : 'gold' }
-  switch (step) {
-    case 'aim':
-      return { ...base, aim: aimSchema.parse(value) }
-    case 'profession':
-      return { ...base, profession: value, characters }
-  }
 }
 
 /** The search filters a setup presets; the user may change them afterwards. Money in gold, as typed. */
@@ -212,29 +217,13 @@ export type Presets = {
   unlearned: Unlearned
 }
 
-/**
- * The filters to write when `step` was just answered: an aim writes them all (answers kept from before count, missing
- * ones mean no limit), a later answer only the filter it is about, so the user's other changes stay.
- */
-export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
-  const all: Presets =
-    setup.aim === 'skill'
-      ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI; what is made along the way
-        // is sold where it surely sells, not left on the auction house
-        { includeTrivial: false, minProfit: null, minRoi: null, exits: [...SKILL_EXITS], unlearned: 'train' }
-      : {
-          includeTrivial: true,
-          minProfit: 0.0001,
-          minRoi: 0,
-          exits: [...ALL_EXITS],
-          unlearned: 'none',
-        }
-  switch (step) {
-    case 'aim':
-      return all
-    case 'profession':
-      return {}
-  }
+/** The filters an aim presets (the user may change them afterwards). */
+export function presetsFor(aim: Aim): Presets {
+  return aim === 'skill'
+    ? // losing recipes may be the only way to skill up: no lower bound on profit or ROI; what is made along the way
+      // is sold where it surely sells, not left on the auction house
+      { includeTrivial: false, minProfit: null, minRoi: null, exits: [...SKILL_EXITS], unlearned: 'train' }
+    : { includeTrivial: true, minProfit: 0.0001, minRoi: 0, exits: [...ALL_EXITS], unlearned: 'none' }
 }
 
 /**
@@ -244,10 +233,14 @@ export function presetsFor(setup: Setup, step: Step): Partial<Presets> {
 export const searchKey = (aim: Aim, name: string) => `altarmy-profit.search.${aim}.${name}`
 export const legacySearchKey = (name: string) => `altarmy-profit.search.${name}`
 
-/** Store the filters an answer presets under the aim's keys, for its search to start from. */
-export function storePresets(aim: Aim, presets: Partial<Presets>) {
+/**
+ * Store the filters an aim presets under its keys, for its search to start from: only those it has none of yet, so
+ * picking the aim again (every visit to the Profit page's start) keeps what the user changed.
+ */
+export function storePresets(aim: Aim, presets: Partial<Presets> = presetsFor(aim)) {
   for (const [name, value] of Object.entries(presets)) {
-    if (value !== undefined) writeStored(searchKey(aim, name), value)
+    const key = searchKey(aim, name)
+    if (value !== undefined && !isStored(key)) writeStored(key, value)
   }
 }
 
@@ -257,18 +250,3 @@ export const rankSort = (setup: Setup | null): 'profit' | 'skill' => (setup?.aim
 /** The professions the search is narrowed to: the one being skilled up. */
 export const rankProfessions = (setup: Setup | null): string[] =>
   setup?.aim === 'skill' && setup.profession ? [setup.profession] : []
-
-/** The answers in a few words each, in question order, for the folded summary: "Making gold · …". */
-export function stripParts(setup: Setup): { step: Step; text: string }[] {
-  const parts: { step: Step; text: string }[] = []
-  if (setup.aim === 'skill') {
-    parts.push({ step: 'aim', text: 'Skilling up' })
-    if (setup.profession) {
-      const who = setup.characters
-      parts.push({ step: 'profession', text: who ? `${setup.profession} (${who.join(', ')})` : setup.profession })
-    }
-    return parts
-  }
-  parts.push({ step: 'aim', text: 'Making gold' })
-  return parts
-}

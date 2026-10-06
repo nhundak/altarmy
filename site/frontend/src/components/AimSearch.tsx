@@ -11,6 +11,7 @@ import {
   Stack,
   Text,
   Tooltip,
+  UnstyledButton,
   useMantineTheme,
   VisuallyHidden,
 } from '@mantine/core'
@@ -42,8 +43,9 @@ import {
 } from '../lib/setup'
 import { DEFAULT_REACH_TARGET, MAX_REACH_TARGET, MIN_REACH_TARGET } from '../lib/skill'
 import { useStoredState } from '../lib/storage'
-import { IconInfo } from './icons'
+import { IconChevron, IconInfo } from './icons'
 import { HOW_TO_SCAN } from './PriceFreshness'
+import { ProfessionIcon } from './ProfessionIcon'
 import classes from './SearchTab.module.css'
 import { type GoldSort, ResultsTable, type SortOrder } from './ResultsTable'
 import { SkillWorkspace } from './SkillWorkspace'
@@ -358,6 +360,70 @@ function useFilter<T>(aim: Aim, name: string, schema: z.ZodType<T>, defaultValue
 
 
 /**
+ * Skilling up's Options as two pieces for the skill page's top row to place: a button (`.optionsControl`) and, while it
+ * is open, the options under it (`.optionsPanel`): what may teach the recipes, then the chance to reach the target, one
+ * column. Closed at first. Kept under the skill search's own keys, which `AimSearch` reads (the stored values stay in
+ * step across the two).
+ */
+export function SkillOptions({ salvagerDefault }: { salvagerDefault: boolean }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const [sources, setSources] = useFilter<Source[]>('skill', 'sources', sourceList, DEFAULT_SOURCES)
+  const [reach, setReach] = useFilter('skill', 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
+  const [salvagerPick, setSalvagerPick] = useFilter<boolean | null>(
+    'skill',
+    'arcaneSalvager',
+    z.boolean().nullable(),
+    null,
+  )
+  return (
+    <>
+      <UnstyledButton
+        className={classes.optionsControl}
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <Text fw={500}>Options</Text>
+        <span className={classes.chevron} data-open={open || undefined}>
+          <IconChevron size={16} />
+        </span>
+      </UnstyledButton>
+      {open && (
+        <div id={id} className={classes.optionsPanel}>
+          <Stack gap="lg">
+            <Checkbox.Group
+              label="Recipes taught by"
+              value={sources}
+              onChange={(v) => setSources(ALL_SOURCES.filter((s) => v.includes(s)))}
+            >
+              <Stack mt={4} gap="xs">
+                {SOURCES.map((s) =>
+                  s.description ? (
+                    <SellVia key={s.value} value={s.value} label={s.label} description={s.description} />
+                  ) : (
+                    <Checkbox key={s.value} value={s.value} label={s.label} />
+                  ),
+                )}
+              </Stack>
+            </Checkbox.Group>
+            <ReachTarget value={reach} onChange={setReach} />
+            {SHOW_ARCANE_SALVAGER && (
+              <Checkbox
+                label="Use Arcane Salvager for disenchanting"
+                description="10% chance of extra disenchanting materials. Usable only at campfires."
+                checked={salvagerPick ?? salvagerDefault}
+                onChange={(e) => setSalvagerPick(e.currentTarget.checked)}
+              />
+            )}
+          </Stack>
+        </div>
+      )}
+    </>
+  )
+}
+
+/**
  * One aim's search, once the setup is complete and a realm is selected: its options and ranked recipes. Mounted per
  * aim (`key={aim}`), so each remembers its own filters: making gold and skilling up never overwrite each other's.
  *
@@ -366,7 +432,7 @@ function useFilter<T>(aim: Aim, name: string, schema: z.ZodType<T>, defaultValue
  *
  * Skilling up ranks every recipe the one skilled up can make or train now that still gives them a skill point, each
  * as a useful run (the crafts until it turns green, or yellow: `stop`), by what a skill point costs; what is made is
- * sold to a vendor or disenchanted, else kept. Its Skill options: what may teach the recipes, where a run stops
+ * sold to a vendor or disenchanted, else kept. Its Options (`SkillOptions`, on the page's top row): what may teach the recipes, where a run stops
  * and, for Enchanting and Engineering, casts made for the skill point alone.
  */
 export function AimSearch({
@@ -374,7 +440,6 @@ export function AimSearch({
   professions,
   browsing,
   noEnchanter,
-  realm,
   noPrices,
   salvagerDefault,
   flush,
@@ -382,7 +447,6 @@ export function AimSearch({
   lastScan,
   watchedHours,
   houseId,
-  onSwitch,
 }: {
   setup: SetupAnswers
   /** the selected realm's professions, with who has them */
@@ -390,7 +454,6 @@ export function AimSearch({
   /** no characters on the selected realm: every recipe, for one unnamed crafter */
   browsing: boolean
   noEnchanter: boolean
-  realm: string
   noPrices: boolean
   /** whether a character can make an Arcane Salvager: the checkbox's default */
   salvagerDefault: boolean
@@ -403,12 +466,11 @@ export function AimSearch({
   /** hours of back-to-back scans of it this week (sales are seen only then); undefined: unknown */
   watchedHours?: number | undefined
   houseId?: number | null
-  /** skill up another character's or profession instead (the setup's profession answered again) */
-  onSwitch?: (profession: string, character: string) => void
 }) {
   const { aim } = setup
   const skill = aim === 'skill'
-  const [sources, setSources] = useFilter<Source[]>(aim, 'sources', sourceList, DEFAULT_SOURCES)
+  // Skilling up's options are set in `SkillOptions` (on the skill page's top row), kept under the same keys.
+  const [sources] = useFilter<Source[]>(aim, 'sources', sourceList, DEFAULT_SOURCES)
   // Stored as strings: sections that no longer exist (the old Characters and Time assumptions ones) are dropped,
   // not an error.
   const [stored, setOpen] = useFilter(aim, 'open', z.array(z.string()), NONE_OPEN)
@@ -428,7 +490,7 @@ export function AimSearch({
   const [goldOrder, setGoldOrder] = useFilter<SortOrder>(aim, 'order', sortOrderSchema, 'desc')
   const [learnable, setLearnable] = useFilter(aim, 'learnable', z.boolean(), false)
   // Skill up only: how sure the materials bought for a run are to get there, in percent.
-  const [reach, setReach] = useFilter(aim, 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
+  const [reach] = useFilter(aim, 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
   // The newest scan's notice, dismissed per auction house.
   const [dismissed, setDismissed] = useStoredState(
     `altarmy-profit.notice.unwatched.${houseId ?? 0}`,
@@ -530,31 +592,7 @@ export function AimSearch({
 
   return (
     <>
-      {skill ? (
-        <Options label="Skill options">
-          <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xl">
-            <Checkbox.Group
-              label="Recipes taught by"
-              value={sources}
-              onChange={(v) => setSources(ALL_SOURCES.filter((s) => v.includes(s)))}
-            >
-              <Stack mt={4} gap="xs">
-                {SOURCES.map((s) =>
-                  s.description ? (
-                    <SellVia key={s.value} value={s.value} label={s.label} description={s.description} />
-                  ) : (
-                    <Checkbox key={s.value} value={s.value} label={s.label} />
-                  ),
-                )}
-              </Stack>
-            </Checkbox.Group>
-            <Stack gap="md">
-              <ReachTarget value={reach} onChange={setReach} />
-              {salvager}
-            </Stack>
-          </SimpleGrid>
-        </Options>
-      ) : (
+      {!skill && (
         <Options label="Filters">
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xl">
             <CraftsPerSession />
@@ -592,10 +630,12 @@ export function AimSearch({
         </Alert>
       )}
       {noEnchanter && (
-        <Alert color="yellow" title="Nobody here can disenchant">
-          None of your characters on {realm} has Enchanting, so nothing can be disenchanted. Making an enchanter on any
-          alt is an easy way to expand your options: enchanting materials sell reliably
-          {skill ? ', and disenchanting what you make often costs less than selling it to a vendor.' : '.'}
+        <Alert color="yellow" title="You do not have a disenchanter">
+          Making a character with{' '}
+          <span className={classes.inlineIcon}>
+            <ProfessionIcon profession="Enchanting" />
+          </span>{' '}
+          Enchanting can significantly increase your profits and can be done at level 1
         </Alert>
       )}
       {browsing && (
@@ -647,7 +687,7 @@ export function AimSearch({
           </Accordion>
         </SimpleGrid>
       )}
-      {noPrices && <Alert color="yellow">No prices yet for this realm. {HOW_TO_SCAN}</Alert>}
+      {noPrices && <Alert color="yellow">No data collected for this auction house</Alert>}
       {!skill && (
         <Text size="sm" c="dimmed">
           <b>Safe profit</b>: sold to a vendor or disenchanted, so it always sells. <b>Auction profit</b>: counts only as
@@ -663,8 +703,6 @@ export function AimSearch({
           climber={climber}
           profession={profession}
           reachTarget={reachTarget(reach)}
-          professions={professions}
-          onSwitch={onSwitch}
         />
       ) : (
         <Results
