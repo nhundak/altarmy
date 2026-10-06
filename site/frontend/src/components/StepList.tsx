@@ -3,7 +3,7 @@ import { List, Text } from '@mantine/core'
 import type { ItemMap, RankResult, Step } from '../api/client'
 import { useAhCut } from '../api/queries'
 import { SELL_PATH } from '../lib/choices'
-import { breakEven, countedOn, floor } from '../lib/selling'
+import { breakEven, countedOn, expectedUnits, floor, materialSales } from '../lib/selling'
 import { stepSource } from '../lib/steps'
 import { bonusNote, discountLabel } from '../lib/talents'
 import { formatCoords } from '../lib/time'
@@ -60,7 +60,8 @@ function SaleNotes({ result, items }: { result: RankResult; items: ItemMap }) {
 
 /**
  * A step as one or more instruction lines (whose they are is the group they are listed under); disenchanting splits
- * into disenchant, then sell the mats. `vendor` names the vendor bought from or sold to (the detailed view knows it).
+ * into disenchant, then sell the mats (`detailed`: each material on its own line). `vendor` names the vendor bought
+ * from or sold to (the detailed view knows it).
  */
 function describe(
   { action, item_id, name, quantity, value, via, who, discount, rep_discount, rep_faction, bonus, convert, enchant }: Step,
@@ -68,6 +69,7 @@ function describe(
   items: ItemMap,
   vendor?: string,
   skill = false,
+  detailed = false,
 ): ReactNode[] {
   const item = <ItemLink item={items[item_id]} name={name} />
   const discounted = discountLabel(discount, rep_discount)
@@ -114,7 +116,28 @@ function describe(
           Mail {quantity}x {item} to <CharacterName name={via} /> (<StepMoney value={value} />)
         </>,
       ]
-    case 'sell':
+    case 'sell': {
+      const materials = via === 'disenchant' && detailed ? materialSales(result, quantity, value, result.profit) : []
+      if (materials.length > 0)
+        return [
+          <>
+            Disenchant {quantity > 1 ? `${quantity}x ` : ''}
+            {item}
+            {extra}
+          </>,
+          ...materials.map((m) => (
+            <>
+              Auction ~{expectedUnits(m.units)}x <ItemLink item={items[m.item_id]} name={m.name} />{' '}
+              {m.gross === null || m.net === null ? (
+                <Text span inherit c="dimmed">
+                  (no price)
+                </Text>
+              ) : (
+                <Sale gross={m.gross} net={m.net} />
+              )}
+            </>
+          )),
+        ]
       if (via === 'disenchant')
         return [
           <>
@@ -128,7 +151,7 @@ function describe(
           </>,
           <>
             <DisenchantHover result={result} items={items}>
-              Sell materials
+              Auction materials
             </DisenchantHover>{' '}
             <Sale gross={value} net={result.profit} />
           </>,
@@ -149,6 +172,7 @@ function describe(
           {via === 'ah' && !skill && <SaleNotes result={result} items={items} />}
         </>,
       ]
+    }
   }
 }
 
@@ -174,10 +198,18 @@ function StepChoice({ step, result }: { step: Step; result: RankResult }) {
 }
 
 /** A step's lines (a disenchant sale's split: disenchanting, then selling the materials), the last ending in a
- * menu of its alternatives, if it has any. */
-function stepLines(step: Step, result: RankResult, items: ItemMap, vendor?: string, skill = false): ReactNode[] {
-  return describe(step, result, items, vendor, skill).map((line, i, all) =>
-    i < all.length - 1 ? (
+ * menu of its alternatives, if it has any; in the detailed view every material's line does. */
+function stepLines(
+  step: Step,
+  result: RankResult,
+  items: ItemMap,
+  vendor?: string,
+  skill = false,
+  detailed = false,
+): ReactNode[] {
+  const perMaterial = detailed && step.action === 'sell' && step.via === 'disenchant'
+  return describe(step, result, items, vendor, skill, detailed).map((line, i, all) =>
+    i < all.length - 1 && !(perMaterial && i > 0) ? (
       line
     ) : (
       <>
@@ -247,7 +279,7 @@ function stretches(result: RankResult, items: ItemMap, detailed: boolean, skill:
     else all.push({ who, lines })
   }
   if (!detailed || result.details.length === 0) {
-    for (const step of result.steps) add(step.who, ...stepLines(step, result, items, undefined, skill))
+    for (const step of result.steps) add(step.who, ...stepLines(step, result, items, undefined, skill, detailed))
     return all
   }
   let vendor: string | undefined // the vendor the character stands at, to name in buy and sell lines
@@ -262,7 +294,7 @@ function stretches(result: RankResult, items: ItemMap, detailed: boolean, skill:
       if (line) add(d.who, line)
     } else {
       const step = d.step == null ? undefined : result.steps[d.step]
-      if (step) add(step.who, ...stepLines(step, result, items, vendor, skill))
+      if (step) add(step.who, ...stepLines(step, result, items, vendor, skill, true))
     }
   }
   return all.filter((s) => s.lines.length > 0)

@@ -24,6 +24,9 @@ CREATE TABLE npc_vendor_template (entry INTEGER, item INTEGER, maxcount INTEGER,
 CREATE TABLE gameobject (guid INTEGER, id INTEGER, map INTEGER, position_x REAL, position_y REAL,
     position_z REAL, patch_min INTEGER, patch_max INTEGER);
 CREATE TABLE gameobject_template (entry INTEGER, patch INTEGER, type INTEGER, name TEXT, data0 INTEGER);
+CREATE TABLE creature_movement (id INTEGER, point INTEGER, position_x REAL, position_y REAL, position_z REAL);
+CREATE TABLE creature_movement_template (entry INTEGER, point INTEGER, position_x REAL, position_y REAL,
+    position_z REAL);
 """
 FOCUS = {1: "Anvil", 3: "Forge", 4: "Cooking Fire"}  # DB2 SpellFocusObject names (226, a quest well, is not)
 # A town around (1000, -4000, 20) on map 1: negative coordinates, so a pasted "- -4000" would be a comment.
@@ -71,15 +74,26 @@ def town(tmp_path: Path) -> Iterator[sqlite3.Connection]:
             (12, 11, 1, X + 5, Y, Z + 500, 0, 10),  # far above (a flying ship, say)
         ],
     )
-    conn.execute("INSERT INTO creature_template VALUES (23, 0, 'Wandering Seller', 4, 0, 12)")
-    conn.execute(  # walks a waypoint route: nowhere to run to
+    conn.executemany(
+        "INSERT INTO creature_template VALUES (?, 0, ?, 4, 0, 12)",
+        [(23, "Wandering Seller"), (24, "Template Walker"), (25, "Pathless Walker")],
+    )
+    conn.executemany(  # these walk a waypoint route
         "INSERT INTO creature (guid, id, map, position_x, position_y, position_z, patch_min, patch_max,"
-        " movement_type) VALUES (13, 23, 1, ?, ?, ?, 0, 10, 2)",
-        (X, Y + 5, Z),
+        " movement_type) VALUES (?, ?, 1, ?, ?, ?, 0, 10, 2)",
+        [(13, 23, X, Y + 5, Z), (14, 24, X + 60, Y, Z), (15, 25, X - 60, Y, Z)],
+    )
+    conn.executemany(  # 13's route by its guid: a line from Y+5 to Y+45, its middle point at Y+25
+        "INSERT INTO creature_movement VALUES (13, ?, ?, ?, ?)",
+        [(1, X, Y + 5, Z), (2, X, Y + 15, Z), (3, X, Y + 25, Z), (4, X, Y + 35, Z), (5, X, Y + 45, Z)],
+    )
+    conn.executemany(  # 24's route by its entry: a square, the corner nearest its middle the first listed
+        "INSERT INTO creature_movement_template VALUES (24, ?, ?, ?, ?)",
+        [(1, X + 60, Y, Z), (2, X + 70, Y, Z), (3, X + 70, Y + 10, Z), (4, X + 60, Y + 10, Z)],
     )
     conn.executemany(
         "INSERT INTO npc_vendor VALUES (?,?,?,?)",
-        [(20, 2, 0, 0), (20, 3, 0, 0), (20, 4, 5, 0), (22, 5, 0, 9), (23, 7, 0, 0)],
+        [(20, 2, 0, 0), (20, 3, 0, 0), (20, 4, 5, 0), (22, 5, 0, 9), (23, 7, 0, 0), (24, 8, 0, 0)],
     )
     conn.executemany("INSERT INTO npc_vendor_template VALUES (?,?,?,?)", [(70, 6, 0, 0), (70, 2, 0, 0)])
     conn.executemany(
@@ -120,7 +134,14 @@ def test_npcs_near_takes_current_spawns_once_with_their_newest_template(town: sq
     ]
     assert (got[0].x, got[0].y) == (X + 10, Y)
     vendors = vmangos.npcs_near(town, 1, X, Y, Z, 100, vmangos.NPC_VENDOR)
-    assert [s.entry for s in vendors] == [20, 21, 22]  # not 23, who patrols
+    assert [s.entry for s in vendors] == [20, 21, 22, 23, 24, 25]
+
+
+def test_npcs_near_puts_a_patrolling_npc_in_the_middle_of_their_route(town: sqlite3.Connection) -> None:
+    vendors = {s.entry: s for s in vmangos.npcs_near(town, 1, X, Y, Z, 100, vmangos.NPC_VENDOR)}
+    assert (vendors[23].x, vendors[23].y, vendors[23].z) == (X, Y + 25, Z)  # the route by guid
+    assert (vendors[24].x, vendors[24].y) == (X + 60, Y)  # the route by entry
+    assert (vendors[25].x, vendors[25].y) == (X - 60, Y)  # no route: where they spawn
 
 
 def test_objects_near_finds_mailboxes_and_stations(town: sqlite3.Connection) -> None:
@@ -175,10 +196,17 @@ def test_build_city_makes_a_preset_the_timing_model_reads(town: sqlite3.Connecti
         "mailbox:50",
         "vendor:20",
         "vendor:21",
+        "vendor:23",
+        "vendor:24",
     ]
-    assert city.vendor_items == {"vendor:20": frozenset({2, 3}), "vendor:21": frozenset({2, 6})}
+    assert city.vendor_items == {
+        "vendor:20": frozenset({2, 3}),
+        "vendor:21": frozenset({2, 6}),
+        "vendor:23": frozenset({7}),  # patrolling vendors sell too
+        "vendor:24": frozenset({8}),
+    }
     # only a city faction's vendors: nobody has a reputation with the Template Seller's faction
-    assert data["vendor_reputations"] == {"vendor:20": 72}
+    assert data["vendor_reputations"] == {"vendor:20": 72, "vendor:23": 72, "vendor:24": 72}
     assert (city.reputation_of("vendor:20"), city.reputation_of("vendor:21")) == (72, 0)
     assert data["generated"] == {
         "source": "vmangos",
@@ -189,8 +217,8 @@ def test_build_city_makes_a_preset_the_timing_model_reads(town: sqlite3.Connecti
             "mailboxes": 1,
             "anvil": 1,
             "forge": 1,
-            "vendors": 2,
-            "items": 3,
+            "vendors": 4,
+            "items": 5,
         },
     }
 

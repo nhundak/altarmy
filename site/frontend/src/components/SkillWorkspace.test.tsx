@@ -68,7 +68,7 @@ const FILTERS: Omit<RankParams, 'top'> = {
   sort: 'skill',
   runs: true,
 }
-const CLIMBER = { name: 'Tailor Guy', classFile: 'MAGE', rank: 20, maxRank: 75 }
+const CLIMBER = { name: 'Tailor Guy', classFile: 'MAGE', level: 30, rank: 20, maxRank: 75 }
 const overtime = (rank: number) => ({ spellId: WORKING_OVERTIME, name: 'Working Overtime', rank, maxRank: 5 })
 const bartering = (rank: number) => ({ spellId: BARTERING, name: 'Bartering', rank, maxRank: 2 })
 
@@ -459,6 +459,83 @@ describe('SkillWorkspace', () => {
     expect(screen.getByText("Tailor Guy's")).toBeInTheDocument()
   })
 
+  it("switches to another character's profession from the header's menu, grouped by character", async () => {
+    api()
+    const onSwitch = vi.fn()
+    const holder = (name: string, rank: number) => ({ name, classFile: 'MAGE', level: 22, rank, maxRank: 75 })
+    const professions = [
+      { name: 'Cooking', holders: [holder('Tailor Guy', 5), holder('Amy', 30)] },
+      { name: 'Tailoring', holders: [holder('Tailor Guy', 20)] },
+    ]
+    renderWithProviders(
+      <SkillWorkspace
+        filters={FILTERS}
+        climber={CLIMBER}
+        profession="Tailoring"
+        professions={professions}
+        onSwitch={onSwitch}
+      />,
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Switch character or profession' }))
+    const list = await screen.findByRole('listbox')
+    const options = () => within(list).getAllByRole('option')
+    const names = () => options().map((o) => o.textContent?.replace(/\d+\/\d+$/, ''))
+    // Amy before Tailor Guy, each with their professions
+    expect(names()).toEqual(['Cooking', 'Cooking', 'Tailoring'])
+    expect(within(list).getByText('Amy').compareDocumentPosition(within(list).getByText('Tailor Guy'))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    // each character with their level and class, only the name in its colour
+    expect(within(list).getByText('Amy').parentElement).toHaveTextContent('Amy (level 22 mage)')
+    expect(within(list).getByText('Amy')).toHaveAttribute('data-class', 'MAGE')
+    expect(options()[2]).toHaveAttribute('aria-selected', 'true')
+    // typing narrows it by profession or character
+    const search = screen.getByRole('textbox', { name: 'Search characters or professions' })
+    await userEvent.type(search, 'cook')
+    expect(names()).toEqual(['Cooking', 'Cooking'])
+    await userEvent.clear(search)
+    await userEvent.type(search, 'amy')
+    expect(names()).toEqual(['Cooking'])
+    await userEvent.click(options()[0]!)
+    expect(onSwitch).toHaveBeenCalledWith('Cooking', 'Amy')
+  })
+
+  it('switches with the keyboard alone: arrows through the options, Enter picks, Tab closes', async () => {
+    api()
+    const onSwitch = vi.fn()
+    const holder = (name: string, rank: number) => ({ name, classFile: 'MAGE', level: 22, rank, maxRank: 75 })
+    const professions = [
+      { name: 'Cooking', holders: [holder('Tailor Guy', 5), holder('Amy', 30)] },
+      { name: 'Tailoring', holders: [holder('Tailor Guy', 20)] },
+    ]
+    renderWithProviders(
+      <SkillWorkspace
+        filters={FILTERS}
+        climber={CLIMBER}
+        profession="Tailoring"
+        professions={professions}
+        onSwitch={onSwitch}
+      />,
+    )
+    const select = await screen.findByRole('button', { name: 'Switch character or profession' })
+    select.focus()
+    await userEvent.keyboard(' ')
+    const search = await screen.findByRole('textbox', { name: 'Search characters or professions' })
+    await waitFor(() => expect(search).toHaveFocus())
+    // Tab goes back to the select, closed
+    await userEvent.tab()
+    expect(select).toHaveFocus()
+    await waitFor(() => expect(screen.queryByRole('listbox')).not.toBeInTheDocument())
+    await userEvent.keyboard(' ')
+    await waitFor(() => expect(search).toHaveFocus())
+    // from the current one (Tailor Guy's Tailoring, last) the arrows wrap round to Amy's Cooking
+    await waitFor(() =>
+      expect(screen.getByRole('option', { name: /Tailoring/ })).toHaveAttribute('data-combobox-selected'),
+    )
+    await userEvent.keyboard('{ArrowDown}{Enter}')
+    expect(onSwitch).toHaveBeenCalledWith('Cooking', 'Amy')
+  })
+
   it('says what each talent does when they are hovered', async () => {
     api()
     show({ ...CLIMBER, talents: [overtime(2), bartering(1)] })
@@ -599,6 +676,27 @@ describe('SkillWorkspace', () => {
     )
     expect(text).toContain('1. Tailor Guy: Buy 12x Linen Cloth on the AH') // for the 14 crafts to buy for
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument()
+  })
+
+  it('spells out where to go in the detailed view, copied as detailed, and only beside the steps', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const auctioneer = { id: 'ah', kind: 'ah', name: 'Auctioneer Stockton', map_x: 71.4, map_y: 46.7, map_area: 1637 }
+    const details: RankResult['details'] = [
+      { kind: 'start', who: 'Tailor Guy', step: null, location: auctioneer, retrieve: [], seconds: 0 },
+      { kind: 'step', who: 'Tailor Guy', step: 0, location: null, retrieve: [], seconds: 0 },
+    ]
+    api({ '/api/evaluate': () => ({ result: { ...scaleRun(robeRun, 14), details }, items }) })
+    show()
+    const run = await choose('Green Robe')
+    expect(within(run).queryByText(/Start at/)).not.toBeInTheDocument()
+    await userEvent.click(within(run).getByRole('checkbox', { name: 'Detailed view' }))
+    expect(await within(run).findByText(/Start at/)).toHaveTextContent('Start at Auctioneer Stockton at 71.4, 46.7')
+    await userEvent.click(within(run).getByRole('button', { name: 'Copy steps' }))
+    const [text] = writeText.mock.calls[0] as unknown as [string]
+    expect(text.split('\n')[1]).toBe('1. Tailor Guy: Start at Auctioneer Stockton at 71.4, 46.7')
+    await userEvent.click(within(run).getByRole('radio', { name: 'Flowchart' }))
+    expect(within(run).queryByRole('checkbox', { name: 'Detailed view' })).not.toBeInTheDocument()
   })
 
   it('holds still when prices change, until refreshed', async () => {

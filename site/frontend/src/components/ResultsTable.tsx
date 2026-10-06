@@ -41,7 +41,7 @@ export type GoldSort = 'safe' | 'ah' | 'likely'
 export type SortOrder = 'desc' | 'asc'
 const GOLD_SORT: Readonly<Record<string, GoldSort>> = { [SAFE]: 'safe', [AUCTION]: 'ah' }
 const GOLD_HEADER_TITLE: Readonly<Record<string, string>> = {
-  [SAFE]: 'Sell to a vendor, or disenchant and sell the materials: it always sells, and you are never left holding stock',
+  [SAFE]: 'Sell to a vendor, or disenchant and auction the materials: it always sells, and you are never left holding stock',
   [AUCTION]:
     'Sell on the auction house, counting only as many as its market has shown it takes (the rest the safe way). Often more, but less sure',
 }

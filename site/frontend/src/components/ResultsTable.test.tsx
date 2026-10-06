@@ -26,8 +26,8 @@ const disenchanted: RankResult = {
       postage: 30,
       mail_to: 'Enchy',
       materials: [
-        { item_id: 1, name: 'Linen Cloth', chance: 0.75, min_count: 1, max_count: 2, value: 75988 },
-        { item_id: 2, name: 'Coarse Thread', chance: 0.25, min_count: 1, max_count: 1, value: null },
+        { item_id: 1, name: 'Linen Cloth', chance: 0.75, min_count: 1, max_count: 2, value: 75988, expected: 1.125 },
+        { item_id: 2, name: 'Coarse Thread', chance: 0.25, min_count: 1, max_count: 1, value: null, expected: 0.25 },
       ],
     },
   ],
@@ -397,7 +397,7 @@ describe('ResultsTable', () => {
     expect(line('Craft 2x Cured Medium Hide')).toBeInTheDocument()
     expect(line('Mail 1x Green Robe to Enchy (30)')).toBeInTheDocument()
     expect(line('Disenchant Green Robe (view expected materials)')).toBeInTheDocument()
-    expect(line('Sell materials (Gross 7 59 88 · Net 2 0)')).toBeInTheDocument()
+    expect(line('Auction materials (Gross 7 59 88 · Net 2 0)')).toBeInTheDocument()
   })
 
   it('names what Legacy talents did: a Bartering discount and Master Chef extras', async () => {
@@ -414,10 +414,11 @@ describe('ResultsTable', () => {
     renderRows([talented])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showFlow()
-    expect(screen.getByText(detail('Buy from a vendor · 90 · Bartering −10%'))).toBeInTheDocument()
+    // the flow chart's boxes are narrow: the discount is in the tooltip alone
+    expect(screen.getByText(detail('Buy from a vendor · 90'))).toHaveAttribute('title', 'Bartering −10%')
     expect(screen.getByText(detail('+0.3 expected from Master Chef'))).toBeInTheDocument()
     await showSteps()
-    expect(line('Purchase 1x Coarse Thread from a vendor (90, after bartering discount)')).toBeInTheDocument()
+    expect(line('Purchase 1x Coarse Thread from a vendor (90, after discount)')).toBeInTheDocument()
     expect(
       line('Sell 1x Green Robe (+0.3 expected from Master Chef) to a vendor (Gross 5 0 · Net 2 0)'),
     ).toBeInTheDocument()
@@ -434,11 +435,11 @@ describe('ResultsTable', () => {
     renderRows([reputed])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showFlow()
-    // the flow chart's boxes are narrow: whose reputation is in the tooltip
-    const node = screen.getByText(detail('Buy from a vendor · 90 · Reputation −10%'))
+    // the flow chart's boxes are narrow: the discount and whose reputation it is are in the tooltip alone
+    const node = screen.getByText(detail('Buy from a vendor · 90'))
     expect(node).toHaveAttribute('title', 'Orgrimmar reputation −10%')
     await showSteps()
-    expect(line('Purchase 1x Coarse Thread from a vendor (90, after reputation discount)')).toBeInTheDocument()
+    expect(line('Purchase 1x Coarse Thread from a vendor (90, after discount)')).toBeInTheDocument()
   })
 
   it("lists the buyer's reputation discounts and Bartering ranks on hovering a discount", async () => {
@@ -468,7 +469,7 @@ describe('ResultsTable', () => {
     renderWithProviders(<ResultsTable results={[discounted]} items={items} />)
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
-    await userEvent.hover(screen.getByText('after reputation and bartering discount'))
+    await userEvent.hover(screen.getByText('after discount'))
     const title = await screen.findByText((_, el) => el?.tagName === 'DIV' && shown(el) === "Tailor Guy's vendor discounts")
     // the buyer's name in their class colour
     expect(within(title).getByText('Tailor Guy')).toHaveAttribute('data-class', 'MAGE')
@@ -487,7 +488,7 @@ describe('ResultsTable', () => {
     renderRows([bartered])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
-    await userEvent.hover(screen.getByText('after bartering discount'))
+    await userEvent.hover(screen.getByText('after discount'))
     expect(await screen.findByText('Bartering 2/2')).toBeInTheDocument()
     expect(screen.getByText('−10%')).toBeInTheDocument()
     expect(screen.queryByText('Reputation')).not.toBeInTheDocument()
@@ -504,8 +505,21 @@ describe('ResultsTable', () => {
     renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
-    await userEvent.hover(screen.getByText('Sell materials'))
+    await userEvent.hover(screen.getByText('Auction materials'))
     await expectDisenchantTooltip()
+  })
+
+  it('auctions each material on its own line in the detailed view, each with the menu', async () => {
+    renderRows([disenchanted])
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    await showSteps()
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Detailed view' }))
+    expect(line('Disenchant Green Robe')).toBeInTheDocument()
+    // 1.125 Linen Cloth a disenchant: all the gross and net, since the thread has no price
+    expect(line('Auction ~1.1x Linen Cloth (Gross 7 59 88 · Net 2 0)')).toBeInTheDocument()
+    expect(line('Auction ~0.3x Coarse Thread (no price)')).toBeInTheDocument()
+    expect(screen.queryByText('Auction materials')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Change how it is sold' })).toHaveLength(2)
   })
 
   it('shows the expected disenchant materials on the Steps row\'s "view expected materials"', async () => {
@@ -520,7 +534,7 @@ describe('ResultsTable', () => {
     renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showFlow()
-    await userEvent.hover(screen.getByText('Disenchant, sell the materials'))
+    await userEvent.hover(screen.getByText('Disenchant and auction'))
     await expectDisenchantTooltip()
   })
 
@@ -562,13 +576,13 @@ describe('ResultsTable', () => {
     expect(screen.getByText('Smithy')).toBeInTheDocument()
   })
 
-  it('shows mailing to an enchanter on the flow chart', async () => {
+  it('leaves mailing out of the flow chart, naming the enchanter under the sale', async () => {
     renderRows([disenchanted])
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showFlow()
-    expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === 'Mail 1x to Enchy')).toBeInTheDocument()
-    expect(screen.getAllByText('Enchy')).toHaveLength(2) // mail recipient, and the disenchanter under the sale
-    expect(screen.getByText(detail('Postage · 30'))).toBeInTheDocument()
+    expect(screen.queryByText(/^Mail /)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Postage/)).not.toBeInTheDocument()
+    expect(screen.getAllByText('Enchy')).toHaveLength(1) // the disenchanter under the sale
   })
 
   it('shows the recipe tooltip, not the item tooltip, on the recipe', async () => {

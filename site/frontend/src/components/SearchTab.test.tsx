@@ -258,11 +258,15 @@ describe('SearchTab', () => {
     renderWithProviders(<SearchTab />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skill up' }))
     await screen.findByRole('group', { name: 'Which profession?' })
-    expect(answers('Which profession?')).toEqual(['Cooking', 'Tailoring']) // one profession, never any
+    expect(answers('Which profession?')).toEqual(['Tailoring', 'Cooking']) // one profession, never any
+    // the primary professions first, then the secondary ones
+    expect(answers('Primary professions')).toEqual(['Tailoring'])
+    expect(answers('Secondary professions')).toEqual(['Cooking'])
     const tailoring = screen.getByRole('button', { name: 'Tailoring' })
     const tailor = within(tailoring).getByText('Tailor Guy')
     expect(tailor).toHaveAttribute('data-class', 'MAGE')
-    expect(tailor.parentElement).toHaveTextContent(/^Tailor Guy 50\/75$/)
+    // a table row: the name, then the skill out of the highest there is
+    expect(tailor.closest('p')?.nextElementSibling).toHaveTextContent(/^50\/300$/)
     expect(
       within(tailoring).getByRole('progressbar', {
         name: "Tailor Guy's Tailoring skill",
@@ -327,8 +331,8 @@ describe('SearchTab', () => {
     const who = screen.getByRole('radiogroup', {
       name: 'Who is skilling up Tailoring?',
     })
-    const guy = within(who).getByRole('radio', { name: /Tailor Guy 50\/75/ })
-    const sea = within(who).getByRole('radio', { name: /Seamstress 30\/75/ })
+    const guy = within(who).getByRole('radio', { name: /Tailor Guy 50\/300/ })
+    const sea = within(who).getByRole('radio', { name: /Seamstress 30\/300/ })
     expect(sea).toBeChecked() // the lowest-skilled first
     expect(guy).not.toBeChecked()
     expect(urls(fetch, '/api/rank')).toEqual([])

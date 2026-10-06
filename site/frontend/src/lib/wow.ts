@@ -60,6 +60,33 @@ export function iconUrl(icon: string, size: 'small' | 'medium' | 'large'): strin
   return `https://wow.zamimg.com/images/wow/icons/${size}/${icon}.jpg`
 }
 
+/** A class in a word or two, as said in a sentence: "mage", "death knight" (from its class file, e.g. DEATHKNIGHT). */
+export const classWord = (classFile: string): string =>
+  classFile.toLowerCase().replace(/^(death|demon)(knight|hunter)$/, '$1 $2')
+
+/** The icon the game shows for each profession (DB2 SkillLine's SpellIconFileID through ManifestInterfaceData, for
+ * the skill lines Forever's recipes use), by lower-case name. */
+const PROFESSION_ICONS: Readonly<Record<string, string>> = {
+  alchemy: 'trade_alchemy',
+  blacksmithing: 'trade_blacksmithing',
+  comprehension: 'spell_holy_mindsooth',
+  cooking: 'inv_misc_food_15',
+  demonology: 'spell_shadow_metamorphosis',
+  enchanting: 'trade_engraving',
+  engineering: 'trade_engineering',
+  'first aid': 'spell_holy_sealofsacrifice',
+  fishing: 'trade_fishing',
+  herbalism: 'trade_herbalism',
+  leatherworking: 'trade_leatherworking',
+  mining: 'trade_mining',
+  poisons: 'trade_brewpoison',
+  skinning: 'inv_misc_pelt_wolf_01',
+  tailoring: 'trade_tailoring',
+}
+
+/** A profession's icon name (for `iconUrl`); undefined for one the game gives none we know. */
+export const professionIcon = (profession: string): string | undefined => PROFESSION_ICONS[profession.toLowerCase()]
+
 /** A zone's map (772x515), by AreaTable id, served with the front end (`public/maps`, fetched from Wowhead by
  * scripts/fetch_zone_maps.py); it frames the zone as the in-game world map does, so map coordinates are
  * percentages of it. */

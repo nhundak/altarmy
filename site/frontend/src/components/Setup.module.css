@@ -6,6 +6,32 @@
   align-items: stretch;
 }
 
+/* The professions, four to a row (two on tablets, one on phones): room for each card's table of holders. */
+.cards[data-step='profession'] {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 62em) {
+  .cards[data-step='profession'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 36em) {
+  .cards[data-step='profession'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A profession card's holders as a table: names on the left, their skill bars lined up on the right. */
+.holders {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--mantine-spacing-sm);
+  row-gap: 2px;
+}
+
 /* A card's button stretches to the row's tallest card; a button centers its content, so start it at the top. */
 .top {
   display: flex;

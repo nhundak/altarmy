@@ -2,7 +2,19 @@ import { describe, expect, it } from 'vitest'
 import type { RankResult } from '../api/client'
 import { linen, makeItem } from '../test/items'
 import { robeResult } from '../test/results'
-import { ahCount, ahProfit, breakEven, countedOn, depthNote, fallback, floodCheck, floor, safeProfit } from './selling'
+import {
+  ahCount,
+  ahProfit,
+  breakEven,
+  countedOn,
+  depthNote,
+  expectedUnits,
+  fallback,
+  floodCheck,
+  floor,
+  materialSales,
+  safeProfit,
+} from './selling'
 
 // the robe: costs 300 to make one, a vendor pays 500, the AH nets 475 of a 500 listing
 const robe: RankResult = { ...robeResult, best_exit: 'ah' }
@@ -34,7 +46,7 @@ describe('selling', () => {
           value: 900,
           postage: 0,
           mail_to: '',
-          materials: [{ item_id: 1, name: 'Linen Cloth', chance: 0.8, min_count: 1, max_count: 3, value: 700 }],
+          materials: [{ item_id: 1, name: 'Linen Cloth', chance: 0.8, min_count: 1, max_count: 3, value: 700, expected: 1.6 }],
         },
       ],
     }
@@ -84,5 +96,34 @@ describe('the two ways to sell', () => {
     expect(ahCount(ten, listed)).toEqual({ counted: 3, made: 10, price: 1000, restKind: 'vendor', allSold: 6500 })
     expect(ahCount({ ...ten, ah_excess_units: 0 }, listed)?.restKind).toBeNull()
     expect(ahCount({ ...ten, ah_profit: null }, listed)).toBeNull()
+  })
+
+  it("shares a disenchant's sale among its materials by what each is worth, adding up", () => {
+    const material = (item_id: number, value: number | null, expected: number) =>
+      ({ item_id, name: `item ${item_id}`, chance: 1, min_count: 1, max_count: 1, value, expected })
+    const exits = [
+      {
+        kind: 'disenchant',
+        value: 300,
+        postage: 0,
+        mail_to: '',
+        materials: [material(1, 100, 1.5), material(2, null, 0.1), material(3, 200, 0.25)],
+      },
+    ]
+    // 3 disenchants: a third and two thirds of 1000 gross and 100 net, the last taking what rounding leaves
+    expect(materialSales({ exits }, 3, 1000, 100)).toEqual([
+      { item_id: 1, name: 'item 1', units: 4.5, gross: 333, net: 33 },
+      { item_id: 2, name: 'item 2', units: expect.closeTo(0.3), gross: null, net: null },
+      { item_id: 3, name: 'item 3', units: 0.75, gross: 667, net: 67 },
+    ])
+    expect(materialSales({ exits: [{ ...exits[0]!, materials: [material(2, null, 1)] }] }, 3, 1000, 100)).toEqual([])
+    expect(materialSales({ exits: [] }, 3, 1000, 100)).toEqual([])
+  })
+
+  it('says expected units to one decimal under 10, whole above', () => {
+    expect(expectedUnits(4)).toBe('4')
+    expect(expectedUnits(0.25)).toBe('0.3')
+    expect(expectedUnits(4.46)).toBe('4.5')
+    expect(expectedUnits(12.6)).toBe('13')
   })
 })

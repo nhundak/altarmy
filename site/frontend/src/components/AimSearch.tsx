@@ -382,6 +382,7 @@ export function AimSearch({
   lastScan,
   watchedHours,
   houseId,
+  onSwitch,
 }: {
   setup: SetupAnswers
   /** the selected realm's professions, with who has them */
@@ -402,6 +403,8 @@ export function AimSearch({
   /** hours of back-to-back scans of it this week (sales are seen only then); undefined: unknown */
   watchedHours?: number | undefined
   houseId?: number | null
+  /** skill up another character's or profession instead (the setup's profession answered again) */
+  onSwitch?: (profession: string, character: string) => void
 }) {
   const { aim } = setup
   const skill = aim === 'skill'
@@ -654,10 +657,14 @@ export function AimSearch({
       )}
       {climber && profession !== null ? (
         <SkillWorkspace
+          // a new climber or profession starts afresh: nothing picked or opened out
+          key={`${climber.name}/${profession}`}
           filters={debouncedFilters}
           climber={climber}
           profession={profession}
           reachTarget={reachTarget(reach)}
+          professions={professions}
+          onSwitch={onSwitch}
         />
       ) : (
         <Results

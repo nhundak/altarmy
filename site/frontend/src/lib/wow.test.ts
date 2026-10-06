@@ -3,6 +3,7 @@ import { hammer, helm, makeItem, robe } from '../test/items'
 import {
   armorText,
   bindingText,
+  classWord,
   damageLine,
   dpsText,
   iconUrl,
@@ -107,5 +108,13 @@ describe('wow helpers', () => {
     expect(dpsText(robe)).toBeUndefined()
     expect(armorText(helm)).toBe('565 Armor')
     expect(armorText(hammer)).toBeUndefined()
+  })
+})
+
+describe('classWord', () => {
+  it('words a class file as said in a sentence', () => {
+    expect(classWord('MAGE')).toBe('mage')
+    expect(classWord('DEATHKNIGHT')).toBe('death knight')
+    expect(classWord('DEMONHUNTER')).toBe('demon hunter')
   })
 })

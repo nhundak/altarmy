@@ -1079,6 +1079,8 @@ export interface components {
         MaterialOut: {
             /** Chance */
             chance: number;
+            /** Expected */
+            expected: number;
             /** Item Id */
             item_id: number;
             /** Max Count */

@@ -63,7 +63,7 @@ describe('buildFlow', () => {
     { kind: 'ah', profit: 435 },
     { kind: 'vendor', profit: 100 },
   ]
-  const sale = { best_exit: 'ah', revenue: 500, profit: 435, postage: 0, mail_to: '', sell_options: sellOptions }
+  const sale = { best_exit: 'ah', revenue: 500, profit: 435, mail_to: '', sell_options: sellOptions }
   const flow = buildFlow({ tree, ...sale })
   const byId = new Map(flow.nodes.map((n) => [n.id, n]))
 
@@ -121,7 +121,7 @@ describe('buildFlow', () => {
     expect(flow.height).toBeGreaterThan(0)
   })
 
-  it('mails an intermediate crafted by another character to the one who uses it', () => {
+  it('leaves out mailing an intermediate crafted by another character: the step list says it', () => {
     const [bolt, thread] = tree.inputs
     const split: FlowNode = {
       ...tree,
@@ -129,41 +129,23 @@ describe('buildFlow', () => {
       inputs: [{ ...bolt!, crafter: 'Weaver', mail_to: 'Smithy', postage: 30 }, thread!],
     }
     const flow = buildFlow({ ...sale, tree: split, profit: 405 })
-    expect(flow.nodes.find((n) => n.id === 'r.0.mail')).toMatchObject({
-      type: 'mail',
-      data: { to: 'Smithy', postage: 30, quantity: 3 },
-    })
+    expect(flow.nodes.map((n) => n.type)).not.toContain('mail')
     // Smithy holds the bolts in the end: another source would be bought by, or mailed to, Smithy
     expect(flow.nodes.find((n) => n.id === 'r.0')?.data).toMatchObject({ crafter: 'Weaver', holder: 'Smithy' })
     expect(flow.nodes.every((n) => n.height === NAMED_NODE_HEIGHT)).toBe(true)
     expect(flow.edges.map((e) => [e.source, e.target, e.label])).toEqual([
       ['r.0.0', 'r.0', '6x'],
-      ['r.0', 'r.0.mail', '3x'],
-      ['r.0.mail', 'r', '3x'],
+      ['r.0', 'r', '3x'],
       ['r.1', 'r', '1x'],
       ['r', 'sell', '1x'],
     ])
   })
 
-  it('mails the output to an enchanter before the sale', () => {
-    const mailed = buildFlow({
-      ...sale,
-      tree,
-      best_exit: 'disenchant',
-      revenue: 500,
-      profit: 405,
-      postage: 30,
-      mail_to: 'Enchy',
-    })
+  it('goes straight to the sale when the output is mailed to an enchanter, naming them on the sale', () => {
+    const mailed = buildFlow({ ...sale, tree, best_exit: 'disenchant', revenue: 500, profit: 405, mail_to: 'Enchy' })
     expect(mailed.nodes.find((n) => n.id === 'sell')?.data).toMatchObject({ seller: 'Enchy' })
-    expect(mailed.nodes.find((n) => n.id === 'r.mail')).toMatchObject({
-      type: 'mail',
-      data: { to: 'Enchy', postage: 30, quantity: 1 },
-    })
-    expect(mailed.edges.slice(-2).map((e) => [e.source, e.target, e.label])).toEqual([
-      ['r', 'r.mail', '1x'],
-      ['r.mail', 'sell', '1x'],
-    ])
+    expect(mailed.nodes.map((n) => n.type)).not.toContain('mail')
+    expect(mailed.edges.at(-1)).toMatchObject({ source: 'r', target: 'sell', label: '1x' })
   })
 })
 
@@ -175,7 +157,6 @@ describe('buildFlow: an enchant', () => {
       best_exit: 'skill',
       revenue: 0,
       profit: -1000,
-      postage: 0,
       mail_to: '',
       sell_options: [{ kind: 'skill', profit: -1000 }],
     })

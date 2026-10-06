@@ -152,8 +152,8 @@ def test_disenchant_exit_lists_expected_materials() -> None:
     m = make_market({LINEN: 20, DUST: 1000}, [], disenchant=de)
     (exit,) = [e for e in m.exits_for(GREEN) if e.kind == "disenchant"]
     assert exit.materials == (
-        Material(DUST, "Strange Dust", 0.75, 1, 2, int(0.75 * 1.5 * ah_net(1000))),
-        Material(THREAD, "Coarse Thread", 0.25, 1, 1, None),
+        Material(DUST, "Strange Dust", 0.75, 1, 2, int(0.75 * 1.5 * ah_net(1000)), 0.75 * 1.5),
+        Material(THREAD, "Coarse Thread", 0.25, 1, 1, None, 0.25),
     )
     assert exit.value == int(0.75 * 1.5 * ah_net(1000))
     assert all(e.materials == () for e in m.exits_for(GREEN) if e.kind != "disenchant")
@@ -167,7 +167,7 @@ def test_the_arcane_salvager_adds_a_tenth_of_a_disenchant() -> None:
     expected = 1.1 * 0.75 * 1.5 * ah_net(1000)
     assert m.disenchant_value(m.items[GREEN]) == int(expected)
     assert m.disenchant_materials(m.items[GREEN]) == [
-        Material(DUST, "Strange Dust", 0.75, 1, 2, int(expected))
+        Material(DUST, "Strange Dust", 0.75, 1, 2, int(expected), 1.1 * 0.75 * 1.5)
     ]
     assert base.disenchant_value(base.items[GREEN]) == int(0.75 * 1.5 * ah_net(1000))
 

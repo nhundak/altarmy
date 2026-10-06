@@ -49,46 +49,35 @@ export type SellNodeData = {
   /** Each exit's best profit, best first. */
   options: RankResult['sell_options']
 }
-export type MailNodeData = { to: string; postage: number; quantity: number }
 export type ItemFlowNode = Node<ItemNodeData, 'item'>
 export type SellFlowNode = Node<SellNodeData, 'sell'>
-export type MailFlowNode = Node<MailNodeData, 'mail'>
 
 export type Flow = {
-  nodes: (ItemFlowNode | SellFlowNode | MailFlowNode)[]
+  nodes: (ItemFlowNode | SellFlowNode)[]
   edges: Edge[]
   width: number
   height: number
 }
 
-/** Ids are tree paths ("r", "r.0", "r.0.1"), so an item used in two branches gets two nodes. When the output
- * has to be mailed to whoever sells it (an enchanter), a mail node sits between the craft and the sale; likewise
- * between an intermediate and the craft using it when another character makes it. A flip's tree has no craft to
- * show: its bought input is sold directly. An enchant (sold via `skill`) makes nothing, so its chart ends with the
+/** Ids are tree paths ("r", "r.0", "r.0.1"), so an item used in two branches gets two nodes. Mailing between
+ * characters (an intermediate to whoever uses it, the output to the enchanter selling it) is left to the step
+ * list: the chart goes straight from one to the other. A flip's tree has no craft to show: its bought input is
+ * sold directly. An enchant (sold via `skill`) makes nothing, so its chart ends with the
  * cast: no sale. */
 export function buildFlow({
   tree,
   best_exit,
   revenue,
   profit,
-  postage,
   mail_to,
   sell_options,
   bonus_output = 0,
-}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'postage' | 'mail_to' | 'sell_options'> &
+}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'mail_to' | 'sell_options'> &
   Partial<Pick<RankResult, 'bonus_output'>>): Flow {
   const nodes: Flow['nodes'] = []
   const edges: Edge[] = []
   const edge = (source: string, target: string, quantity: number) =>
     edges.push({ id: `${source}->${target}`, source, target, label: `${quantity}x`, type: 'smoothstep' })
-
-  /** A mail node between `from` and `to`: `from`'s crafter sends `quantity` to `recipient`. */
-  const mail = (from: string, to: string, recipient: string, postage: number, quantity: number) => {
-    const id = `${from}.mail`
-    nodes.push({ id, type: 'mail', position: { x: 0, y: 0 }, data: { to: recipient, postage, quantity } })
-    edge(from, id, quantity)
-    edge(id, to, quantity)
-  }
 
   let named = false
   const visit = (node: FlowNode, id: string) => {
@@ -124,8 +113,7 @@ export function buildFlow({
     inputs.forEach((input, i) => {
       const child = `${id}.${i}`
       visit(input, child)
-      if (input.mail_to) mail(child, id, input.mail_to, input.postage, input.quantity)
-      else edge(child, id, input.quantity)
+      edge(child, id, input.quantity)
     })
   }
   // A flip crafts nothing: what it buys (its one input) goes straight to the sale.
@@ -147,8 +135,7 @@ export function buildFlow({
         options: sell_options,
       },
     })
-    if (mail_to) mail(last, SELL_PATH, mail_to, postage, tree.made)
-    else edge(last, SELL_PATH, tree.made)
+    edge(last, SELL_PATH, tree.made)
   }
 
   const g = new dagre.graphlib.Graph()

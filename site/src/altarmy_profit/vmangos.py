@@ -119,23 +119,49 @@ def npcs_near(
     conn: sqlite3.Connection, map_id: int, x: float, y: float, z: float, radius: float, flag: int
 ) -> list[Spawn]:
     """Creatures spawned within `radius` yards (in 3D) whose newest template has the `npc_flags` bit
-    `flag`, leaving out those that walk a waypoint route (a patrolling vendor has no spot to run to)."""
+    `flag`. One who walks a waypoint route (Thunder Bluff's Chepi, Orgrimmar's Felika) stands at
+    `route_middle` instead of where they spawn."""
     near, args = _near("c", x, y, z, radius)
     rows = conn.execute(
         f"""
-        SELECT c.guid, t.entry, t.name, c.position_x, c.position_y, c.position_z
+        SELECT c.guid, t.entry, t.name, c.position_x, c.position_y, c.position_z, c.movement_type
         FROM creature c JOIN creature_template t ON t.entry = c.id
         WHERE t.patch = (
             SELECT MAX(patch) FROM creature_template n WHERE n.entry = t.entry AND n.patch <= ?
         )
-          AND c.map = ? AND c.patch_min <= ? AND c.patch_max >= ? AND (t.npc_flags & ?) != 0
-          AND c.movement_type != ? AND {near}
+          AND c.map = ? AND c.patch_min <= ? AND c.patch_max >= ? AND (t.npc_flags & ?) != 0 AND {near}
         """,
-        (LATEST_PATCH, map_id, LATEST_PATCH, LATEST_PATCH, flag, MOVE_WAYPOINTS, *args),
+        (LATEST_PATCH, map_id, LATEST_PATCH, LATEST_PATCH, flag, *args),
+    ).fetchall()
+    spawns = []
+    for g, e, n, px, py, pz, move in rows:
+        s = Spawn(int(g), int(e), str(n), float(px), float(py), float(pz))
+        if move == MOVE_WAYPOINTS:
+            s = route_middle(conn, s)
+        spawns.append(s)
+    return _unique(spawns)
+
+
+def route_middle(conn: sqlite3.Connection, s: Spawn) -> Spawn:
+    """`s` moved to the point of their waypoint route nearest the route's middle (the first such point on
+    a tie): a spot on the path, where they pass by. The route is the spawn's own (`creature_movement`, by
+    guid), else their template's (`creature_movement_template`, by entry); without one they stay put."""
+    points = (
+        conn.execute(
+            "SELECT position_x, position_y, position_z FROM creature_movement WHERE id = ? ORDER BY point",
+            (s.guid,),
+        ).fetchall()
+        or conn.execute(
+            "SELECT position_x, position_y, position_z FROM creature_movement_template WHERE entry = ?"
+            " ORDER BY point",
+            (s.entry,),
+        ).fetchall()
     )
-    return _unique(
-        Spawn(int(g), int(e), str(n), float(px), float(py), float(pz)) for g, e, n, px, py, pz in rows
-    )
+    if not points:
+        return s
+    mx, my, mz = (sum(float(p[i]) for p in points) / len(points) for i in range(3))
+    px, py, pz = min(points, key=lambda p: (p[0] - mx) ** 2 + (p[1] - my) ** 2 + (p[2] - mz) ** 2)
+    return replace(s, x=float(px), y=float(py), z=float(pz))
 
 
 def objects_near(

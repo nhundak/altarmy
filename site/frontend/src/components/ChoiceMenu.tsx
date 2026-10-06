@@ -13,7 +13,7 @@ export const BUY_FROM: Readonly<Record<string, string>> = { ah: 'on the AH', ven
 export const SELL_TEXT: Readonly<Record<string, string>> = {
   ah: 'Sell on the AH',
   vendor: 'Sell to a vendor',
-  disenchant: 'Disenchant, sell the materials',
+  disenchant: 'Disenchant and auction',
   // skilling up: worth nothing, the skill point was the point; only ever offered when nothing else is
   keep: 'Dead loss (no vendor buys it)',
 }

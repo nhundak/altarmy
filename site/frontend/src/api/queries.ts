@@ -382,6 +382,11 @@ export function useProfessionRanks(): ProfessionRank[] {
   return useVersions().data?.find((v) => v.key === GAME_VERSION)?.profession_ranks ?? NO_RANKS
 }
 
+/** The highest skill a profession reaches in this game version: its top rank's cap (300 until the versions load). */
+export function useMaxSkill(): number {
+  return useProfessionRanks().at(-1)?.cap ?? 300
+}
+
 /** Keep retrying a query the app can't do without (signing in), backing off to every 30 s. */
 export const KEEP_TRYING = { retry: true, retryDelay: (attempt: number) => Math.min(1000 * 2 ** attempt, 30_000) }
 

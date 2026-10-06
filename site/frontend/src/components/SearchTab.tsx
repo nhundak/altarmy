@@ -147,6 +147,7 @@ export function SearchTab() {
               lastScan={lastScan}
               watchedHours={house?.watched_hours}
               houseId={status.data.auction_house_id}
+              onSwitch={(profession, character) => pick('profession', profession, [character])}
             />
           ) : (
             status.data.prices === 0 && <Alert color="yellow">No prices yet for this realm. {HOW_TO_SCAN}</Alert>

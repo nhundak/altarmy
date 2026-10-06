@@ -3,7 +3,7 @@ import { useComputedColorScheme } from '@mantine/core'
 import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
 import type { ItemMap, RankResult } from '../api/client'
 import { SELL_PATH } from '../lib/choices'
-import { buildFlow, type ItemFlowNode, type MailFlowNode, type SellFlowNode } from '../lib/flow'
+import { buildFlow, type ItemFlowNode, type SellFlowNode } from '../lib/flow'
 import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterName } from './CharacterName'
 import {
@@ -57,8 +57,6 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
     holder,
   } = data
   const spare = made - quantity
-  // the box is narrow: the faction whose reputation it is goes in the tooltip
-  const discounted = discountNote(discount, repDiscount)
   return (
     <div className={classes.node}>
       {!isLeaf && <Handle type="target" position={Position.Left} className={classes.handle} />}
@@ -73,6 +71,7 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
           choices={sourceChoices(options, option, holder)}
         />
       </div>
+      {/* the box is too narrow for a vendor buy's discounts: they go in the tooltip */}
       <div className={classes.detail} title={discountNote(discount, repDiscount, repFaction) || undefined}>
         {enchant ? (
           `Cast ${crafts}x · skill up only`
@@ -81,7 +80,6 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
         ) : (
           <>
             Buy {BUY_FROM[source] ?? source} · <Money copper={cost} cost />
-            {discounted && ` · ${discounted}`}
           </>
         )}
       </div>
@@ -91,21 +89,6 @@ function ItemNode({ data }: NodeProps<ItemFlowNode>) {
         </div>
       )}
       {!enchant && <Handle type="source" position={Position.Right} className={classes.handle} />}
-    </div>
-  )
-}
-
-function MailNode({ data: { to, postage, quantity } }: NodeProps<MailFlowNode>) {
-  return (
-    <div className={classes.node}>
-      <Handle type="target" position={Position.Left} className={classes.handle} />
-      <div className={classes.title}>
-        <span>
-          Mail {quantity}x to <CharacterName name={to} />
-        </span>
-      </div>
-      <div className={classes.detail}>Postage · <Money copper={postage} cost /></div>
-      <Handle type="source" position={Position.Right} className={classes.handle} />
     </div>
   )
 }
@@ -141,10 +124,11 @@ function SellNode({ data: { exit, revenue, profit, bonus, seller, options } }: N
   )
 }
 
-const NODE_TYPES: NodeTypes = { item: ItemNode, mail: MailNode, sell: SellNode }
+const NODE_TYPES: NodeTypes = { item: ItemNode, sell: SellNode }
 
-/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, mailing, then the sale. With
- * `editing`, nodes with alternatives get a menu of them (Reset and progress are the caller's to show). */
+/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, then the sale (mailing between
+ * characters is left to the step list). With `editing`, nodes with alternatives get a menu of them (Reset and
+ * progress are the caller's to show). */
 export function RecipeFlow({ result, items, editing }: { result: RankResult; items: ItemMap; editing?: PlanEditing }) {
   const colorScheme = useComputedColorScheme('light')
   const flow = useMemo(() => buildFlow(result), [result])

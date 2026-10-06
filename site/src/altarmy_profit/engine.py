@@ -696,6 +696,7 @@ class Material:
     min_count: int
     max_count: int
     value: int | None  # expected net AH copper per disenchant (chance x average count); None if unpriced
+    expected: float = 0.0  # expected units per disenchant (Arcane Salvager's roll included)
 
 
 @dataclass
@@ -1572,13 +1573,17 @@ class Market:
             and d.min_ilvl <= item.item_level <= d.max_ilvl
         ]
 
+    def _units(self, d: DisenchantRow) -> float:
+        """Expected units of one disenchant row's result per disenchant."""
+        rolls = 1 + ARCANE_SALVAGER_BONUS if self.arcane_salvager else 1
+        return rolls * d.chance * (d.min_count + d.max_count) / 2
+
     def _expected(self, d: DisenchantRow) -> float | None:
         """Expected net AH copper from one disenchant row; None if its result is unpriced."""
         price = self.sell_prices.get(d.result_item_id)
         if price is None:
             return None
-        rolls = 1 + ARCANE_SALVAGER_BONUS if self.arcane_salvager else 1
-        return rolls * d.chance * (d.min_count + d.max_count) / 2 * ah_net(price, self.ah_cut)
+        return self._units(d) * ah_net(price, self.ah_cut)
 
     def disenchant_materials(self, item: Item) -> list[Material]:
         """What disenchanting one item can yield; empty if it can't be disenchanted."""
@@ -1594,6 +1599,7 @@ class Market:
                     d.min_count,
                     d.max_count,
                     None if value is None else int(value),
+                    self._units(d),
                 )
             )
         return out

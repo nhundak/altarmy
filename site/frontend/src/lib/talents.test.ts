@@ -23,10 +23,10 @@ describe('talent notes', () => {
     expect(discountNote(0, 0, 'Orgrimmar')).toBe('')
   })
 
-  it('says which discounts a vendor buy got, without numbers', () => {
-    expect(discountLabel(10, 0)).toBe('after bartering discount')
-    expect(discountLabel(0, 10)).toBe('after reputation discount')
-    expect(discountLabel(5, 10)).toBe('after reputation and bartering discount')
+  it('says a vendor buy got a discount, without which or how much', () => {
+    expect(discountLabel(10, 0)).toBe('after discount')
+    expect(discountLabel(0, 10)).toBe('after discount')
+    expect(discountLabel(5, 10)).toBe('after discount')
     expect(discountLabel(0, 0)).toBe('')
   })
 

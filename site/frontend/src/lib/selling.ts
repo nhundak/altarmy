@@ -98,3 +98,34 @@ export function depthNote(
   const listed = items[r.output_item_id]?.ah_quantity
   return listed == null ? null : { text: `${listed.toLocaleString()} listed · you add ${made}`, warn: false }
 }
+
+/** A disenchant's materials as the detailed step list auctions them: each with the units `disenchants` are expected
+ * to give, and its share of the sale's `gross` and the session's `net` by what it is worth (the last priced one
+ * takes what rounding leaves, so the shares add up); an unpriced one gets no share (`gross` null). Empty without a
+ * priced material to share by. */
+export function materialSales(
+  r: Pick<RankResult, 'exits'>,
+  disenchants: number,
+  gross: number,
+  net: number,
+): { item_id: number; name: string; units: number; gross: number | null; net: number | null }[] {
+  const materials = r.exits.find((e) => e.kind === 'disenchant')?.materials ?? []
+  const worth = materials.reduce((sum, m) => sum + (m.value ?? 0), 0)
+  if (worth <= 0) return []
+  const last = materials.findLastIndex((m) => (m.value ?? 0) > 0)
+  let grossLeft = gross
+  let netLeft = net
+  return materials.map((m, i) => {
+    const units = m.expected * disenchants
+    if (!m.value) return { item_id: m.item_id, name: m.name, units, gross: null, net: null }
+    const g = i === last ? grossLeft : Math.round((gross * m.value) / worth)
+    const n = i === last ? netLeft : Math.round((net * m.value) / worth)
+    grossLeft -= g
+    netLeft -= n
+    return { item_id: m.item_id, name: m.name, units, gross: g, net: n }
+  })
+}
+
+/** An expected count of units: whole from 10 up, else to one decimal without a trailing ".0" ("4", "0.3"). */
+export const expectedUnits = (units: number): string =>
+  units >= 10 ? String(Math.round(units)) : String(Number(units.toFixed(1)))

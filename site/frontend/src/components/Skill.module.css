@@ -8,3 +8,10 @@
 .track {
   width: 64px;
 }
+
+/* As wide as "300/300", right-aligned. */
+.numbers {
+  min-width: 7ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

@@ -67,6 +67,7 @@ export const AIMS: readonly Card<Aim>[] = [
 export type Holder = {
   name: string
   classFile: string
+  level: number
   rank: number
   maxRank: number
   talents?: CraftingTalent[]
@@ -75,9 +76,19 @@ export type Holder = {
 /** A profession someone on the realm has, and who. */
 export type ProfessionChoice = { name: string; holders: Holder[] }
 
+/** The secondary professions (any character may have all of them, on top of two primary ones), by lower-case name. */
+const SECONDARY = new Set(['cooking', 'first aid', 'fishing'])
+
+/** Whether a profession is a secondary one (Cooking, First Aid, Fishing). */
+export const isSecondary = (profession: string): boolean => SECONDARY.has(profession.toLowerCase())
+
+/** Professions never offered for skilling up, though a few recipes name them (Mining's smelting, Skinning's). */
+const NOT_SKILLED = new Set(['mining', 'skinning'])
+
 /**
- * The professions the group's characters have, by name, each once, with who has it at what skill. With `withRecipes`
- * (the version's professions that have recipes), only those: gathering skills have nothing to rank.
+ * The professions the group's characters have, by name, each once, with who has it at what skill, Mining and Skinning
+ * left out. With `withRecipes` (the version's professions that have recipes), only those: gathering skills have nothing
+ * to rank.
  */
 export function professionsOf(
   group: CharacterGroup | undefined,
@@ -88,12 +99,13 @@ export function professionsOf(
   for (const c of group?.characters ?? []) {
     for (const p of c.professions) {
       const key = p.name.toLowerCase()
-      if (ranked && !ranked.has(key)) continue
+      if ((ranked && !ranked.has(key)) || NOT_SKILLED.has(key)) continue
       const entry = byName.get(key) ?? { name: p.name, holders: [] }
       const talents = craftingTalents(c.talents, p.name)
       entry.holders.push({
         name: c.name,
         classFile: c.class_file,
+        level: c.level,
         rank: p.rank,
         maxRank: p.max_rank,
         ...(talents.length ? { talents } : {}),
@@ -102,6 +114,41 @@ export function professionsOf(
     }
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** One character and the professions they could skill up, at what skill. */
+export type CharacterSkills = {
+  name: string
+  classFile: string
+  level: number
+  professions: { name: string; rank: number; maxRank: number }[]
+}
+
+/** `professions` turned around: per character (alphabetically), their professions (alphabetically). */
+export function skillsByCharacter(professions: readonly ProfessionChoice[]): CharacterSkills[] {
+  const byName = new Map<string, CharacterSkills>()
+  for (const p of professions) {
+    for (const h of p.holders) {
+      const entry = byName.get(h.name) ?? { name: h.name, classFile: h.classFile, level: h.level, professions: [] }
+      entry.professions.push({ name: p.name, rank: h.rank, maxRank: h.maxRank })
+      byName.set(h.name, entry)
+    }
+  }
+  const characters = [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  for (const c of characters) c.professions.sort((a, b) => a.name.localeCompare(b.name))
+  return characters
+}
+
+/** The characters and professions matching `query` (case-insensitive, anywhere in the name): every profession of a
+ * character whose name matches, else those whose own name does; characters left with none are dropped. */
+export function filterSkills(characters: readonly CharacterSkills[], query: string): CharacterSkills[] {
+  const q = query.trim().toLowerCase()
+  if (!q) return [...characters]
+  return characters.flatMap((c) => {
+    if (c.name.toLowerCase().includes(q)) return [c]
+    const professions = c.professions.filter((p) => p.name.toLowerCase().includes(q))
+    return professions.length ? [{ ...c, professions }] : []
+  })
 }
 
 /** Whether anyone in the group can disenchant. */

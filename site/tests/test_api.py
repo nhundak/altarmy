@@ -207,7 +207,15 @@ def test_rank_sends_disenchant_materials(client: TestClient, priced: Connection)
     (r,) = body["results"]
     (de,) = [e for e in r["exits"] if e["kind"] == "disenchant"]
     assert de["materials"] == [
-        {"item_id": 1, "name": "Linen Cloth", "chance": 0.5, "min_count": 1, "max_count": 3, "value": 19}
+        {
+            "item_id": 1,
+            "name": "Linen Cloth",
+            "chance": 0.5,
+            "min_count": 1,
+            "max_count": 3,
+            "value": 19,
+            "expected": 1.0,
+        }
     ]
     assert all(e["materials"] == [] for e in r["exits"] if e["kind"] != "disenchant")
 

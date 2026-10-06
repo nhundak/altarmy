@@ -253,3 +253,33 @@
   position: absolute;
   pointer-events: none;
 }
+
+/* The header's who-skills-what, a button looking like a select. */
+.climber {
+  display: flex;
+  align-items: center;
+}
+
+/* One profession in its menu: icon, name, then the skill bar, at the same place on every row. */
+.climberRow {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.climberRow[data-active] {
+  font-weight: 700;
+}
+
+/* The option the keyboard is on: a light shade, not Mantine's filled primary, which would hide the skill bar (class
+ * doubled to win over Mantine's own rule whatever the load order). */
+.climberOption.climberOption[data-combobox-selected] {
+  background-color: light-dark(var(--mantine-color-gray-1), var(--mantine-color-dark-5));
+  color: inherit;
+}
+
+/* The one being skilled up now: bold (above) and a bar of the primary colour down its left edge. */
+.climberOption[data-combobox-active] {
+  box-shadow: inset 3px 0 0 var(--mantine-primary-color-filled);
+}

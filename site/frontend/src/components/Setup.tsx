@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { Button, Group, List, Radio, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { AnimatePresence, motion } from 'motion/react'
+import { useMaxSkill } from '../api/queries'
 import {
   AIMS,
+  isSecondary,
   STEP_QUESTION,
   stripParts,
   type Aim,
@@ -16,6 +18,7 @@ import cards from './Cards.module.css'
 import { CharacterName } from './CharacterName'
 import classes from './Setup.module.css'
 import { IconCoin, IconSteps } from './icons'
+import { ProfessionIcon } from './ProfessionIcon'
 import { SkillBar } from './SkillBar'
 
 const AIM_ICONS: Readonly<Record<Aim, ReactNode>> = {
@@ -49,6 +52,7 @@ function Answers({ setup, skip, onOpen }: { setup: SetupAnswers; skip?: Step; on
 function OptionCard<K extends string>({
   card,
   icon,
+  titleIcon,
   body,
   picked,
   reason,
@@ -56,6 +60,8 @@ function OptionCard<K extends string>({
 }: {
   card: Card<K>
   icon?: ReactNode
+  /** Shown before the title, on its line. */
+  titleIcon?: ReactNode
   /** Shown instead of the card's blurb. */
   body?: ReactNode
   picked: boolean
@@ -73,7 +79,14 @@ function OptionCard<K extends string>({
       >
         <Stack gap="sm">
           {icon && <span className={cards.icon}>{icon}</span>}
-          <Title order={4}>{card.title}</Title>
+          {titleIcon ? (
+            <Group gap="xs" wrap="nowrap">
+              {titleIcon}
+              <Title order={4}>{card.title}</Title>
+            </Group>
+          ) : (
+            <Title order={4}>{card.title}</Title>
+          )}
           {body ?? (
             <Text size="sm" c="dimmed">
               {card.blurb}
@@ -112,17 +125,23 @@ function OptionCard<K extends string>({
   )
 }
 
-/** Who has a profession, one per line: the name in its class colour, then their skill against its cap. */
+/** Who has a profession, one per row as a table: the name in its class colour, then their skill out of the highest
+ * there is (not the rank trained so far), the bars lined up. */
 function Holders({ holders, profession }: { holders: readonly Holder[]; profession: string }) {
+  const maxSkill = useMaxSkill()
   return (
-    <Stack gap={2}>
+    <div className={classes.holders}>
       {holders.map((h) => (
-        <Text key={h.name} size="sm" c="dimmed">
-          <CharacterName name={h.name} classFile={h.classFile} />{' '}
-          <SkillBar rank={h.rank} maxRank={h.maxRank} label={`${h.name}'s ${profession}`} />
-        </Text>
+        <Fragment key={h.name}>
+          <Text size="sm" truncate>
+            <CharacterName name={h.name} classFile={h.classFile} />
+          </Text>
+          <Text size="sm" c="dimmed" component="div">
+            <SkillBar rank={h.rank} maxRank={maxSkill} label={`${h.name}'s ${profession}`} aligned />
+          </Text>
+        </Fragment>
       ))}
-    </Stack>
+    </div>
   )
 }
 
@@ -140,10 +159,14 @@ function HolderPicker({
   onDone: (name: string) => void
 }) {
   const [picked, setPicked] = useState(initial)
+  const maxSkill = useMaxSkill()
   return (
     <div className={cards.card} data-featured>
       <Stack gap="sm" p="lg">
-        <Title order={4}>{choice.name}</Title>
+        <Group gap="xs" wrap="nowrap">
+          <ProfessionIcon profession={choice.name} size={24} />
+          <Title order={4}>{choice.name}</Title>
+        </Group>
         <Radio.Group label={`Who is skilling up ${choice.name}?`} value={picked} onChange={setPicked}>
           <Stack gap={6} mt={4}>
             {choice.holders.map((h) => (
@@ -152,7 +175,7 @@ function HolderPicker({
                 value={h.name}
                 label={
                   <>
-                    <CharacterName name={h.name} classFile={h.classFile} /> {h.rank}/{h.maxRank}
+                    <CharacterName name={h.name} classFile={h.classFile} /> {h.rank}/{maxSkill}
                   </>
                 }
               />
@@ -198,6 +221,7 @@ function StepCards({
   const options: {
     card: Card<string>
     icon?: ReactNode
+    titleIcon?: ReactNode
     body?: ReactNode
     reason?: string
     choice?: ProfessionChoice
@@ -206,6 +230,7 @@ function StepCards({
       ? AIMS.map((card) => ({ card, icon: AIM_ICONS[card.key], reason: unavailable[card.key] }))
       : professions.map((p) => ({
           card: { key: p.name, title: p.name, blurb: '' },
+          titleIcon: <ProfessionIcon profession={p.name} size={24} />,
           body: <Holders holders={p.holders} profession={p.name} />,
           choice: p,
         }))
@@ -216,30 +241,51 @@ function StepCards({
       </Text>
     )
   }
+  const cardFor = ({ card, icon, titleIcon, body, reason, choice }: (typeof options)[number]) =>
+    choice && choosing === card.key ? (
+      <HolderPicker
+        key={card.key}
+        choice={choice}
+        // reopened on the profession already picked: who was picked then
+        initial={firstPick(choice, card.key === current ? setup?.characters : undefined)}
+        onDone={(name) => onPick(card.key, [name])}
+      />
+    ) : (
+      <OptionCard
+        key={card.key}
+        card={card}
+        icon={icon}
+        titleIcon={titleIcon}
+        body={body}
+        picked={card.key === current}
+        reason={reason}
+        onPick={() => (choice && choice.holders.length > 1 ? setChoosing(card.key) : onPick(card.key))}
+      />
+    )
+  if (step === 'aim') {
+    return (
+      <div className={classes.cards} data-step={step} role="group" aria-label={STEP_QUESTION[step]}>
+        {options.map(cardFor)}
+      </div>
+    )
+  }
+  // The primary professions first, then the secondary ones, each under its heading (a heading with nothing under it
+  // is left out).
+  const sections = [
+    { title: 'Primary professions', options: options.filter((o) => !isSecondary(o.card.key)) },
+    { title: 'Secondary professions', options: options.filter((o) => isSecondary(o.card.key)) },
+  ].filter((s) => s.options.length)
   return (
-    <div className={classes.cards} role="group" aria-label={STEP_QUESTION[step]}>
-      {options.map(({ card, icon, body, reason, choice }) =>
-        choice && choosing === card.key ? (
-          <HolderPicker
-            key={card.key}
-            choice={choice}
-            // reopened on the profession already picked: who was picked then
-            initial={firstPick(choice, card.key === current ? setup?.characters : undefined)}
-            onDone={(name) => onPick(card.key, [name])}
-          />
-        ) : (
-          <OptionCard
-            key={card.key}
-            card={card}
-            icon={icon}
-            body={body}
-            picked={card.key === current}
-            reason={reason}
-            onPick={() => (choice && choice.holders.length > 1 ? setChoosing(card.key) : onPick(card.key))}
-          />
-        ),
-      )}
-    </div>
+    <Stack gap="lg" role="group" aria-label={STEP_QUESTION[step]}>
+      {sections.map((s) => (
+        <Stack key={s.title} gap="xs" role="group" aria-label={s.title}>
+          <Title order={5}>{s.title}</Title>
+          <div className={classes.cards} data-step={step}>
+            {s.options.map(cardFor)}
+          </div>
+        </Stack>
+      ))}
+    </Stack>
   )
 }
 

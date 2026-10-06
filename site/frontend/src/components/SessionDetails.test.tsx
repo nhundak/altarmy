@@ -257,7 +257,7 @@ describe('no line of a session says how long it takes', () => {
       'Start at Auctioneer Stockton at 71.4, 46.7',
       'Disenchant 20x Green Robe (view expected materials)',
     ])
-    const sell = within(frell).getByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Sell materials') === true)
+    const sell = within(frell).getByText((_, el) => el?.tagName === 'LI' && shown(el)?.startsWith('Auction materials') === true)
     expect(shown(sell)).not.toMatch(/\d s$/)
   })
 })

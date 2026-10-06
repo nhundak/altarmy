@@ -1727,6 +1727,10 @@
             "title": "Chance",
             "type": "number"
           },
+          "expected": {
+            "title": "Expected",
+            "type": "number"
+          },
           "item_id": {
             "title": "Item Id",
             "type": "integer"
@@ -1761,7 +1765,8 @@
           "chance",
           "min_count",
           "max_count",
-          "value"
+          "value",
+          "expected"
         ],
         "title": "MaterialOut",
         "type": "object"

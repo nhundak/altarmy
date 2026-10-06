@@ -111,6 +111,7 @@ class MaterialOut(BaseModel):
     min_count: int
     max_count: int
     value: int | None  # expected net AH copper per disenchant; None if unpriced
+    expected: float  # expected units per disenchant, the Arcane Salvager's roll included
 
 
 class ExitOut(BaseModel):

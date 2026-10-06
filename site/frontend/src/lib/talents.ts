@@ -57,12 +57,11 @@ export const BARTERING_RANKS = 2
 export const BARTERING_PERCENT = 5
 
 /**
- * A vendor buy's discounts as the step list says them, without the numbers (its tooltip has those), e.g.
- * "after reputation and bartering discount"; "" without either.
+ * A vendor buy's discounts as the step list says them, "after discount", without saying which (its tooltip names
+ * them and their numbers); "" without either.
  */
 export function discountLabel(discount: number, repDiscount = 0): string {
-  const kinds = [repDiscount > 0 && 'reputation', discount > 0 && 'bartering'].filter(Boolean)
-  return kinds.length ? `after ${kinds.join(' and ')} discount` : ''
+  return discount > 0 || repDiscount > 0 ? 'after discount' : ''
 }
 
 /** A sale's expected extra units from Master Chef, e.g. "+0.3 expected from Master Chef"; "" without any. */
