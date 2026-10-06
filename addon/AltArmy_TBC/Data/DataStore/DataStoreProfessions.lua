@@ -973,9 +973,15 @@ local function IsSomeoneElsesTradeSkill()
     if type(linkedName) ~= "string" or linkedName == "" then
         return not (R and R.IsReading and R.IsReading())
     end
+    -- The link names the player in full ("First Surname" on WoW Forever, whose UnitName gives the two
+    -- apart); older clients' links carry UnitName's one name.
+    local short = (linkedName:match("^([^%-]+)") or linkedName):lower()
+    local full = DS.GetCurrentPlayerName and DS:GetCurrentPlayerName()
+    if type(full) == "string" and full ~= "" and short == full:lower() then
+        return false
+    end
     local me = UnitName and UnitName("player")
-    local short = linkedName:match("^([^%-]+)") or linkedName
-    return type(me) ~= "string" or short:lower() ~= me:lower()
+    return type(me) ~= "string" or short ~= me:lower()
 end
 
 local function ScanRecipesViaTradeSkillUI(char)

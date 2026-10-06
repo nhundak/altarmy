@@ -1,6 +1,7 @@
 -- AltArmy TBC — read recipes through profession links without anyone opening a window (WoW Forever).
 -- luacheck: globals ProfessionsFrame ProfessionsFrame_LoadUI GetUIPanel C_SpellBook
--- luacheck: globals ChatEdit_GetActiveWindow ChatFrameUtil
+-- luacheck: globals ChatEdit_GetActiveWindow ChatFrameUtil GetFramesRegisteredForEvent ShowUIPanel
+-- luacheck: globals GetMouseFoci WorldFrame SetItemRef
 --
 -- C_TradeSkillUI.OpenTradeSkill needs a click, but a hidden tooltip's SetHyperlink on a profession link,
 -- "trade:<player GUID>:<profession spell>:<skill line>", does not: the client asks the server for that
@@ -17,10 +18,12 @@
 --           file scans the linked window itself (R._ScanLinkedWindow) and hands the recipe ids and skill to
 --           the job's callback; the DataStore never stores another player's window.
 -- Own reads go first; guild reads follow in the order they were queued. Reads run one at a time, never in
--- combat, while typing, or while any panel (the player's own profession window included) is open. The
--- window Blizzard opens is concealed (alpha 0, tiny, no mouse) while a read runs and closed when it ends;
--- nothing is silenced. Only on clients with C_TradeSkillUI and no legacy trade skill API (Forever); TBC's
--- Enchanting has no trade skill window at all.
+-- combat, while typing, or while any panel (the player's own profession window included) is open, and a
+-- click on the interface mid-read puts the read back in line. While a read waits, TRADE_SKILL_SHOW is
+-- silenced (see "Keeping the window shut"), so Blizzard's window never opens and never plays its sound;
+-- should it open all the same (silencing given up, or unavailable), it is concealed (alpha 0, tiny, no
+-- mouse) and closed when the read ends. Only on clients with C_TradeSkillUI and no legacy trade skill API
+-- (Forever); TBC's Enchanting has no trade skill window at all.
 
 if not AltArmy or not AltArmy.DataStore then return end
 
@@ -40,6 +43,15 @@ R.SHOW_SCAN_DELAY = 0.5 -- seconds after TRADE_SKILL_SHOW before a linked window
 -- Off, a window that comes back unlinked or unnamed counts too, as long as it is the asked-for profession
 -- (to flip once the linked window's shape on Forever is known: docs/GUILD_PROFESSION_LINKS_IDEA.md).
 R.REQUIRE_LINKED_NAME = true
+-- Silenced reads that never once got an answer before silencing is given up for the session (the window is
+-- then only concealed): keeps a client where the silenced window holds the data back from never reading.
+R.QUIET_GIVE_UP = 8
+R.LATE = 15        -- seconds after a read went unanswered during which a linked window opening is its late reply
+R.LATE_CLOSE = 1   -- seconds a late reply's window stays (concealed) before it is closed
+R.USER_LINK = 5    -- seconds after the player clicks a profession link during which a linked window is theirs
+-- Whether reads silence TRADE_SKILL_SHOW at all (off: the window is only concealed). For comparing the two in
+-- game: /run AltArmy.OwnRecipeRead.SILENCE = false
+R.SILENCE = true
 
 local PANELS = { "left", "center", "right", "doublewide", "fullscreen" }
 
@@ -105,6 +117,17 @@ local readLog = {}
 local unreadableNames = {} -- lowercase names of this character's professions on unlinkable skill lines
 local attempts = 0 -- each start's own number, so an old start's timeout can't end a newer one
 local seq = 0 -- each job's place in line within its priority
+local eventFrame -- this file's event frame (made at the bottom), which keeps TRADE_SKILL_SHOW while silenced
+local silenced -- the frames TRADE_SKILL_SHOW was taken from for the read being waited for
+local quietOff, quietTries, quietWorks = false, 0, 0
+local tradeOpen = false -- between TRADE_SKILL_SHOW and TRADE_SKILL_CLOSE
+local unansweredAt = -math.huge -- when a read last ended (or stepped aside) without its answer
+local userLinkAt = -math.huge -- when the player last clicked a profession link
+local lateCatch = false -- a late reply's window is to be concealed when it shows
+
+local function now()
+    return GetTime and GetTime() or 0
+end
 
 --- Debug only: the last reads, written as a dev dump when /altarmy debug is on (docs/DEV_DUMPS.md).
 local function note(entry)
@@ -265,7 +288,7 @@ local function hookFrame()
     if frameHooked or not frame or not frame.HookScript then return end
     frameHooked = true
     frame:HookScript("OnShow", function(self)
-        if pending then conceal(self) end
+        if pending or lateCatch then conceal(self) end
     end)
     frame:HookScript("OnHide", reveal)
 end
@@ -284,6 +307,130 @@ end
 local function closeWindow()
     pcall(C_TradeSkillUI.CloseTradeSkill)
     reveal()
+end
+
+-- Keeping the window shut --------------------------------------------------------------------------------
+-- Whatever opens Blizzard's profession window on TRADE_SKILL_SHOW is taken off that event while a read waits
+-- for its answer, so the window never shows and never plays its open (or close) sound; the answer is read
+-- from C_TradeSkillUI all the same (TRADE_SKILL_DATA_SOURCE_CHANGED / TRADE_SKILL_LIST_UPDATE). On Forever
+-- the opener is an unnamed, parentless frame in Blizzard_Game's event routing, so a filter on
+-- ProfessionsFrame's tree misses it: every frame is taken off but this file's and the DataStore's.
+-- Protected frames (action buttons, which only refresh their state on it) are left alone. Learned from the
+-- Linked Inn addon (1.1.1, Reader.lua's Silence). Every frame taken off is put back when the read ends or
+-- steps aside, and on combat and logout.
+
+local function keepsListening(frame)
+    if frame == eventFrame or frame == DS.eventFrame then return true end
+    if frame.IsProtected then
+        local ok, protected = pcall(frame.IsProtected, frame)
+        if ok and protected then return true end
+    end
+    return false
+end
+
+--- Take TRADE_SKILL_SHOW off the window's openers. Returns whether the read runs silenced.
+local function silence()
+    if silenced then return true end
+    if quietOff or not R.SILENCE or not GetFramesRegisteredForEvent then return false end
+    local found = { pcall(GetFramesRegisteredForEvent, "TRADE_SKILL_SHOW") }
+    if not found[1] then return false end
+    silenced = {}
+    for i = 2, #found do
+        local frame = found[i]
+        if type(frame) == "table" and frame.UnregisterEvent and not keepsListening(frame) then
+            if pcall(frame.UnregisterEvent, frame, "TRADE_SKILL_SHOW") then
+                silenced[#silenced + 1] = frame
+            end
+        end
+    end
+    return true
+end
+
+local function unsilence()
+    if not silenced then return end
+    for _, frame in ipairs(silenced) do
+        pcall(frame.RegisterEvent, frame, "TRADE_SKILL_SHOW")
+    end
+    silenced = nil
+end
+
+--- Count a silenced read's ending; silencing is given up once R.QUIET_GIVE_UP of them got no answer at all.
+local function countQuiet(answered)
+    quietTries = quietTries + 1
+    if answered then quietWorks = quietWorks + 1 end
+    if not quietOff and quietWorks == 0 and quietTries >= R.QUIET_GIVE_UP then
+        quietOff = true
+        note({ quiet = "given up", tries = quietTries })
+    end
+end
+
+--- Debug and tests: { off, tries, works, silenced (frames taken off now) }.
+function R.QuietState()
+    return { off = quietOff, tries = quietTries, works = quietWorks, silenced = silenced and #silenced or 0 }
+end
+
+local function linkState()
+    local api = C_TradeSkillUI
+    if not api or not api.IsTradeSkillLinked then return nil, nil end
+    local ok, linked, name = pcall(api.IsTradeSkillLinked)
+    if not ok then return nil, nil end
+    return linked, name
+end
+
+local function isPlayerName(name)
+    return UnitName ~= nil and R._NamesMatch(name, UnitName("player"))
+end
+
+local function shownProfession()
+    local api = C_TradeSkillUI
+    if not api or not api.GetBaseProfessionInfo then return nil end
+    local ok, info = pcall(api.GetBaseProfessionInfo)
+    local name = ok and type(info) == "table" and info.professionName or nil
+    if type(name) ~= "string" or name == "" then return nil end
+    return DS.NormalizeProfessionName and DS.NormalizeProfessionName(name) or name
+end
+
+--- Whether the window TRADE_SKILL_SHOW announced while a read waits is one the player opened, not its answer:
+--- for a guild read, one that isn't linked (when a linked name is required) or is linked under the
+--- player's own name; for an own read, someone else's or another profession.
+local function playerOpened(job)
+    local linked, name = linkState()
+    if job.kind == "guild" then
+        if linked == true then return isPlayerName(name) end
+        return linked == false and R.REQUIRE_LINKED_NAME
+    end
+    if linked == true and type(name) == "string" and name ~= "" and not isPlayerName(name) then
+        return true
+    end
+    local shown = shownProfession()
+    return shown ~= nil and shown ~= job.name
+end
+
+--- Whether a linked window opening now is the late answer to a read that ended unanswered (never a link the
+--- player clicked, nor the player's own).
+local function lateReply()
+    if pending then return false end
+    local t = now()
+    if t - unansweredAt > R.LATE or t - userLinkAt <= R.USER_LINK then return false end
+    local linked, name = linkState()
+    return linked == true and not isPlayerName(name)
+end
+
+--- Whether a mouse click landed on the interface (not the 3D world); true when the client can't say.
+local function clickOnInterface()
+    local focus
+    if GetMouseFoci then
+        local ok, foci = pcall(GetMouseFoci)
+        if not ok then return true end
+        focus = type(foci) == "table" and foci[1] or nil
+    elseif GetMouseFocus then
+        local ok, found = pcall(GetMouseFocus)
+        if not ok then return true end
+        focus = found
+    else
+        return true
+    end
+    return focus ~= nil and focus ~= WorldFrame
 end
 
 -- Waiting for a quiet moment -----------------------------------------------------------------------------
@@ -449,16 +596,23 @@ finish = function(job, outcome, result)
     pending = nil
     job.attempt = nil
     closeWindow()
+    unsilence()
+    local answered = outcome ~= "timeout" and outcome ~= "error"
+    if not answered then unansweredAt = now() end
+    if job.quiet then countQuiet(answered) end
     local spell = job.spells[job.try]
     if job.kind == "guild" then
         if outcome == "timeout" and job.sawUnnamed then outcome = "unnamed" end
         local elapsed = job.startedAt and GetTime and (GetTime() - job.startedAt) or nil
-        note({ guild = job.name, guid = job.guid, skillLine = job.skillLine, spell = spell, outcome = outcome })
+        note({
+            guild = job.name, guid = job.guid, skillLine = job.skillLine, spell = spell, outcome = outcome,
+            quiet = job.quiet,
+        })
         if job.onResult then pcall(job.onResult, outcome, result, elapsed) end
         schedulePump(R.GUILD_GAP)
         return
     end
-    note({ profession = job.name, spell = spell, outcome = outcome, try = job.try })
+    note({ profession = job.name, spell = spell, outcome = outcome, try = job.try, quiet = job.quiet })
     if outcome == "ok" then
         workedSpell[job.skillLine] = spell
     elseif job.try < #job.spells then
@@ -487,6 +641,7 @@ local function start(job)
         tooltip = CreateFrame("GameTooltip", "AltArmyTBC_OwnRecipeReadTooltip", UIParent, "GameTooltipTemplate")
     end
     pcall(tooltip.SetOwner, tooltip, UIParent, "ANCHOR_NONE")
+    job.quiet = silence()
     local link = string.format("trade:%s:%d:%d", guid, spell, job.skillLine)
     local ok = pcall(tooltip.SetHyperlink, tooltip, link)
     pcall(tooltip.Hide, tooltip)
@@ -625,15 +780,58 @@ function R.OnRecipeLearned(professionName)
     end)
 end
 
-local function abort()
+--- Put the read being waited for back in line, the window left as it is (and the openers given back
+--- TRADE_SKILL_SHOW). Its answer may still come: a late reply.
+local function stepAside(why)
+    unsilence()
     local job = pending
-    if not job then return end
+    if not job then return nil end
     pending = nil
     job.attempt = nil
-    closeWindow()
     job.try = job.try - 1
+    unansweredAt = now()
+    if why then note({ profession = job.name, guild = job.kind == "guild" or nil, outcome = why }) end
     queue[#queue + 1] = job -- keeps its seq, so its place in line
     schedulePump(R.RETRY)
+    return job
+end
+
+local function abort(why)
+    if stepAside(why) then closeWindow() end
+end
+
+--- The player opened a profession window while a read waited: the read steps aside, and the window the
+--- silenced openers never heard of is shown.
+local function playerTookWindow()
+    local wasSilenced = silenced ~= nil
+    stepAside("stepped aside for the player's window")
+    reveal()
+    if not wasSilenced then return end
+    C_Timer.After(0, function()
+        local frame = ProfessionsFrame
+        if tradeOpen and not pending and frame and frame.IsShown and not frame:IsShown() and ShowUIPanel then
+            pcall(ShowUIPanel, frame)
+        end
+    end)
+end
+
+--- A read's answer came after it ended: keep its window out of sight and close it.
+local function catchLateReply()
+    lateCatch = true
+    note({ outcome = "late reply closed" })
+    local frame = ProfessionsFrame
+    if frame and frame.IsShown and frame:IsShown() then conceal(frame) end
+    C_Timer.After(R.LATE_CLOSE, function()
+        lateCatch = false
+        if not pending then closeWindow() end
+    end)
+end
+
+--- SetItemRef's hook: the player clicked a link; a profession link's window is theirs, never a late reply.
+function R.OnLinkClicked(link)
+    if type(link) == "string" and link:sub(1, 6) == "trade:" then
+        userLinkAt = now()
+    end
 end
 
 function R.OnEvent(event, ...)
@@ -644,28 +842,49 @@ function R.OnEvent(event, ...)
         end
     elseif event == "PLAYER_REGEN_DISABLED" or event == "PLAYER_LOGOUT" then
         abort()
+    elseif event == "GLOBAL_MOUSE_DOWN" then
+        if pending and clickOnInterface() then abort("stepped aside for a click") end
     elseif event == "ADDON_LOADED" then
         if ... == "Blizzard_Professions" then hookFrame() end
-    elseif event == "TRADE_SKILL_DATA_SOURCE_CHANGED" then
+    elseif event == "TRADE_SKILL_DATA_SOURCE_CHANGED" or event == "TRADE_SKILL_LIST_UPDATE" then
         tryScanLinked()
     elseif event == "TRADE_SKILL_SHOW" then
-        if pending and pending.kind == "guild" then
-            C_Timer.After(R.SHOW_SCAN_DELAY, tryScanLinked)
+        tradeOpen = true
+        if pending and playerOpened(pending) then
+            playerTookWindow()
+        elseif pending then
+            if pending.kind == "guild" then C_Timer.After(R.SHOW_SCAN_DELAY, tryScanLinked) end
+        elseif lateReply() then
+            catchLateReply()
         end
+    elseif event == "TRADE_SKILL_CLOSE" then
+        tradeOpen = false
     end
 end
 
 function R._ResetForTests()
+    unsilence()
     queue, pending, pumpScheduled, workedSpell = {}, nil, false, {}
     frameHooked, concealed, savedLook = false, false, nil
     tooltip, readLog, attempts, unreadableNames, seq = nil, {}, 0, {}, 0
+    quietOff, quietTries, quietWorks, tradeOpen, lateCatch = false, 0, 0, false, false
+    unansweredAt, userLinkAt = -math.huge, -math.huge
 end
 
-local frame = CreateFrame and CreateFrame("Frame")
-if frame then
+--- Tests: this file's event frame (the one that keeps TRADE_SKILL_SHOW while silenced).
+function R._EventFrame()
+    return eventFrame
+end
+
+eventFrame = CreateFrame and CreateFrame("Frame")
+if eventFrame then
     for _, event in ipairs({ "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_DISABLED", "PLAYER_LOGOUT", "ADDON_LOADED",
-        "TRADE_SKILL_SHOW", "TRADE_SKILL_DATA_SOURCE_CHANGED" }) do
-        pcall(frame.RegisterEvent, frame, event)
+        "GLOBAL_MOUSE_DOWN", "TRADE_SKILL_SHOW", "TRADE_SKILL_CLOSE", "TRADE_SKILL_DATA_SOURCE_CHANGED",
+        "TRADE_SKILL_LIST_UPDATE" }) do
+        pcall(eventFrame.RegisterEvent, eventFrame, event)
     end
-    frame:SetScript("OnEvent", function(_, event, ...) R.OnEvent(event, ...) end)
+    eventFrame:SetScript("OnEvent", function(_, event, ...) R.OnEvent(event, ...) end)
+end
+if hooksecurefunc and SetItemRef then
+    hooksecurefunc("SetItemRef", function(link) R.OnLinkClicked(link) end)
 end

@@ -1570,7 +1570,7 @@ panel.autoReadRecipesRow = Theme.CreateLabeledCheckbox(panel.advancedSection.con
     relativePoint = "TOPLEFT",
     x = 0,
     y = 0,
-    text = "Read recipes automatically",
+    text = "Read recipes from profession links",
     fullWidthHover = true,
     onClick = function(checked)
         local R = AltArmy.OwnRecipeRead
@@ -1580,11 +1580,12 @@ panel.autoReadRecipesRow = Theme.CreateLabeledCheckbox(panel.advancedSection.con
     end,
 })
 Theme.AttachSettingsHelpIcon(panel.autoReadRecipesRow, {
-    title = "Read recipes automatically",
+    title = "Read recipes from profession links",
     lines = {
-        "Reads your recipes without having to open each profession",
-        "Recommended, but you can turn it off if you don't like the occasional sounds of the skill book "
-            .. "opening, or if it causes problems for other addons.",
+        "When enabled, Alt Army will gather profession data using profession links. This lets it gather data "
+            .. "in the background without you having to open the spell book.",
+        "You'll only need to disable this if you're seeing flashes or sounds of the UI opening which are "
+            .. "annoying you, or if this is causing bad interactions with other addons.",
     },
 })
 

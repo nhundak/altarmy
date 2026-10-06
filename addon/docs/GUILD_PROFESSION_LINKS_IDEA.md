@@ -43,9 +43,10 @@ every player it sees. Its findings:
 
 - Reads are not gated by the sharing opt-in or any other option; the opt-in covers what the player
   sends about their own characters (grouping, main, display name). The one engine switch, "Read
-  recipes in the background" (Options > General > Advanced), stops own and guild reads alike.
-- No read attempts to silence Blizzard's profession window: it is concealed and closed. Its sound
-  may play.
+  recipes from profession links" (Options > General > Advanced), stops own and guild reads alike.
+- Reads silence Blizzard's profession window as Linked Inn does: `TRADE_SKILL_SHOW` is taken from
+  every frame but the addon's own while a read waits, so the window never opens and makes no sound
+  (`Data/DESIGN.md`, "Recipes read in the background").
 - Every read is logged through the "Guild sharing traffic (verbose)" debug flag (`LINK …` lines).
 - Linked data is stored as recipe ids, rank and max rank only: difficulty colours are relative to the
   linked player, and cooldowns and reagents aren't theirs to read.

@@ -348,6 +348,8 @@ end
 
 -- Event frame and dispatch
 local frame = CreateFrame("Frame", nil, UIParent)
+-- OwnRecipeRead's silenced reads take TRADE_SKILL_SHOW from every frame but its own and this one.
+DS.eventFrame = frame
 
 --- Registers an event only if the running client recognizes it (checked via
 --- C_EventUtils.IsEventValid when available, per Thaoky/AddonFactory's

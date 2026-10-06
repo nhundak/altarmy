@@ -11,6 +11,7 @@ describe("OwnRecipeRead", function()
         "C_TradeSkillUI", "GetNumTradeSkills", "GetTradeSkillLine", "InCombatLockdown", "GetUIPanel",
         "ProfessionsFrame", "ChatEdit_GetActiveWindow", "CreateFrame", "UIParent",
         "AltArmyTBC_Options", "AltArmyTBC_Data", "time", "GetTime",
+        "GetFramesRegisteredForEvent", "ShowUIPanel", "GetMouseFoci", "GetMouseFocus", "WorldFrame",
     }
     local savedSearchSettings
 
@@ -146,6 +147,9 @@ describe("OwnRecipeRead", function()
                 return ({ Tailoring = "tailoring", Alchemy = "alchemy", Cooking = "cooking" })[name]
             end,
         }
+        -- Silencing is off unless a test gives the client GetFramesRegisteredForEvent.
+        _G.GetFramesRegisteredForEvent, _G.ShowUIPanel, _G.GetMouseFoci, _G.GetMouseFocus = nil, nil, nil, nil
+        _G.WorldFrame = { name = "WorldFrame" }
         _G.InCombatLockdown = function() return combat end
         _G.GetUIPanel = function() return panel end
         _G.ChatEdit_GetActiveWindow = function() return chatActive end
@@ -674,6 +678,216 @@ describe("OwnRecipeRead", function()
             for key, skillLine in pairs(R.SKILL_LINE_BY_KEY) do
                 assert.are.equal(RI.PROFESSION_SPELL_IDS[key], R.APPRENTICE_SPELLS[skillLine], key)
             end
+        end)
+    end)
+
+    describe("keeping the window shut", function()
+        local listeners, router, button, otherAddon, mine, store, results
+
+        --- A frame listening for events; `onShow` is what it does on TRADE_SKILL_SHOW.
+        local function listener(name, onShow, protected)
+            local f = { name = name, events = { TRADE_SKILL_SHOW = true }, onShow = onShow }
+            function f:RegisterEvent(e) self.events[e] = true end
+            function f:UnregisterEvent(e) self.events[e] = nil end
+            function f:IsProtected() return protected == true end
+            listeners[#listeners + 1] = f
+            return f
+        end
+
+        --- Make one of the module's own event frames (plain tables in this harness) a listener.
+        local function adopt(f, name, onShow)
+            f.name, f.events, f.onShow = name, { TRADE_SKILL_SHOW = true }, onShow
+            f.RegisterEvent = function(self, e) self.events[e] = true end
+            f.UnregisterEvent = function(self, e) self.events[e] = nil end
+            listeners[#listeners + 1] = f
+            return f
+        end
+
+        --- The client fires TRADE_SKILL_SHOW at whoever still listens for it.
+        local function fireShow()
+            for _, f in ipairs(listeners) do
+                if f.events.TRADE_SKILL_SHOW and f.onShow then f.onShow() end
+            end
+        end
+
+        local function listening(f) return f.events.TRADE_SKILL_SHOW == true end
+
+        local function guildJob(guid)
+            return {
+                guid = guid or "Player-1-DEF", name = "Alice", skillLine = 197,
+                onResult = function(outcome) results[#results + 1] = outcome end,
+            }
+        end
+
+        --- What the client says about the window: linked or not, and under whose name.
+        local function linkedTo(name)
+            _G.C_TradeSkillUI.IsTradeSkillLinked = function() return name ~= nil, name end
+        end
+
+        before_each(function()
+            listeners, results = {}, {}
+            -- Blizzard's event routing opens the window; the others only listen.
+            router = listener("EventRouting", function() frame:Show() end)
+            button = listener("ActionButton1", nil, true)
+            otherAddon = listener("SomeAddonFrame")
+            mine = adopt(R._EventFrame(), "OwnRecipeRead", function() R.OnEvent("TRADE_SKILL_SHOW") end)
+            store = adopt(DS.eventFrame, "DataStore")
+            _G.GetFramesRegisteredForEvent = function(event)
+                local found = {}
+                for _, f in ipairs(listeners) do
+                    if f.events[event] then found[#found + 1] = f end
+                end
+                return unpack(found)
+            end
+            _G.ShowUIPanel = function(f) f:Show() end
+        end)
+
+        it("takes TRADE_SKILL_SHOW from the window's openers while a read waits, so it never opens", function()
+            login()
+            assert.is_true(R.IsReading())
+            assert.is_false(listening(router))
+            assert.is_false(listening(otherAddon))
+            assert.is_true(listening(mine))
+            assert.is_true(listening(store))
+            assert.is_true(listening(button)) -- protected: left alone
+            fireShow()
+            assert.is_false(frame.shown)
+            R.OnRecipesScanned("Tailoring")
+            assert.is_true(listening(router))
+            assert.is_true(listening(otherAddon))
+            assert.are.equal(0, R.QuietState().silenced)
+        end)
+
+        it("reads a guildmate's window without it ever showing", function()
+            R.Enqueue(guildJob())
+            linkedTo("Alice")
+            _G.C_TradeSkillUI.GetBaseProfessionInfo = function()
+                return { professionName = "Tailoring", skillLevel = 142, maxSkillLevel = 225 }
+            end
+            _G.C_TradeSkillUI.GetAllRecipeIDs = function() return { 100 } end
+            _G.C_TradeSkillUI.GetRecipeInfo = function() return { learned = true } end
+            fireShow()
+            R.OnEvent("TRADE_SKILL_LIST_UPDATE")
+            assert.are.same({ "ok" }, results)
+            assert.is_false(frame.shown)
+            assert.is_true(listening(router))
+            assert.are.equal(1, R.QuietState().works)
+        end)
+
+        it("gives the event back when a read gets no answer, and on combat and logout", function()
+            R.Enqueue(guildJob())
+            advance(R.TIMEOUT)
+            assert.is_true(listening(router))
+            advance(R.GUILD_GAP)
+            R.Enqueue(guildJob("Player-1-GHI"))
+            assert.is_false(listening(router))
+            R.OnEvent("PLAYER_REGEN_DISABLED")
+            assert.is_true(listening(router))
+            advance(R.RETRY)
+            assert.is_false(listening(router))
+            R.OnEvent("PLAYER_LOGOUT")
+            assert.is_true(listening(router))
+        end)
+
+        it("gives silencing up after QUIET_GIVE_UP silenced reads that all went unanswered", function()
+            for i = 1, R.QUIET_GIVE_UP do
+                R.Enqueue(guildJob("Player-1-" .. i))
+                advance(R.TIMEOUT + R.GUILD_GAP)
+            end
+            assert.is_true(R.QuietState().off)
+            R.Enqueue(guildJob("Player-1-X"))
+            assert.is_true(listening(router))
+            linkedTo("Alice")
+            fireShow()
+            assert.is_true(frame.shown)
+            assert.are.equal(0, frame.alpha) -- only concealed now
+        end)
+
+        it("keeps silencing once a silenced read was answered", function()
+            login()
+            R.OnRecipesScanned("Tailoring")
+            for i = 1, R.QUIET_GIVE_UP do
+                R.Enqueue(guildJob("Player-1-" .. i))
+                advance(R.TIMEOUT + R.GUILD_GAP)
+            end
+            assert.is_false(R.QuietState().off)
+        end)
+
+        it("steps aside for a click on the interface, and reads again later", function()
+            _G.GetMouseFoci = function() return { { name = "SomeButton" } } end
+            login()
+            R.OnEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+            assert.is_false(R.IsReading())
+            assert.is_true(listening(router))
+            assert.are.equal(1, closes)
+            advance(R.RETRY)
+            assert.are.same({ "trade:Player-1-ABC:3908:197", "trade:Player-1-ABC:3908:197" }, links)
+        end)
+
+        it("goes on reading through a click in the world", function()
+            _G.GetMouseFoci = function() return { WorldFrame } end
+            login()
+            R.OnEvent("GLOBAL_MOUSE_DOWN", "RightButton")
+            assert.is_true(R.IsReading())
+            assert.is_false(listening(router))
+        end)
+
+        it("shows the window the player opens mid-read, which the silenced openers missed", function()
+            R.Enqueue(guildJob())
+            linkedTo(nil) -- the player's own profession: not linked
+            fireShow()
+            assert.is_false(R.IsReadingGuild())
+            assert.is_true(listening(router))
+            assert.is_false(frame.shown)
+            advance(0)
+            assert.is_true(frame.shown)
+            assert.are.equal(1, frame.alpha)
+            assert.are.equal(0, closes)
+            advance(R.RETRY)
+            assert.are.same({ "trade:Player-1-DEF:3908:197" }, links) -- waits while the window is open
+        end)
+
+        it("steps aside when the player opens another profession during an own read", function()
+            login()
+            _G.C_TradeSkillUI.GetBaseProfessionInfo = function() return { professionName = "Alchemy" } end
+            fireShow()
+            assert.is_false(R.IsReading())
+            advance(0)
+            assert.is_true(frame.shown)
+        end)
+
+        it("takes the asked-for profession's window during an own read as its answer", function()
+            login()
+            fireShow()
+            assert.is_true(R.IsReading())
+            assert.is_false(frame.shown)
+        end)
+
+        it("closes, out of sight, a window that is a late answer to a read that timed out", function()
+            R.Enqueue(guildJob())
+            advance(R.TIMEOUT)
+            assert.are.same({ "timeout" }, results)
+            linkedTo("Alice")
+            fireShow()
+            assert.is_true(frame.shown)
+            assert.are.equal(0, frame.alpha)
+            advance(R.LATE_CLOSE)
+            assert.is_false(frame.shown)
+            assert.are.equal(1, frame.alpha)
+        end)
+
+        it("leaves alone a profession link the player clicked, and windows long after a read", function()
+            R.Enqueue(guildJob())
+            advance(R.TIMEOUT)
+            R.OnLinkClicked("trade:Player-1-XYZ:3908:197")
+            linkedTo("Bob")
+            fireShow()
+            assert.is_true(frame.shown)
+            assert.are.equal(1, frame.alpha)
+            frame:Hide()
+            advance(R.LATE + 1)
+            fireShow()
+            assert.are.equal(1, frame.alpha)
         end)
     end)
 end)

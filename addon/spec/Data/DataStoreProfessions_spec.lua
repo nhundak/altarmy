@@ -673,6 +673,15 @@ describe("DataStoreProfessions", function()
         assert.is_true(scanned({ linked = true, linkedName = "TestPlayer-TestRealm" }))
       end)
 
+      it("stores a linked window bearing the player's first name and surname (WoW Forever)", function()
+        -- Forever's UnitName gives the first name and the surname apart; the link carries both.
+        _G.UnitName = function() return "TestPlayer", "Surname" end
+        mockTradeSkillUI({ linked = true, linkedName = "TestPlayer Surname", recipeIDs = { 100 }, recipes = learned })
+        DS:ScanRecipes()
+        local char = _G.AltArmyTBC_Data.Characters.TestRealm["TestPlayer Surname"]
+        assert.truthy(char and char.Professions.Leatherworking.Recipes[100])
+      end)
+
       it("ignores another player's linked window", function()
         assert.is_false(scanned({ linked = true, linkedName = "Someoneelse" }))
         assert.are.equal(0, scheduleCount)
