@@ -1417,6 +1417,115 @@ describe("SummaryData", function()
     end)
   end)
 
+  describe("GetExportMissingDataInfo", function()
+    local DS, DL, saved, savedTraits, current
+
+    before_each(function()
+      _G.AltArmy.DataStore = _G.AltArmy.DataStore or {}
+      DS = _G.AltArmy.DataStore
+      _G.AltArmy.DataStoreLegacy = _G.AltArmy.DataStoreLegacy or {}
+      DL = _G.AltArmy.DataStoreLegacy
+      saved = {}
+      for _, k in ipairs({
+        "IsCurrentCharacter", "HasModuleData", "NeedsRescan", "GetProfessions", "GetNumRecipes",
+        "ProfessionHasNoRecipeWindow", "HasProfessionsListApi", "GetCharacterClass", "GetCharacterLevel",
+      }) do
+        saved[k] = DS[k]
+      end
+      savedTraits = DL.HasTraitsApi
+      current = nil
+      DS.IsCurrentCharacter = function(_, name) return name == current end
+      DS.HasModuleData = function(_, c, mod)
+        local v = c.dataVersions and c.dataVersions[mod]
+        return v ~= nil and v > 0
+      end
+      DS.NeedsRescan = function(_, c, mod)
+        local want = ({ reputations = 2, legacyTalents = 2 })[mod]
+        return want ~= nil and ((c.dataVersions and c.dataVersions[mod]) or 0) < want
+      end
+      DS.GetProfessions = function(_, c) return c.Professions or {} end
+      DS.GetNumRecipes = function(_, c, profName)
+        local n = 0
+        for _ in pairs(c.Professions[profName].Recipes or {}) do n = n + 1 end
+        return n
+      end
+      DS.ProfessionHasNoRecipeWindow = function(profName) return profName == "Mining" end
+      DS.HasProfessionsListApi = function() return true end
+      DS.GetCharacterClass = function(_, c) return c.classFile, c.classFile end
+      DS.GetCharacterLevel = function(_, c) return c.level or 0 end
+      DL.HasTraitsApi = function() return true end
+    end)
+
+    after_each(function()
+      for k, v in pairs(saved) do DS[k] = v end
+      DL.HasTraitsApi = savedTraits
+    end)
+
+    local function complete()
+      return {
+        name = "Alice", guid = "Player-1-0001", classFile = "MAGE", level = 70,
+        -- containers, equipment and the rest aren't exported: their absence is no warning here
+        dataVersions = { character = 3, professions = 1, reputations = 2, legacyTalents = 2 },
+        Professions = {
+          Tailoring = { rank = 300, Recipes = { [1] = true } },
+          Mining = { rank = 300 },
+        },
+        Reputations = { [76] = { s = 6 } },
+        legacyTalents = { spells = {} },
+      }
+    end
+
+    it("finds nothing missing when everything the export writes is there", function()
+      local out = SD.GetExportMissingDataInfo(complete(), "R1")
+      assert.is_false(out.hasMissing)
+      assert.are.same({}, out.instructions)
+    end)
+
+    it("asks to open a profession's window when its recipes are missing", function()
+      local char = complete()
+      char.Professions.Tailoring.Recipes = nil
+      current = "Alice"
+      assert.are.same({ "* Open your Tailoring window" }, SD.GetExportMissingDataInfo(char, "R1").instructions)
+    end)
+
+    it("asks the current character to open the panels whose modules were never gathered", function()
+      local char = complete()
+      char.dataVersions.professions, char.dataVersions.reputations = nil, nil
+      current = "Alice"
+      assert.are.same(
+        { "* Open your Skills window (P)", "* Open your Reputation panel" },
+        SD.GetExportMissingDataInfo(char, "R1").instructions
+      )
+    end)
+
+    it("asks for a reload when reputations are stored in the old format", function()
+      local char = complete()
+      char.Reputations = { [76] = 4500 }
+      current = "Alice"
+      assert.are.same(
+        { "* /reload or log in again to refresh reputation data" },
+        SD.GetExportMissingDataInfo(char, "R1").instructions
+      )
+    end)
+
+    it("asks to log in, once, an alt with no GUID, no Legacy talents and no reputations", function()
+      local char = complete()
+      char.guid, char.legacyTalents = nil, nil
+      char.dataVersions.legacyTalents, char.dataVersions.reputations = nil, nil
+      assert.are.same({ "* Log in with this character" }, SD.GetExportMissingDataInfo(char, "R1").instructions)
+    end)
+
+    it("doesn't ask for Legacy talents on a client without them, nor of the current character", function()
+      local char = complete()
+      char.dataVersions.legacyTalents = nil
+      current = "Alice"
+      assert.is_false(SD.GetExportMissingDataInfo(char, "R1").hasMissing)
+      current = nil
+      DL.HasTraitsApi = function() return false end
+      assert.is_false(SD.GetExportMissingDataInfo(char, "R1").hasMissing)
+    end)
+  end)
+
   describe("GetTalentSpecMissingInfo", function()
     local DS
     local DT

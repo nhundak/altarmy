@@ -47,6 +47,13 @@ Anniversary from Forever. The string is LibDeflate-compressed text built by `Dat
 format is documented there, and `spec/fixtures/profit_export_v2.txt` (format v2) is the golden string the site's parser is
 tested against (the altarmy-profit repo keeps a copy).
 
+When some of that is known not to have been gathered yet, a gold note above the string lists each such
+character with what to do, worded like the Summary tab's `!` tooltip (log in with this character, open your
+Tailoring window, open your Reputation panel, /reload…), up to eight characters and then how many more. It
+checks only what the export carries (`SummaryData.GetExportMissingDataInfo`: a GUID, the professions and their
+recipes, Legacy talents on Forever, city reputations), so missing bags or gear don't show there. The string is
+still given: the site takes what is there.
+
 ## Related UI
 
 - Bank-alt suggest dialog (auto-detect).

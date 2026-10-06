@@ -1,5 +1,6 @@
 -- AltArmy TBC — Export dialog: shows ProfitExport's string, selected, to copy with Ctrl+C and paste on the
--- altarmy-profit site's Upload tab. Opened only by `/altarmy export` (no button in the UI).
+-- altarmy-profit site's Upload tab. Opened only by `/altarmy export` (no button in the UI). Above the string,
+-- a note lists characters still lacking data the export carries (SummaryData.GetExportMissingDataInfo).
 -- luacheck: globals UISpecialFrames UIParent
 
 if not AltArmy then return end
@@ -15,6 +16,7 @@ local UI = {
     BUTTON_WIDTH = 120,
     WIDTH = 520,
     HEIGHT = 170,
+    MISSING_SHOWN = 8, -- characters listed in the missing-data warning before "...and N more"
 }
 
 local dialog = Theme.CreatePanel(UIParent, "window", "AltArmyTBC_ProfitExportDialog")
@@ -61,6 +63,15 @@ intro:SetWordWrap(true)
 intro:SetTextColor(0.85, 0.85, 0.85, 1)
 intro:SetText("Copy this string into the alt army website to upload your data")
 
+-- What the export is known to lack (SummaryData's missing-data checks, export-scoped); hidden when nothing.
+local missing = inner:CreateFontString(nil, "ARTWORK", Theme.FONTS.body)
+missing:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 0, -UI.GAP)
+missing:SetPoint("RIGHT", inner, "RIGHT", 0, 0)
+missing:SetJustifyH("LEFT")
+missing:SetWordWrap(true)
+missing:SetTextColor(1, 0.82, 0, 1)
+missing:Hide()
+
 -- One line holds the whole string; it is selected on show, so Ctrl+C copies all of it.
 local box = CreateFrame("EditBox", nil, inner, "InputBoxTemplate")
 box:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 6, -UI.GAP)
@@ -100,6 +111,28 @@ end)
 
 AltArmy.ProfitExportDialog = AltArmy.ProfitExportDialog or {}
 
+--- Show the missing-data warning above the box (or hide it), growing the dialog to fit.
+local function showMissing()
+    local PE, SD = AltArmy.ProfitExport, AltArmy.SummaryData
+    local data = AltArmyTBC_Data --luacheck: ignore 113
+    local rows = PE and PE.MissingData and SD and SD.GetExportMissingDataInfo
+        and PE.MissingData(data and data.Characters, SD.GetExportMissingDataInfo) or {}
+    local text = PE and PE.MissingDataText and PE.MissingDataText(rows, UI.MISSING_SHOWN) or ""
+    box:ClearAllPoints()
+    box:SetPoint("RIGHT", inner, "RIGHT", -6, 0)
+    if text == "" then
+        missing:SetText("")
+        missing:Hide()
+        box:SetPoint("TOPLEFT", intro, "BOTTOMLEFT", 6, -UI.GAP)
+        dialog:SetHeight(UI.HEIGHT)
+    else
+        missing:SetText(text)
+        missing:Show()
+        box:SetPoint("TOPLEFT", missing, "BOTTOMLEFT", 6, -UI.GAP)
+        dialog:SetHeight(UI.HEIGHT + missing:GetStringHeight() + UI.GAP)
+    end
+end
+
 --- Build a fresh export and show it, selected.
 function AltArmy.ProfitExportDialog.Show()
     local PE = AltArmy.ProfitExport
@@ -113,6 +146,7 @@ function AltArmy.ProfitExportDialog.Show()
         status:SetText("The export needs the LibDeflate library, which failed to load.")
     end
     dialog:Show()
+    showMissing()
     box:SetFocus()
     box:HighlightText()
 end

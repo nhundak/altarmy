@@ -146,6 +146,49 @@ function ProfitExport.Lines(characters, interface, build)
     return table.concat(out, "\n")
 end
 
+--- Characters whose export is known to lack data, as { label, instructions } in the export's order.
+--- `missingFn(char, realm)` gives { instructions = {"* ..."} } (SummaryData.GetExportMissingDataInfo); the
+--- label is the name, with the realm when the characters span several. Never-scanned stubs (no faction and
+--- no class) are left out: the site passes over them.
+--- @return table[]
+function ProfitExport.MissingData(characters, missingFn)
+    local out = {}
+    if type(missingFn) ~= "function" then return out end
+    local realms = sortedKeys(characters)
+    for _, realm in ipairs(realms) do
+        for _, entry in ipairs(charactersByName(characters[realm])) do
+            local name, char = entry[1], entry[2]
+            local info = (char.faction or char.classFile) and missingFn(char, realm)
+            local instructions = {}
+            for _, line in ipairs(info and info.instructions or {}) do
+                instructions[#instructions + 1] = (line:gsub("^%* ", ""))
+            end
+            if #instructions > 0 then
+                local label = #realms > 1 and (name .. " (" .. realm .. ")") or name
+                out[#out + 1] = { label = label, instructions = instructions }
+            end
+        end
+    end
+    return out
+end
+
+--- The export dialog's warning for MissingData's rows: one line per character, at most `limit`, then how
+--- many more. "" when nothing is missing.
+--- @return string
+function ProfitExport.MissingDataText(rows, limit)
+    if not rows or #rows == 0 then return "" end
+    limit = limit or #rows
+    local lines = { "Some data has not been gathered yet, so this export lacks it:" }
+    for i = 1, math.min(#rows, limit) do
+        lines[#lines + 1] = rows[i].label .. ": " .. table.concat(rows[i].instructions, "; ")
+    end
+    if #rows > limit then
+        local more = #rows - limit
+        lines[#lines + 1] = "...and " .. more .. " more character" .. (more == 1 and "" or "s")
+    end
+    return table.concat(lines, "\n")
+end
+
 --- The printable string for `text`, compressed with `libDeflate`.
 --- @return string
 function ProfitExport.Encode(text, libDeflate)

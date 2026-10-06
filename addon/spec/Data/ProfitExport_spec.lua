@@ -107,4 +107,61 @@ describe("ProfitExport", function()
     f:close()
     assert.are.equal(golden, encoded)
   end)
+  describe("MissingData", function()
+    local function missingFn(names)
+      return function(char)
+        return { instructions = names[char.name] or {} }
+      end
+    end
+
+    it("lists characters with missing data in the export's order, without the bullet, realm when several", function()
+      local rows = ProfitExport.MissingData(CHARACTERS, missingFn({
+        ["Frell Ofelements"] = { "* Open your Tailoring window", "* Log in with this character" },
+        Alchemist = { "* Log in with this character" },
+      }))
+      assert.are.same({
+        { label = "Alchemist (Dreamscythe)", instructions = { "Log in with this character" } },
+        {
+          label = "Frell Ofelements (Dreamscythe)",
+          instructions = { "Open your Tailoring window", "Log in with this character" },
+        },
+      }, rows)
+    end)
+
+    it("names characters without the realm when there is only one, and leaves out never-scanned stubs", function()
+      local chars = {
+        R1 = {
+          A = { name = "A", faction = "Horde", classFile = "MAGE" },
+          Stub = { name = "Stub" },
+        },
+      }
+      local all = function() return { instructions = { "* Log in with this character" } } end
+      assert.are.same(
+        { { label = "A", instructions = { "Log in with this character" } } },
+        ProfitExport.MissingData(chars, all)
+      )
+    end)
+
+    it("is empty when nothing is missing or there is no check", function()
+      assert.are.same({}, ProfitExport.MissingData(CHARACTERS, missingFn({})))
+      assert.are.same({}, ProfitExport.MissingData(CHARACTERS, nil))
+    end)
+
+    it("words the warning one line per character, capped with how many more", function()
+      local rows = {
+        { label = "A", instructions = { "Log in with this character" } },
+        { label = "B", instructions = { "Open your Tailoring window", "Open your Reputation panel" } },
+        { label = "C", instructions = { "Log in with this character" } },
+        { label = "D", instructions = { "Log in with this character" } },
+      }
+      assert.are.equal("", ProfitExport.MissingDataText({}, 2))
+      assert.are.equal(table.concat({
+        "Some data has not been gathered yet, so this export lacks it:",
+        "A: Log in with this character",
+        "B: Open your Tailoring window; Open your Reputation panel",
+        "...and 2 more characters",
+      }, "\n"), ProfitExport.MissingDataText(rows, 2))
+      assert.is_truthy(ProfitExport.MissingDataText(rows, 3):find("and 1 more character$"))
+    end)
+  end)
 end)

@@ -85,7 +85,8 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 
 `/altarmy export` (the only way in; no button) shows the account's characters,
 professions and learned recipes as one copyable string for the altarmy-profit site, which ranks profitable
-crafts for them. See [tabs/options.md](tabs/options.md#export-for-altarmy-profit). Bundles LibDeflate
+crafts for them; a note above it says which characters still lack data the export carries, and what to do.
+See [tabs/options.md](tabs/options.md#export-for-altarmy-profit). Bundles LibDeflate
 (zlib license) for the compression.
 
 ### Auction house scan for altarmy-profit

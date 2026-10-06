@@ -381,41 +381,21 @@ local function appendTalentMissingInstructions(out, char, isCurrent)
     end
 end
 
---- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
---- @param name string Character name
---- @param realm string Realm name
---- @return table { hasMissing = boolean, instructions = string[] }
-function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
-    local out = { hasMissing = false, instructions = {} }
-    local DS = AltArmy.DataStore
-    if not DS or not DS.GetCharacter then return out end
-    local char = DS:GetCharacter(name, realm)
-    if not char then return out end
-
-    local isCurrent = resolveIsCurrentChar(name, realm)
-
-    for moduleName, instruction in pairs(MODULE_INSTRUCTIONS) do
-        -- Professions: skip the nag entirely on clients missing GetNumSkillLines/GetSkillLineInfo
-        -- (e.g. WoW Forever) — there is no window the player can open that would gather this data.
-        local skipUnreachable = moduleName == "professions"
-            and DS.HasProfessionsListApi and not DS.HasProfessionsListApi()
-        if not skipUnreachable and not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
-            if isCurrent then
-                addUniqueInstruction(out, instruction)
-            else
-                addUniqueInstruction(out, "* Log in with this character")
-            end
-        end
-    end
-
-    local GS = AltArmy and AltArmy.GearScore
-    if GS and GS.IsGearScoreTBCClassicAvailable and GS.IsGearScoreTBCClassicAvailable()
-        and DS.HasModuleData and not DS:HasModuleData(char, "gearScores") then
-        if not isCurrent then
+local function appendModuleMissingInstruction(out, char, DS, isCurrent, moduleName)
+    -- Professions: skip the nag entirely on clients missing GetNumSkillLines/GetSkillLineInfo
+    -- (e.g. WoW Forever) — there is no window the player can open that would gather this data.
+    local skipUnreachable = moduleName == "professions"
+        and DS.HasProfessionsListApi and not DS.HasProfessionsListApi()
+    if not skipUnreachable and not (DS.HasModuleData and DS:HasModuleData(char, moduleName)) then
+        if isCurrent then
+            addUniqueInstruction(out, MODULE_INSTRUCTIONS[moduleName])
+        else
             addUniqueInstruction(out, "* Log in with this character")
         end
     end
+end
 
+local function appendReputationMissingInstructions(out, char, DS, isCurrent)
     -- Reputation: stale data version and/or legacy scalar storage (pre-v2 snapshot rows)
     -- Containers v2 (equipped bag identity) is additive and not worth a Summary warning.
     if DS.HasModuleData and DS:HasModuleData(char, "reputations") then
@@ -429,7 +409,9 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
             end
         end
     end
+end
 
+local function appendRecipeMissingInstructions(out, char, DS, isCurrent)
     -- Per-profession: no recipes yet, or recipes marked stale after NEW_RECIPE_LEARNED without UI.
     -- Skips professions with no recipe window at all (Fishing/Riding/Herbalism/Mining, plus
     -- Skinning on TBC's legacy API only — Forever's Skinning has real recipes); see
@@ -456,6 +438,35 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
             end
         end
     end
+end
+
+--- Returns whether a character is missing any gathered data and a list of instructions for the tooltip.
+--- @param name string Character name
+--- @param realm string Realm name
+--- @return table { hasMissing = boolean, instructions = string[] }
+function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
+    local out = { hasMissing = false, instructions = {} }
+    local DS = AltArmy.DataStore
+    if not DS or not DS.GetCharacter then return out end
+    local char = DS:GetCharacter(name, realm)
+    if not char then return out end
+
+    local isCurrent = resolveIsCurrentChar(name, realm)
+
+    for moduleName in pairs(MODULE_INSTRUCTIONS) do
+        appendModuleMissingInstruction(out, char, DS, isCurrent, moduleName)
+    end
+
+    local GS = AltArmy and AltArmy.GearScore
+    if GS and GS.IsGearScoreTBCClassicAvailable and GS.IsGearScoreTBCClassicAvailable()
+        and DS.HasModuleData and not DS:HasModuleData(char, "gearScores") then
+        if not isCurrent then
+            addUniqueInstruction(out, "* Log in with this character")
+        end
+    end
+
+    appendReputationMissingInstructions(out, char, DS, isCurrent)
+    appendRecipeMissingInstructions(out, char, DS, isCurrent)
 
     if needsPoisonsWindowScan(char, DS) then
         local poisonsName = getPoisonsProfessionName()
@@ -469,6 +480,42 @@ function AltArmy.SummaryData.GetMissingDataInfo(name, realm)
 
     appendGuildMembershipMissingInstructions(out, char, DS, isCurrent)
     appendTalentMissingInstructions(out, char, isCurrent)
+
+    out.hasMissing = #out.instructions > 0
+    return out
+end
+
+--- What `/altarmy export` would lack for a character: only what the export writes (ProfitExport.lua: the
+--- character's GUID, professions and their recipes, Legacy talents, city reputations), with the same
+--- instructions as GetMissingDataInfo. Takes the stored entry itself, so duplicate names can't mix up.
+--- @param char table A stored character (AltArmyTBC_Data.Characters[realm][key])
+--- @param realm string Realm name
+--- @return table { hasMissing = boolean, instructions = string[] }
+function AltArmy.SummaryData.GetExportMissingDataInfo(char, realm)
+    local out = { hasMissing = false, instructions = {} }
+    local DS = AltArmy.DataStore
+    if not DS or type(char) ~= "table" then return out end
+    local isCurrent = resolveIsCurrentChar(char.name, realm)
+
+    -- Entries saved before character data v3 have no GUID; logging in stores it.
+    if not isCurrent and (type(char.guid) ~= "string" or char.guid == "") then
+        addUniqueInstruction(out, "* Log in with this character")
+    end
+    appendModuleMissingInstruction(out, char, DS, isCurrent, "professions")
+    appendRecipeMissingInstructions(out, char, DS, isCurrent)
+    if needsPoisonsWindowScan(char, DS) then
+        addUniqueInstruction(out, "* Open your " .. getPoisonsProfessionName() .. " window")
+    end
+    appendModuleMissingInstruction(out, char, DS, isCurrent, "reputations")
+    appendReputationMissingInstructions(out, char, DS, isCurrent)
+
+    -- Legacy talents (WoW Forever's C_Traits) are read at login: an alt needs logging in. The current
+    -- character's read already ran, so nothing the player does would fill it.
+    local DL = AltArmy.DataStoreLegacy
+    if not isCurrent and DL and DL.HasTraitsApi and DL.HasTraitsApi()
+        and DS.NeedsRescan and DS:NeedsRescan(char, "legacyTalents") then
+        addUniqueInstruction(out, "* Log in with this character")
+    end
 
     out.hasMissing = #out.instructions > 0
     return out
