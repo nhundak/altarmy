@@ -654,6 +654,18 @@
             "title": "Climb Without",
             "type": "array"
           },
+          "climber_skill": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Climber Skill"
+          },
           "copies": {
             "anyOf": [
               {
@@ -4726,6 +4738,25 @@
               "minimum": 1,
               "title": "Chain Length",
               "type": "integer"
+            }
+          },
+          {
+            "description": "rank for a character nobody uploaded instead of the selection's: the one name in skill_crafters, with the one profession in professions at this skill, knowing what comes with it and what its trainers teach up to there",
+            "in": "query",
+            "name": "climber_skill",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "rank for a character nobody uploaded instead of the selection's: the one name in skill_crafters, with the one profession in professions at this skill, knowing what comes with it and what its trainers teach up to there",
+              "title": "Climber Skill"
             }
           },
           {

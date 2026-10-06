@@ -9,7 +9,8 @@ dependencies = ["sqlalchemy>=2.0", "alembic>=1.13"]
 # the server (API, `serve`); firebase-admin verifies Firebase ID tokens
 ui = ["fastapi>=0.115", "uvicorn>=0.30", "python-multipart>=0.0.9", "firebase-admin>=6.5"]
 postgres = ["psycopg[binary]>=3.2"]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx2>=2.13", "psycopg[binary]>=3.2"]
+# watchfiles: `serve --reload` (npm run dev) watches the code without polling it
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx2>=2.13", "psycopg[binary]>=3.2", "watchfiles>=0.21"]
 # Alt Army Sync, the Windows uploader (altarmy-sync); build-tray packages it as one .exe
 tray = ["pystray>=0.19", "Pillow>=10"]
 build-tray = ["pyinstaller>=6.10"]

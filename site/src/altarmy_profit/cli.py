@@ -15,6 +15,7 @@ import os
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Connection, select
 
@@ -37,6 +38,9 @@ from . import (
     wowfiles,
 )
 from .versions import GameVersion
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 
 def _version(args: argparse.Namespace) -> GameVersion:
@@ -160,7 +164,28 @@ def cmd_serve(args: argparse.Namespace) -> None:
     if not (DEFAULT_DIST / "index.html").is_file():
         print(f"Front end not built ({DEFAULT_DIST} missing): `npm run dev` serves it through Vite instead.")
     print(f"altarmy-profit API on http://{args.host}:{args.port} (Ctrl+C to stop)")
-    uvicorn.run(app, host=args.host, port=args.port)
+    if not args.reload:
+        uvicorn.run(app, host=args.host, port=args.port)
+        return
+    # uvicorn reloads only an app it can import again: each worker builds its own with `serve_app`, on the
+    # database this process migrated, named in the environment the worker inherits
+    os.environ["DATABASE_URL"] = args.database.url.render_as_string(hide_password=False)
+    package = Path(__file__).resolve().parent
+    uvicorn.run(
+        "altarmy_profit.cli:serve_app",
+        factory=True,
+        host=args.host,
+        port=args.port,
+        reload=True,
+        reload_dirs=[str(package)],
+    )
+
+
+def serve_app() -> FastAPI:
+    """`serve --reload`'s app, built again in each reloaded worker (`DATABASE_URL`, already migrated)."""
+    from .api import create_app
+
+    return create_app(versions.VERSIONS, database=db.Database(db.default_url(), migrate=False))
 
 
 def cmd_admin(args: argparse.Namespace) -> None:
@@ -338,6 +363,7 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("serve", help="serve the API and the built front end (needs the [ui] extra)")
     s.add_argument("--host", default="127.0.0.1")
     s.add_argument("--port", type=int, default=8600)
+    s.add_argument("--reload", action="store_true", help="restart when the Python code changes (development)")
     s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser(

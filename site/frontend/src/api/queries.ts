@@ -128,6 +128,9 @@ export type RankParams = {
   chainFrom?: number
   /** skilling up a run: the runs `chain` may hold; unset for the API's default (`CHAIN`) */
   chainLength?: number
+  /** skilling up a character nobody uploaded: the one name in `skillCrafters` is them, with the one profession in
+   * `professions` at this skill (knowing what comes with it and what its trainers teach up to there) */
+  climberSkill?: number
   top: number
 }
 
@@ -196,6 +199,7 @@ export function useRank(
               gathered: params.gathered?.length ? params.gathered : undefined,
               chain_from: params.chainFrom,
               chain_length: params.chainLength,
+              climber_skill: params.climberSkill,
               top: params.top,
               price_version: priceVersion,
             },
@@ -211,7 +215,7 @@ export function useRank(
  * came from (so a sync re-costs the user's changed plans too). */
 export type EvaluateParams = Pick<
   RankParams,
-  'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager'
+  'unlearned' | 'lookAhead' | 'sources' | 'includeTrivial' | 'skillCrafters' | 'exits' | 'arcaneSalvager' | 'climberSkill'
 > & {
   runs?: boolean
   gathered?: number[]
@@ -229,13 +233,13 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climberSkill }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   const priceVersion = usePriceVersion()
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices[id]],
+      queryKey: ['evaluate', GAME_VERSION, version, id, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices[id], climberSkill ?? null],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
@@ -254,6 +258,7 @@ export function useEvaluations(
               choices: choices[id] ?? {},
               climb_without: [], // the results table's rows: none left out
               price_version: priceVersion,
+              climber_skill: climberSkill,
             },
           }),
         ),
@@ -274,7 +279,7 @@ export function useEvaluations(
  * until they move: never stale. */
 function sessionPlanQuery(
   recipeId: number,
-  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climbWithout, chain }: EvaluateParams,
+  { unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, version, climbWithout, chain, climberSkill }: EvaluateParams,
   choices: Choices | undefined,
   copies: number | null,
   city: string | null,
@@ -286,7 +291,7 @@ function sessionPlanQuery(
   const without = runs && (copies === null || chain) ? (climbWithout ?? []) : []
   return {
     // under 'evaluate', so whatever re-costs plans (time settings, AH blocks) re-plans sessions too
-    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter, without, chain ?? null],
+    queryKey: ['evaluate', GAME_VERSION, version, recipeId, unlearned, lookAhead, sources, includeTrivial, skillCrafters, exits, arcaneSalvager, runs, gathered, choices ?? {}, 'session', copies, city, crafter, without, chain ?? null, climberSkill ?? null],
     queryFn: () =>
       call(
         client.POST('/api/evaluate', {
@@ -310,6 +315,7 @@ function sessionPlanQuery(
             city: city ?? undefined,
             crafter: crafter ?? undefined,
             price_version: priceVersion,
+            climber_skill: climberSkill,
           },
         }),
       ),

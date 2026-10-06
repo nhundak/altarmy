@@ -25,6 +25,8 @@ export const setupSchema = z.object({
   /** Which of the profession's holders is being skilled up (one; several from before one climbed at a time); unset:
    * the one who has it. */
   characters: z.array(z.string()).optional(),
+  /** Skilling up a character nobody uploaded: the skill they start from (`CLIMBER_NAME` is then who). */
+  climberSkill: z.number().optional(),
   /** How to sell, from when making gold asked; no longer asked or read (both ways show side by side). */
   selling: sellingSchema.optional(),
 })
@@ -87,6 +89,32 @@ export const isSecondary = (profession: string): boolean => SECONDARY.has(profes
 
 /** Professions never offered for skilling up, though a few recipes name them (Mining's smelting, Skinning's). */
 const NOT_SKILLED = new Set(['mining', 'skinning'])
+
+/**
+ * What a character nobody uploaded is called: the server plans for whatever one name `skill_crafters` gives with
+ * `climber_skill`, and the plan's steps and notes say it ("Your character's steps"). Never a comma (names are joined
+ * on them) and never all digits (a path's skill is).
+ */
+export const CLIMBER_NAME = 'Your character'
+
+/**
+ * The professions someone could skill up without having uploaded a character: every one of the version's with
+ * recipes (`withRecipes`), Mining and Skinning left out, nobody holding them, alphabetically.
+ */
+export const professionsToImagine = (withRecipes: readonly string[]): ProfessionChoice[] =>
+  withRecipes
+    .filter((name) => !NOT_SKILLED.has(name.toLowerCase()))
+    .map((name) => ({ name, holders: [] }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+/**
+ * The one profession a character nobody uploaded skills up, held by `CLIMBER_NAME` at `skill` of `maxRank` (the cap
+ * of the rank that skill is in, so the training reminders still come), so the search and workspace take them as any
+ * holder.
+ */
+export const hypotheticalProfessions = (profession: string, skill: number, maxRank: number): ProfessionChoice[] => [
+  { name: profession, holders: [{ name: CLIMBER_NAME, classFile: '', level: 0, rank: skill, maxRank }] },
+]
 
 /**
  * The professions the group's characters have, by name, each once, with who has it at what skill, Mining and Skinning

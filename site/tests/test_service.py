@@ -1170,6 +1170,40 @@ def test_known_recipes_only_climb_without_learning_on_the_way() -> None:
     assert (a.climb_after[-1] if a.climb_after else a).stop_skill == 30
 
 
+def test_a_hypothetical_character_knows_what_trainers_teach_up_to_their_skill() -> None:
+    def recipe(
+        rid: int, learn: int, source: engine.Source = "trainer", skill: str = "Tailoring"
+    ) -> engine.Recipe:
+        return engine.Recipe(
+            rid, f"R{rid}", 10, 1, ((1, 1),), skill, spell_id=900 + rid, learn_skill=learn, source=source
+        )
+
+    recipes = [
+        recipe(1, 1),  # comes with the profession
+        recipe(2, 40),  # a trainer's, from 40
+        recipe(3, 100),  # a trainer's, from 100
+        recipe(4, 20, "recipe"),  # a pattern: never assumed
+        recipe(5, 1, skill="Blacksmithing"),
+        engine.Recipe(6, "Flip", 10, 1, ((1, 1),), "", kind="flip"),  # anyone's: not a profession's
+    ]
+    who = service.hypothetical_character(
+        recipes, "Realm", "Horde", "Your character", "tailoring", 45, 300, 60
+    )
+    assert (who.realm, who.faction, who.name, who.class_file, who.level) == (
+        "Realm",
+        "Horde",
+        "Your character",
+        "",
+        60,
+    )
+    assert [(p.name, p.rank, p.max_rank) for p in who.professions] == [("Tailoring", 45, 300)]
+    assert who.known_recipes == {901, 902}
+    at_1 = service.hypothetical_character(recipes, "Realm", "Horde", "You", "Tailoring", 1, 300, 60)
+    assert at_1.known_recipes == {901}
+    with pytest.raises(ValueError, match="Cooking"):
+        service.hypothetical_character(recipes, "Realm", "Horde", "You", "Cooking", 1, 300, 60)
+
+
 def test_at_skill_raises_only_the_crafters_profession() -> None:
     _, who = ladder()
     other = replace(who, name="Other")

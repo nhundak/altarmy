@@ -746,4 +746,25 @@ describe('SkillWorkspace', () => {
     expect(await screen.findByText("You're at your Tailoring cap (75)")).toBeInTheDocument()
     expect(screen.getByText(/Visit a Tailoring trainer to learn the next rank, then \/reload/)).toBeInTheDocument()
   })
+
+  it('plans for a character nobody uploaded from the skill given, never stuck at a cap', async () => {
+    const fetch = api()
+    const you = { name: 'Your character', classFile: '', level: 0, rank: 75, maxRank: 75 }
+    renderWithProviders(
+      <SkillWorkspace
+        filters={{ ...FILTERS, skillCrafters: [you.name], climberSkill: 75 }}
+        climber={you}
+        profession="Tailoring"
+        hypothetical
+      />,
+    )
+    await screen.findByRole('region', { name: 'Your options' })
+    expect(screen.queryByText(/You're at your Tailoring cap/)).not.toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')[0]?.searchParams.get('climber_skill')).toBe('75')
+    await choose('Green Robe')
+    await waitFor(() => expect(bodies(fetch, '/api/evaluate')).resolves.not.toHaveLength(0))
+    for (const body of await bodies(fetch, '/api/evaluate')) {
+      expect(body).toMatchObject({ skill_crafters: ['Your character'], climber_skill: 75 })
+    }
+  })
 })

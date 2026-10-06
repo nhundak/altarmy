@@ -6,7 +6,8 @@
 // data/game-data.json, the ingest code or its CSVs moved, e.g. after pulling a game-data commit), unless
 // `--no-ingest`, then runs the merge (`altarmy-profit merge`: the 7-day price statistics of the scans uploaded
 // so far), unless `--no-prices`; a failure is only reported. Prices themselves come from uploads: scan with
-// the Alt Army addon and upload AltArmy_TBC.lua.
+// the Alt Army addon and upload AltArmy_TBC.lua. The API restarts whenever src/altarmy_profit changes (`serve
+// --reload`; `--no-reload` to keep one process), losing its in-memory market and rank caches.
 import { spawn } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -59,8 +60,10 @@ async function answers() {
 
 // Another API already on :8600 would answer for ours, which then fails to bind: run no jobs for it.
 const portTaken = await answers()
-const ownArgs = ['--staging-auth', '--no-prices', '--no-ingest']
-const child = spawn(python, ['-m', 'altarmy_profit.cli', 'serve', ...args.filter((a) => !ownArgs.includes(a))], {
+const ownArgs = ['--staging-auth', '--no-prices', '--no-ingest', '--no-reload']
+const reload = args.includes('--no-reload') ? [] : ['--reload']
+const serveArgs = ['serve', ...reload, ...args.filter((a) => !ownArgs.includes(a))]
+const child = spawn(python, ['-m', 'altarmy_profit.cli', ...serveArgs], {
   cwd: root,
   stdio: 'inherit',
   env,

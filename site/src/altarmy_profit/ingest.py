@@ -54,6 +54,7 @@ EFFECT_CREATE_ITEM = 24
 EFFECT_ENCHANT_ITEM = 53  # enchants an item the caster holds: nothing is made
 SOULBOUND = (1, 4)  # ItemSparse.Bonding: on pickup, quest item (never traded)
 TRIGGER_LEARN = 6  # ItemEffect.TriggerType of the spell a recipe item teaches
+ACQUIRE_WITH_SKILL = 1  # SkillLineAbility.AcquireMethod of a recipe learned with the profession itself
 TRIGGER_USE = 0
 # A conversion's recipe id: clear of SkillLineAbility ids, inside 32 bits
 CONVERSION_ID_BASE = 1_000_000_000
@@ -588,10 +589,13 @@ def _item_ids(path: Path | None) -> list[int]:
     return [_int(r["item_id"]) for r in _rows(path)] if path and path.exists() else []
 
 
-def trainer_costs(path: Path | None) -> dict[int, int]:
-    """Spell -> what a trainer asks to teach it, from a version's `trainer_costs.csv`
-    (`vmangos.trainer_costs`); nothing if there is no such file."""
-    return {_int(r["spell_id"]): _int(r["cost"]) for r in _rows(path)} if path and path.exists() else {}
+def trainer_costs(path: Path | None) -> dict[int, tuple[int, int]]:
+    """Spell -> (what a trainer asks to teach it, the skill they ask for), from a version's
+    `trainer_costs.csv` (`vmangos.trainer_costs`; a file from before the skill column reads 0); nothing if
+    there is no such file."""
+    if not path or not path.exists():
+        return {}
+    return {_int(r["spell_id"]): (_int(r["cost"]), _int(r.get("req_skill"))) for r in _rows(path)}
 
 
 def build_db(
@@ -739,6 +743,10 @@ def build_db(
             continue
         rid = _int(r["ID"])
         source = taught_by.get(spell, "trainer")
+        fee, trainer_skill = fees.get(spell, (0, 0))
+        # a recipe that comes with the profession (AcquireMethod 1) is known from skill 1, for nothing
+        if source == "trainer" and _int(r.get("AcquireMethod")) == ACQUIRE_WITH_SKILL:
+            fee, trainer_skill = 0, 1
         recipes[rid] = {  # a later row with the same id replaces an earlier one
             "game_version": game_version,
             "id": rid,
@@ -754,9 +762,9 @@ def build_db(
             "output_count": out_count,
             "cast_time_ms": cast_ms.get(spell, 0),
             "station": stations.get(spell, ""),
-            "learn_skill": learned_at.get(spell, 0),
+            "learn_skill": learned_at.get(spell) or (trainer_skill if source == "trainer" else 0),
             "source": source,
-            "train_cost": fees.get(spell, 0) if source == "trainer" else 0,
+            "train_cost": fee if source == "trainer" else 0,
         }
         for k in [k for k in recipe_reagents if k[0] == rid]:
             del recipe_reagents[k]

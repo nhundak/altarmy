@@ -43,7 +43,7 @@ altarmy-profit ingest --build latest           # same, for the newest WoW: Forev
 altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
 altarmy-profit ingest --only-if-new            # the pinned build, unless loaded by this ingest code and CSVs (the site's job)
 altarmy-profit ingest --only-if-new --force    # reload the pinned build even if loaded (add --force to the job's args)
-altarmy-profit serve                           # the API (and the built front end) on http://127.0.0.1:8600
+altarmy-profit serve [--reload]                # the API (and the built front end) on http://127.0.0.1:8600; --reload restarts it on code changes
 altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
 altarmy-profit migrate                         # migrate the database now (each deploy runs this once)
 altarmy-profit prune                           # drop price observations older than 180 days

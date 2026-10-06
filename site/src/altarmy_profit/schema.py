@@ -145,8 +145,9 @@ recipes = Table(
     # the object it is cast at (SpellCastingRequirements.RequiresSpellFocus's SpellFocusObject name as
     # `timing.station_kind` spells it: anvil, cooking_fire, spinning_wheel, ...); "" for none
     Column("station", Text, nullable=False, default="", server_default=""),
-    # ItemSparse.RequiredSkillRank of the recipe item teaching it (the lowest, if several do); 0 if none
-    # does: trainers teach it, and DB2 doesn't say at what skill
+    # ItemSparse.RequiredSkillRank of the recipe item teaching it (the lowest, if several do); else the
+    # skill the trainer asks for (the version's trainer_costs.csv), 1 for a recipe that comes with the
+    # profession (SkillLineAbility.AcquireMethod 1); 0 if nothing says (DB2 doesn't, for trainers')
     Column("learn_skill", Integer, nullable=False, default=0, server_default="0"),
     # what teaches it (`engine.Source`): "recipe" a recipe item that can be traded, "bop" only recipe
     # items that bind on pickup, "trainer" no item (a profession trainer)

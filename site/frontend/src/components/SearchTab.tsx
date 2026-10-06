@@ -1,15 +1,34 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { Alert, Group, Loader, Select, Stack } from '@mantine/core'
 import type { Selection } from '../api/client'
-import { useCharacters, useCoverage, useProfessions, useSelectRealm, useStatus } from '../api/queries'
-import { parseProfitPath, resolveRun, runPath } from '../lib/profitRoute'
+import {
+  useCharacters,
+  useCoverage,
+  useMaxSkill,
+  useProfessionRanks,
+  useProfessions,
+  useSelectRealm,
+  useStatus,
+} from '../api/queries'
+import { hypotheticalPath, parseProfitPath, resolveHypothetical, resolveRun, runPath } from '../lib/profitRoute'
 import { fromKey, realmOptions, toKey } from '../lib/realms'
 import { navigate, usePath } from '../lib/router'
 import { useSession } from '../lib/session'
-import { hasEnchanter, professionsOf, setupSchema, skillsByRealm, type Setup as SetupAnswers } from '../lib/setup'
+import {
+  CLIMBER_NAME,
+  hasEnchanter,
+  hypotheticalProfessions,
+  professionsOf,
+  professionsToImagine,
+  setupSchema,
+  skillsByRealm,
+  type Setup as SetupAnswers,
+} from '../lib/setup'
+import { rankCap } from '../lib/skill'
 import { useStoredState } from '../lib/storage'
 import { AimSearch, SkillOptions } from './AimSearch'
 import { ClimberCard } from './ClimberCard'
+import { HypotheticalCard } from './HypotheticalCard'
 import { PriceSignal } from './PriceSignal'
 import { RealmCard } from './RealmCard'
 import classes from './SearchTab.module.css'
@@ -60,31 +79,35 @@ export function SearchTab({
   const professionNames = professionsQuery.data
   const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
   const groups = characters.data?.groups ?? []
-  const noCharacters = characters.data !== undefined && groups.length === 0
   // Show the realm being switched to while the server imports its prices.
   const selection = select.isPending ? select.variables : status.data?.selection
   const selected = groups.find((g) => selection && toKey(g) === toKey(selection))
   const run = view?.kind === 'run' && characters.data ? resolveRun(view, groups, professionNames) : null
+  // A climb of a character nobody uploaded: its path names a priced realm and a profession with recipes.
+  const houses = coverage.data?.filter((c) => c.prices > 0)
+  const hypothetical =
+    view?.kind === 'hypothetical' && houses && professionNames ? resolveHypothetical(view, houses, professionNames) : null
+  const ranks = useProfessionRanks()
+  const maxSkill = useMaxSkill()
   const flush = usePathMoves(path)
   // Asks from the search to upload a scan (making gold's no-scan notice), each opening the realm card's upload.
   const [uploadAsked, setUploadAsked] = useState(0)
 
-  // Skilling up needs characters; a run's path needs its character, with that profession, on that realm.
+  // A run's path needs its character, with that profession, on that realm; a hypothetical climb's a priced realm and
+  // a profession to skill up. Either failing, the profession is asked again.
   const redirect =
-    view?.kind === 'skill' || view?.kind === 'run'
-      ? noCharacters
-        ? '/profit'
-        : view.kind === 'run' && characters.data && !professionsQuery.isPending && run === null
-          ? '/profit/skill'
-          : null
-      : null
+    view?.kind === 'run' && characters.data && !professionsQuery.isPending && run === null
+      ? '/profit/skill'
+      : view?.kind === 'hypothetical' && !coverage.isPending && !professionsQuery.isPending && hypothetical === null
+        ? '/profit/skill'
+        : null
   useEffect(() => {
     if (redirect) navigate(redirect, { replace: true })
   }, [redirect])
 
-  // A run's path selects its realm, once: a switch that failed is not tried again and again, and the search then
-  // shows for whatever is selected.
-  const runRealm = run ? toKey(run.group) : null
+  // A run's (or hypothetical climb's) path selects its realm, once: a switch that failed is not tried again and
+  // again, and the search then shows for whatever is selected.
+  const runRealm = run ? toKey(run.group) : hypothetical ? toKey(hypothetical.realm) : null
   const selectedKey = status.data?.selection ? toKey(status.data.selection) : null
   const { mutate: selectRealm, isPending: selecting, isIdle } = select
   // Whether the switch to the run's realm was made (or is being made): a success sets the status's selection.
@@ -93,13 +116,19 @@ export function SearchTab({
     if (runRealm !== null && runRealm !== selectedKey && !tried) selectRealm(fromKey(runRealm))
   }, [runRealm, selectedKey, tried, selectRealm])
 
-  // The answers the path gives, remembered to mark them when asked again (the last pick of who skills up what).
-  const runProfession = run?.choice.name
+  // The answers the path gives, remembered to mark them when asked again (the last pick of who skills up what, or
+  // from what skill).
+  const runProfession = run?.choice.name ?? hypothetical?.profession
   const runCharacter = run?.holder.name
+  const runSkill = hypothetical?.skill
   useEffect(() => {
-    if (!runProfession || !runCharacter) return
-    setLastSetup((prev) => ({ ...prev, aim: 'skill', profession: runProfession, characters: [runCharacter] }))
-  }, [runProfession, runCharacter, setLastSetup])
+    if (!runProfession) return
+    if (runCharacter) {
+      setLastSetup((prev) => ({ ...prev, aim: 'skill', profession: runProfession, characters: [runCharacter] }))
+    } else if (runSkill !== undefined) {
+      setLastSetup((prev) => ({ ...prev, aim: 'skill', profession: runProfession, climberSkill: runSkill }))
+    }
+  }, [runProfession, runCharacter, runSkill, setLastSetup])
 
   if (status.isPending || characters.isPending) return <Loader />
   if (status.isError) return <Alert color="red">{status.error.message}</Alert>
@@ -112,6 +141,11 @@ export function SearchTab({
   }
   if (view === null || view.kind === 'start' || redirect) return null
   if (view.kind === 'run' && run === null) return <Loader /> // the professions are still loading
+  if (view.kind === 'hypothetical' && hypothetical === null) return <Loader /> // the realms or professions are
+  // Nobody uploaded on the selected realm: the profession question offers every profession, for a character nobody
+  // uploaded, once the professions are known.
+  const imagining = selected === undefined
+  if (view.kind === 'skill' && imagining && professionNames === undefined) return <Loader />
 
   const options = realmOptions(groups, coverage.data ?? [])
   // The characters' realms come first, without a heading; the other priced realms under Browse a realm.
@@ -147,14 +181,18 @@ export function SearchTab({
   )
 
   if (view.kind === 'skill') {
-    const professions = professionsOf(selected, professionNames)
+    const professions = imagining ? professionsToImagine(professionNames ?? []) : professionsOf(selected, professionNames)
     return (
       <Stack>
         {charactersPanel}
         <ProfessionQuestion
           last={lastSetup}
           professions={professions}
-          onPick={(profession, picked) => {
+          onPick={(profession, picked, skill) => {
+            if (imagining) {
+              if (selection) navigate(hypotheticalPath(selection, profession, skill ?? 1))
+              return
+            }
             const choice = professions.find((p) => p.name === profession)
             const name = picked?.[0] ?? choice?.holders[0]?.name
             if (!selected || !name) return
@@ -172,13 +210,21 @@ export function SearchTab({
   const group = run ? run.group : selected
   // Until the server has selected a run's realm (unless that failed), nothing is ranked for the realm before.
   const switching = runRealm !== null && runRealm !== selectedKey && (selecting || !tried)
-  const professions = run ? run.professions : professionsOf(selected, professionNames)
+  const professions = run
+    ? run.professions
+    : hypothetical
+      ? // taken to have trained to the cap of the rank their skill is in, so the reminders to train the next come
+        hypotheticalProfessions(hypothetical.profession, hypothetical.skill, rankCap(ranks, hypothetical.skill, maxSkill))
+      : professionsOf(selected, professionNames)
   const setup: SetupAnswers = run
     ? { aim: 'skill', profession: run.choice.name, characters: [run.holder.name] }
-    : { aim: 'gold' }
-  // Without characters on the selected realm, every recipe is ranked for one unnamed crafter.
-  const browsing = group === undefined
-  const noEnchanter = !!selection && !browsing && !hasEnchanter(group)
+    : hypothetical
+      ? { aim: 'skill', profession: hypothetical.profession, characters: [CLIMBER_NAME], climberSkill: hypothetical.skill }
+      : { aim: 'gold' }
+  // Without characters on the selected realm, every recipe is ranked for one unnamed crafter (making gold), or for
+  // the character nobody uploaded (a hypothetical climb).
+  const browsing = group === undefined && hypothetical === null
+  const noEnchanter = !!selection && group !== undefined && !hasEnchanter(group)
   // The selection's auction house and its newest scan; undefined while the coverage is still loading.
   const house = coverage.data?.find((c) => c.auction_house_id === status.data.auction_house_id)
   const lastScan = coverage.data && status.data.auction_house_id !== null ? (house?.last_scan ?? null) : undefined
@@ -186,23 +232,38 @@ export function SearchTab({
   return (
     <Stack>
       <PriceSignal />
-      {run && !charactersOpen ? (
+      {(run || hypothetical) && !charactersOpen ? (
         // The climber's card beside the auction house's and the Options button under it, as tall as the two.
         <div className={classes.run}>
           <div className={classes.climberCell}>
-            <ClimberCard
-              realm={run.group}
-              climber={run.holder}
-              profession={run.choice.name}
-              realms={skillsByRealm(groups, professionNames)}
-              importedAt={characters.data?.imported_at}
-              // in place of the current entry: the back button leaves the climb, not each switch; another realm's
-              // character switches the search to that realm (above)
-              onSwitch={(realm, profession, character) =>
-                navigate(runPath(realm, character, profession), { replace: true })
-              }
-              onUploadAgain={() => onUploadCharacters?.()}
-            />
+            {run ? (
+              <ClimberCard
+                realm={run.group}
+                climber={run.holder}
+                profession={run.choice.name}
+                realms={skillsByRealm(groups, professionNames)}
+                importedAt={characters.data?.imported_at}
+                // in place of the current entry: the back button leaves the climb, not each switch; another realm's
+                // character switches the search to that realm (above)
+                onSwitch={(realm, profession, character) =>
+                  navigate(runPath(realm, character, profession), { replace: true })
+                }
+                onUploadAgain={() => onUploadCharacters?.()}
+              />
+            ) : (
+              hypothetical && (
+                <HypotheticalCard
+                  profession={hypothetical.profession}
+                  skill={hypothetical.skill}
+                  professions={professionsToImagine(professionNames ?? []).map((p) => p.name)}
+                  // in place of the current entry, as the climber's card switches
+                  onChange={(profession, skill) =>
+                    navigate(hypotheticalPath(hypothetical.realm, profession, skill), { replace: true })
+                  }
+                  onUpload={() => onUploadCharacters?.()}
+                />
+              )
+            )}
           </div>
           {/* A run's realm is its climber's: no picker, only how old the prices are. */}
           <div className={classes.houseCell}>
@@ -215,12 +276,12 @@ export function SearchTab({
           <div className={classes.panels}>
             {charactersPanel}
             <RealmCard
-              select={run ? undefined : realmSelect(true)}
+              select={run || hypothetical ? undefined : realmSelect(true)}
               lastScan={selection ? lastScan : undefined}
               uploadAsked={uploadAsked}
             />
           </div>
-          {run && (
+          {(run || hypothetical) && (
             <div className={classes.half}>
               <SkillOptions salvagerDefault={characters.data?.arcane_salvager ?? false} />
             </div>

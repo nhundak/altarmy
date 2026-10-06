@@ -697,6 +697,8 @@ export interface components {
              * @default []
              */
             climb_without: number[];
+            /** Climber Skill */
+            climber_skill?: number | null;
             /** Copies */
             copies?: number | null;
             /** Crafter */
@@ -2446,6 +2448,8 @@ export interface operations {
                 chain_from?: number | null;
                 /** @description with sort=skill and runs: the runs the chain may hold */
                 chain_length?: number;
+                /** @description rank for a character nobody uploaded instead of the selection's: the one name in skill_crafters, with the one profession in professions at this skill, knowing what comes with it and what its trainers teach up to there */
+                climber_skill?: number | null;
                 /** @description which game's data: tbc or forever */
                 game_version: "tbc" | "forever";
             };

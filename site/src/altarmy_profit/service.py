@@ -20,7 +20,7 @@ from typing import Literal, TypeVar
 from sqlalchemy import Connection
 
 from . import altarmy, db, ingest, prices, reputation, store, talents, timing, users
-from .altarmy import Character
+from .altarmy import Character, Profession
 from .engine import (
     AH_CUT,
     ALL_EXITS,
@@ -1254,6 +1254,29 @@ def gather_values(base: Market, item_ids: Iterable[int]) -> dict[int, int]:
             worth = item.sell_price if item is not None else 0
         out[i] = max(1, worth)
     return out
+
+
+def hypothetical_character(
+    recipes: Iterable[Recipe],
+    realm: str,
+    faction: str,
+    name: str,
+    profession: str,
+    skill: int,
+    cap: int,
+    level: int,
+) -> Character:
+    """A character nobody uploaded, to skill `profession` up from `skill` on `realm` (for `faction`'s
+    auction house): at `level` with no class, and that one profession at `skill` of `cap`. They are
+    assumed to know what comes with the profession and what its trainers teach up to their skill (the
+    `trainer`-sourced recipes at or under it: nobody pays a fee for what they've trained), and nothing a
+    pattern teaches. A ValueError for a profession no recipe is of."""
+    wanted = profession.lower()
+    mine = [r for r in recipes if not r.anyone and r.skill_name.lower() == wanted]
+    if not mine:
+        raise ValueError(f"No such profession: {profession}")
+    known = frozenset(r.spell_id for r in mine if r.source == "trainer" and r.required_skill <= skill)
+    return Character(realm, name, faction, "", level, (Profession(mine[0].skill_name, skill, cap, known),))
 
 
 def at_skill(chars: Sequence[Character], name: str, skill_name: str, level: int) -> list[Character]:

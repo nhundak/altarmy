@@ -56,7 +56,7 @@ const CARDS: readonly CardSpec<CardKey>[] = [
   {
     key: 'browse',
     title: 'Skip for now',
-    blurb: 'See the most profitable recipes on a realm right now. You can add characters any time.',
+    blurb: 'The results shown will not be customized for you. You can add characters any time.',
     short: 'Every recipe, no character optimization.',
     icon: <IconCompass />,
   },
@@ -153,9 +153,9 @@ function Strip({
             </UnstyledButton>
           ) : (
             <Text size="sm">
-              <b>Browsing every recipe.</b>{' '}
+              <b>No characters uploaded.</b>{' '}
               <Text span c="dimmed" size="sm">
-                Add characters to see what they can craft and what mailing between them costs.
+                We&apos;ll show you what we have, but it won&apos;t be customized for you.
               </Text>
             </Text>
           )}
@@ -350,13 +350,7 @@ export function ProfitPage() {
                 style={{ scrollMarginTop: 16 }}
               >
                 {atStart ? (
-                  <AimQuestion
-                    current={lastSetup}
-                    unavailable={
-                      groups.length === 0 ? { skill: 'Upload your characters first, so we know which skills they have.' } : {}
-                    }
-                    onPick={pickAim}
-                  />
+                  <AimQuestion current={lastSetup} onPick={pickAim} />
                 ) : (
                   <SearchTab
                     characters={charactersArea}

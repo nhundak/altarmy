@@ -63,13 +63,13 @@ describe('ProfitPage', () => {
     const { unmount } = renderWithProviders(<ProfitPage />)
     await userEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
     const search = await screen.findByRole('region', { name: 'Search' })
-    expect(await screen.findByText('Browsing every recipe.')).toBeInTheDocument()
+    expect(await screen.findByText('No characters uploaded.')).toBeInTheDocument()
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
     expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
-    // nothing is ranked until the setup is complete
+    // nothing is ranked until the setup is complete; skilling up is open without characters too (one is made up)
     const aims = within(search).getByRole('group', { name: 'What are you after?' })
-    expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeDisabled()
+    expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeEnabled()
     // making gold asks nothing more: its own path, where the list shows both ways to sell
     await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
     expect(window.location.pathname).toBe('/profit/gold')

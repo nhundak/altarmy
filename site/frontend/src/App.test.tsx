@@ -34,20 +34,17 @@ describe('the shell by tier', () => {
     expect(nav()).toEqual(['Manage'])
     expect(screen.queryByRole('radiogroup', { name: 'Game version' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Get the Addon' }))
-    expect(await screen.findByRole('heading', { name: 'Get the Addon' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: 'CurseForge' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/addon')
   })
 
-  it("carries the addon card from the main page to the addon page's banner", async () => {
+  it("leads from the main page's addon card to the addon page", async () => {
     hostedApi()
     window.history.pushState(null, '', '/')
     renderApp()
     fireEvent.click(screen.getByRole('link', { name: 'Alt Army' }))
-    expect(await screen.findByRole('heading', { level: 1, name: 'Get the Addon' })).toBeInTheDocument()
+    expect(await screen.findByRole('article', { name: 'CurseForge' })).toBeInTheDocument()
     expect(window.location.pathname).toBe('/addon')
-    fireEvent.click(screen.getByRole('link', { name: '← Back' }))
-    expect(window.location.pathname).toBe('/')
-    expect(await screen.findByRole('link', { name: 'Alt Army' })).toBeInTheDocument()
   })
 
   it('opens with the two showcase cards, the profit one leading to the search', async () => {

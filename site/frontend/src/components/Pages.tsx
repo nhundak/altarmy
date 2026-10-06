@@ -1,13 +1,16 @@
-import type { ReactNode } from 'react'
-import { Alert, Anchor, Button, Code, Group, List, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import { type ReactNode, useState } from 'react'
+import { Alert, Anchor, Button, Code, Group, List, Modal, SimpleGrid, Stack, Text, Title } from '@mantine/core'
+import type { UploadResult } from '../api/client'
 import { linkProps } from '../lib/router'
 import { useSession } from '../lib/session'
 import { motion } from 'motion/react'
 import { AdminTab } from './AdminTab'
+import { AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
-import { IconDownload, IconExternal } from './icons'
-import { ADDON_SHOWCASE, ShowcaseCard } from './Landing'
+import { IconDownload, IconExternal, IconUpload } from './icons'
 import { ManageTab } from './ManageTab'
+import { PasteForm, Summary } from './PasteForm'
+import { savedVariablesPath, UploadForm, UploadScanButton } from './UploadForm'
 
 function Page({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (
@@ -97,49 +100,103 @@ function SourceCard({ source }: { source: Source }) {
   )
 }
 
+const FILE = 'AltArmy_TBC.lua'
+
 /**
- * The addon's showcase card as a "Get the Addon" banner (carried over from the main page's card), then where to get it: CurseForge, Wago, or the zip
- * itself; then what to do with it. The rest comes in under the card, which may already be on screen.
+ * Where to get the addon: CurseForge, Wago, or the zip itself; then what to do with it, each upload opening in
+ * place under its step (the export's paste, the scan's file) and Alt Army Sync's setup in a dialog.
  */
 export function AddonPage() {
+  const [pasting, setPasting] = useState(false)
+  const [pasted, setPasted] = useState<UploadResult | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [syncOpen, setSyncOpen] = useState(false)
   return (
-    <Stack gap="lg">
-      <ShowcaseCard spec={ADDON_SHOWCASE} home />
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.35, delay: 0.1, ease: [0.25, 0.8, 0.25, 1] }}
-      >
-        <Stack gap="lg">
-          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-            {SOURCES.map((source) => (
-              <SourceCard key={source.title} source={source} />
-            ))}
-          </SimpleGrid>
-          <Stack gap="sm" maw="70ch">
-            <Text>Once it is installed:</Text>
-            <List spacing={4}>
-              <List.Item>Log into each of your characters once and open their professions.</List.Item>
-              <List.Item>
-                Type <Code>/altarmy export</Code> in game and press Ctrl+C.
-              </List.Item>
-              <List.Item>Paste the export into Upload your characters on the Profit page.</List.Item>
-            </List>
-            <Text>For auction house prices:</Text>
-            <List spacing={4}>
-              <List.Item>
-                At the auction house, press <b>Alt Army scan</b> and keep the window open until it finishes. The game
-                allows one full scan every 15 minutes.
-              </List.Item>
-              <List.Item>
-                Log out or type <Code>/reload</Code>, then upload AltArmy_TBC.lua with Upload your scan under
-                Realm on the <Anchor {...linkProps('/profit')}>Profit page</Anchor>, or let Alt Army Sync send it.
-              </List.Item>
-            </List>
-          </Stack>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, ease: [0.25, 0.8, 0.25, 1] }}
+    >
+      <Stack gap="lg">
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          {SOURCES.map((source) => (
+            <SourceCard key={source.title} source={source} />
+          ))}
+        </SimpleGrid>
+        <Stack gap="sm" maw="70ch">
+          <Text>Once it is installed:</Text>
+          <List spacing={4}>
+            <List.Item>
+              Log into each of your characters. Your professions will scan automatically a few seconds after logging
+              in.
+            </List.Item>
+            <List.Item>
+              Type <Code>/altarmy export</Code> in game and press Ctrl+C.
+            </List.Item>
+            <List.Item>
+              <Stack gap="xs" align="flex-start">
+                <span>Paste the text into the website.</span>
+                {!pasting && (
+                  <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={() => setPasting(true)}>
+                    Upload Now
+                  </Button>
+                )}
+              </Stack>
+            </List.Item>
+          </List>
+          {pasting && (
+            <Stack gap="sm">
+              <PasteForm onImported={setPasted} autoFocus />
+              {pasted && (
+                <Alert color="green" title="Uploaded">
+                  <Summary result={pasted} />
+                  <Anchor size="sm" {...linkProps('/profit')}>
+                    Find profitable crafts →
+                  </Anchor>
+                </Alert>
+              )}
+            </Stack>
+          )}
+          <Text>For auction house prices:</Text>
+          <List spacing={4}>
+            <List.Item>
+              At the auction house, press <b>Alt Army scan</b> and keep the window open until it finishes. The game
+              allows one full scan every 15 minutes.
+            </List.Item>
+            <List.Item>
+              Log out or type <Code>/reload</Code> to save data to disc.
+            </List.Item>
+            <List.Item>
+              <Group gap="xs">
+                <span>Click</span>
+                <UploadScanButton onClick={() => setUploading(true)} />
+                <span>and select your {FILE} file.</span>
+              </Group>
+            </List.Item>
+          </List>
+          {uploading && (
+            <Stack gap="xs">
+              <Text size="xs" c="dimmed">
+                It is in <Code>{savedVariablesPath(FILE)}</Code>.
+              </Text>
+              <UploadForm kind="altarmy" name={FILE} />
+            </Stack>
+          )}
+          <List spacing={4}>
+            <List.Item>
+              Optionally: set up{' '}
+              <Anchor component="button" onClick={() => setSyncOpen(true)}>
+                Alt Army Sync
+              </Anchor>{' '}
+              to automatically upload.
+            </List.Item>
+          </List>
         </Stack>
-      </motion.div>
-    </Stack>
+      </Stack>
+      <Modal opened={syncOpen} onClose={() => setSyncOpen(false)} title="Auto-upload" size="lg">
+        <AutoImportBody />
+      </Modal>
+    </motion.div>
   )
 }
 

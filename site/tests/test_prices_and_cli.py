@@ -402,6 +402,34 @@ def test_serve_runs_the_api_with_uvicorn(
     assert "No TBC Anniversary game data yet: run `altarmy-profit --game-version tbc ingest`." in out
 
 
+def test_serve_reload_hands_uvicorn_a_factory_on_the_migrated_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import uvicorn
+    from fastapi import FastAPI
+
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    def fake_run(app: object, **kwargs: object) -> None:
+        calls.append((app, kwargs))
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setenv("FIREBASE_PROJECT_ID", "demo-altarmy")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    path = tmp_path / "x.sqlite"
+    cli.main(["--db", str(path), "serve", "--reload"])
+    ((app, kwargs),) = calls
+    assert app == "altarmy_profit.cli:serve_app"
+    assert kwargs["factory"] is True and kwargs["reload"] is True
+    assert kwargs["reload_dirs"] == [str(Path(cli.__file__).resolve().parent)]
+    assert path.is_file()  # migrated before the workers start
+
+    built = cli.serve_app()  # what a reloaded worker builds: the same database, which it never migrates
+    assert isinstance(built, FastAPI)
+    assert Path(built.state.auth.database.url.database or "") == path.resolve()
+    assert not built.state.auth.database.migrates
+
+
 def test_cli_ingest_uses_the_game_versions_build_and_product(
     db2_paths: dict[str, Path],
     tmp_path: Path,

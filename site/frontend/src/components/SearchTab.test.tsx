@@ -79,7 +79,7 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByText(/Browsing every recipe on this realm/)).toBeInTheDocument()
+    expect(await screen.findByText(/No characters uploaded for this realm/)).toBeInTheDocument()
     expect(screen.queryByRole('radiogroup', { name: 'Recipes' })).not.toBeInTheDocument()
     expect(await screen.findByText('No recipes match these filters with the current prices.')).toBeInTheDocument()
     expect(urls(fetch, '/api/rank')).toHaveLength(1)
@@ -444,15 +444,99 @@ describe('SearchTab', () => {
     await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring']))
   })
 
-  it.each([['/profit/skill'], [TAILOR]])("can't skill up without characters: %s goes back to the start", async (path) => {
-    at(path)
+  it("a run of a character nobody has goes back to asking which profession", async () => {
+    at(TAILOR)
     mockApi({
       '/api/status': status({ characters: 0 }),
       '/api/characters': { groups: [], selection: null },
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    await waitFor(() => expect(window.location.pathname).toBe('/profit'))
+    await waitFor(() => expect(window.location.pathname).toBe('/profit/skill'))
+  })
+
+  describe('skilling up without characters', () => {
+    /** Nobody uploaded, Classic Beta PvE (Horde) selected: its house and Dreamscythe's have prices. */
+    const nobody = {
+      '/api/status': status({ characters: 0 }),
+      '/api/characters': { groups: [], selection: { realm: 'Classic Beta PvE', faction: 'Horde' } },
+      '/api/coverage': [house('Classic Beta PvE', 'Horde'), house('Dreamscythe', 'Horde')],
+      '/api/professions': ['Cooking', 'Mining', 'Tailoring'],
+      '/api/rank': noResults,
+    }
+    const TRY = '/profit/skill/classic-beta-pve-horde/tailoring/45'
+
+    it('asks which profession, every one that can be skilled up, then what skill the character has in it', async () => {
+      at('/profit/skill')
+      const fetch = mockApi(nobody)
+      renderWithProviders(<SearchTab />)
+      await screen.findByRole('group', { name: 'Which profession?' })
+      // every profession with recipes but the gathering ones, nobody holding them
+      await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring', 'Cooking']))
+      expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Tailoring' }))
+      const skill = await screen.findByRole('textbox', { name: 'What is your Tailoring skill now?' })
+      expect(skill).toHaveValue('1')
+      await userEvent.clear(skill)
+      await userEvent.type(skill, '45')
+      await userEvent.click(screen.getByRole('button', { name: 'Done' }))
+      expect(window.location.pathname).toBe(TRY)
+      // ranked for a made-up character with Tailoring at 45
+      await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
+      const [rank] = urls(fetch, '/api/rank')
+      expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Your character'])
+      expect(rank?.searchParams.get('climber_skill')).toBe('45')
+      expect(rank?.searchParams.getAll('professions')).toEqual(['Tailoring'])
+      expect(rank?.searchParams.get('runs')).toBe('true')
+      expect(rank?.searchParams.get('unlearned')).toBe('train')
+      // the answers, remembered to mark them next time
+      expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({
+        aim: 'skill',
+        profession: 'Tailoring',
+        climberSkill: 45,
+      })
+      // the climber's card: the profession and skill to change, what is assumed, and the upload
+      const card = screen.getByRole('region', { name: 'Skilling up' })
+      expect(within(card).getByRole('combobox', { name: 'Profession' })).toHaveValue('Tailoring')
+      expect(within(card).getByRole('textbox', { name: 'Current skill' })).toHaveValue('45')
+      expect(within(card).getByText(/Doing our best with no character data/)).toBeInTheDocument()
+      expect(within(card).getByRole('button', { name: 'Upload your characters' })).toBeInTheDocument()
+      expect(screen.queryByText(/Browsing every recipe/)).not.toBeInTheDocument()
+      expect(screen.queryByRole('alert', { name: 'You do not have a disenchanter' })).not.toBeInTheDocument()
+    })
+
+    it("changes the skill or profession in the climber's card, in place of the path", async () => {
+      at(TRY)
+      const fetch = mockApi(nobody)
+      renderWithProviders(<SearchTab />)
+      const card = await screen.findByRole('region', { name: 'Skilling up' })
+      const skill = within(card).getByRole('textbox', { name: 'Current skill' })
+      await userEvent.clear(skill)
+      await userEvent.type(skill, '120')
+      await waitFor(() => expect(window.location.pathname).toBe('/profit/skill/classic-beta-pve-horde/tailoring/120'))
+      await waitFor(() =>
+        expect(urls(fetch, '/api/rank').at(-1)?.searchParams.get('climber_skill')).toBe('120'),
+      )
+      await userEvent.click(within(card).getByRole('combobox', { name: 'Profession' }))
+      await userEvent.click(await screen.findByRole('option', { name: 'Cooking' }))
+      await waitFor(() => expect(window.location.pathname).toBe('/profit/skill/classic-beta-pve-horde/cooking/120'))
+      await waitFor(() => expect(urls(fetch, '/api/rank').at(-1)?.searchParams.getAll('professions')).toEqual(['Cooking']))
+    })
+
+    it('goes back to asking which profession when the path names no priced realm or profession', async () => {
+      at('/profit/skill/nowhere-horde/tailoring/45')
+      mockApi(nobody)
+      renderWithProviders(<SearchTab />)
+      await waitFor(() => expect(window.location.pathname).toBe('/profit/skill'))
+    })
+
+    it("keeps today's flow on a realm with characters", async () => {
+      at('/profit/skill')
+      mockApi({ ...nobody, '/api/status': status(), '/api/characters': characters })
+      renderWithProviders(<SearchTab />)
+      await waitFor(() => expect(answers('Which profession?')).toEqual(['Tailoring', 'Cooking']))
+      expect(screen.getByRole('progressbar', { name: "Tailor Guy's Tailoring skill" })).toBeInTheDocument()
+    })
   })
 
   it("opens a run on another realm than the selected one, selecting the run's", async () => {
@@ -592,7 +676,7 @@ describe('SearchTab', () => {
       '/api/rank': noResults,
     })
     renderWithProviders(<SearchTab />)
-    await screen.findByText(/Browsing every recipe on this realm/)
+    await screen.findByText(/No characters uploaded for this realm/)
     expect(screen.queryByText('You do not have a disenchanter')).not.toBeInTheDocument()
   })
 

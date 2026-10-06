@@ -504,6 +504,8 @@ export function AimSearch({
   const skilling = skill && ENHANCING.has(profession?.toLowerCase() ?? '')
   // Joined, for the same reason (character names never hold a comma).
   const skilled = skillCrafters(setup, professions).join(',')
+  // Skilling up a character nobody uploaded: the skill they start from (the climber is then `CLIMBER_NAME`).
+  const climberSkill = setup.aim === 'skill' ? setup.climberSkill : undefined
   const filters = useMemo<Filters>(
     () =>
       skill
@@ -530,6 +532,7 @@ export function AimSearch({
             skillCrafters: skilled ? skilled.split(',') : [],
             sort,
             runs: true,
+            ...(climberSkill !== undefined ? { climberSkill } : {}),
           }
         : {
             // The recipes the characters know (and, if asked, can train now), trivial or not.
@@ -569,7 +572,7 @@ export function AimSearch({
       goldOrder,
       profession,
       skilled,
-      stop,
+      climberSkill,
     ],
   )
   const debouncedFilters = useSettled(filters, 300, flush)
@@ -640,8 +643,8 @@ export function AimSearch({
       )}
       {browsing && (
         <Text size="sm" c="dimmed">
-          Browsing every recipe on this realm, crafted and sold by one character. Add your characters to see who can
-          craft what and what mailing between them costs.
+          No characters uploaded for this realm. We&apos;ll show you every recipe, as if one character crafts and sells
+          it all, but it won&apos;t be customized for you.
         </Text>
       )}
       {!skill && (
@@ -697,12 +700,13 @@ export function AimSearch({
       )}
       {climber && profession !== null ? (
         <SkillWorkspace
-          // a new climber or profession starts afresh: nothing picked or opened out
-          key={`${climber.name}/${profession}`}
+          // a new climber, profession or starting skill starts afresh: nothing picked or opened out
+          key={`${climber.name}/${profession}/${climberSkill ?? ''}`}
           filters={debouncedFilters}
           climber={climber}
           profession={profession}
           reachTarget={reachTarget(reach)}
+          hypothetical={climberSkill !== undefined}
         />
       ) : (
         <Results

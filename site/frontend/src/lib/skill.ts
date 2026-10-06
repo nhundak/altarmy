@@ -28,6 +28,11 @@ export function ranksToTrain(
   )
 }
 
+/** The cap of the profession rank `skill` is within (the first whose cap is at or above it), `fallback` past the last
+ * or before the ranks load: what a character nobody uploaded is taken to have trained to. */
+export const rankCap = (ranks: readonly ProfessionRank[], skill: number, fallback: number): number =>
+  ranks.find((r) => r.cap >= skill)?.cap ?? fallback
+
 type Count = Pick<RankResult, 'crafts' | 'stop_skill' | 'reach_chances'>
 
 /** Whether the run's crafts surely reach its skill: the chance after them exactly 1 (every craft a sure point), not

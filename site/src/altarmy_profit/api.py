@@ -540,6 +540,9 @@ class EvaluateRequest(BaseModel):
     gathered: list[int] = []  # as /api/rank's
     city: str | None = None  # time and route the session in this city (the selection's faction's)
     price_version: int | None = None  # the auction house's price version the front end knows of
+    # as /api/rank's, for the recipe's profession: the one name in `skill_crafters` is a character nobody
+    # uploaded, with that profession at this skill
+    climber_skill: int | None = Field(default=None, ge=1)
 
 
 class EvaluateResponse(BaseModel):
@@ -1145,6 +1148,15 @@ def get_rank(
         int,
         Query(ge=1, le=MAX_SKILL_CHAIN, description="with sort=skill and runs: the runs the chain may hold"),
     ] = SKILL_CHAIN,
+    climber_skill: Annotated[
+        int | None,
+        Query(
+            ge=1,
+            description="rank for a character nobody uploaded instead of the selection's: the one name in "
+            "skill_crafters, with the one profession in professions at this skill, knowing what comes "
+            "with it and what its trainers teach up to there",
+        ),
+    ] = None,
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, the user's favorites first (not with
     `sort=skill`), then most profitable first (each a session of the user's batch of crafts, or with
@@ -1153,15 +1165,18 @@ def get_rank(
     character (nothing is mailed). Bounds are inclusive and on the session's numbers; an omitted bound is
     unbounded (so losses are included unless `min_profit` is set)."""
     s = _selected(state, user, price_version)
-    base, chars, no_ah = s.base, s.chars, s.no_ah
-    # Without characters the ranking depends on nobody but the time settings: browsing users with the same
-    # ones share it. The bounds and the profession filter only narrow the cached, unbounded ranking, so
-    # moving them never ranks again; nor does sorting it by rate or skill.
-    whose = user.uid if chars else ""
     skilled = frozenset(skill_crafters or ())
-    learning = engine.Learning(unlearned, look_ahead, frozenset(sources)).normalized()
     # One profession is ranked alone (most of the work skipped); several are narrowed from the full ranking.
     skill_name = professions[0] if professions and len(professions) == 1 else None
+    if climber_skill is not None:
+        s = _hypothetical(state, s, skilled, skill_name, climber_skill)
+    base, chars, no_ah = s.base, s.chars, s.no_ah
+    # Without characters the ranking depends on nobody but the time settings: browsing users with the same
+    # ones share it, as do those skilling up the same made-up character. The bounds and the profession
+    # filter only narrow the cached, unbounded ranking, so moving them never ranks again; nor does sorting
+    # it by rate or skill.
+    whose = user.uid if chars and climber_skill is None else ""
+    learning = engine.Learning(unlearned, look_ahead, frozenset(sources)).normalized()
     run = engine.SkillRuns() if runs and skilled else None
     chars = _trained_up(state, chars, skilled, skill_name, runs)
     gather = service.gather_values(base, gathered) if gathered else None
@@ -1379,6 +1394,8 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     run = engine.SkillRuns(banned=banned) if body.runs and body.copies is None else None
     recipe_skill = next((r.skill_name for r in s.base.recipes if r.id == body.recipe_id), None)
     skilled = frozenset(body.skill_crafters)
+    if body.climber_skill is not None:
+        s = _hypothetical(state, s, skilled, recipe_skill or None, body.climber_skill)
     learning = engine.Learning(body.unlearned, body.look_ahead, frozenset(body.sources))
     exits = frozenset(body.exits)
     gathered = service.gather_values(s.base, body.gathered) if body.gathered else None
@@ -1491,6 +1508,36 @@ class Selected:
     faction: str = ""  # the selection's (Horde, Alliance); "" without one
     watched: float = 0.0  # `prices.watched_hours` of the auction house
     token: Hashable = None  # what the market was built from (`service.Held.token`): the rank cache's key
+    selection: service.Selection | None = None  # the realm and faction selected; None without one
+
+
+def _hypothetical(
+    state: AppState, s: Selected, skilled: frozenset[str], profession: str | None, skill: int
+) -> Selected:
+    """`s` for a character nobody uploaded (`service.hypothetical_character`) in place of the selection's
+    characters: the one name in `skilled`, with `profession` at `skill`. Everything that looks the one
+    skilled up by name in `Selected.chars` then finds them."""
+    if s.selection is None:
+        raise HTTPException(400, "Pick a realm first.")
+    if skill > state.version.max_skill:
+        raise HTTPException(400, f"The skill can't be over {state.version.max_skill}.")
+    if len(skilled) != 1:
+        raise HTTPException(400, "climber_skill needs exactly one name in skill_crafters.")
+    if profession is None:
+        raise HTTPException(400, "climber_skill needs exactly one profession.")
+    (name,) = skilled
+    with _http_errors():
+        who = service.hypothetical_character(
+            s.base.recipes,
+            s.selection.realm,
+            s.selection.faction,
+            name,
+            profession,
+            skill,
+            state.version.max_skill,
+            state.version.max_level,
+        )
+    return replace(s, chars=[who])
 
 
 def _ranked(
@@ -1534,6 +1581,7 @@ def _selected(state: AppState, user: auth.User, price_version: int | None = None
         faction,
         priced.watched,
         held.token,
+        sel,
     )
 
 

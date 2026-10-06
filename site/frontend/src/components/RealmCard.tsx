@@ -1,12 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { Anchor, Button, Code, Group, Stack, Text } from '@mantine/core'
+import { Anchor, Code, Group, Stack, Text } from '@mantine/core'
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
 import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
 import cards from './Cards.module.css'
 import { IconCompass, IconUpload } from './icons'
 import { PriceFreshness } from './PriceFreshness'
 import { type CardSpec, LAYOUT, OpenCardBody, OpenCardHeader, StartCard } from './StartCard'
-import { ScanSteps, savedVariablesPath, UploadForm } from './UploadForm'
+import { ScanSteps, savedVariablesPath, UploadForm, UploadScanButton } from './UploadForm'
 
 const FILE = 'AltArmy_TBC.lua'
 
@@ -68,11 +68,7 @@ export function RealmCard({
   }, [lastScan, mode])
 
   // On the right like the characters strip's Upload again; Auto-upload is the card beside the upload once it is open.
-  const uploadButton = (
-    <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={upload}>
-      Upload your scan
-    </Button>
-  )
+  const uploadButton = <UploadScanButton onClick={upload} />
 
   const side: readonly CardSpec<Mode>[] =
     mode === 'upload' ? [AUTO_IMPORT_CARD, CONTINUE_CARD] : mode === 'auto' ? [UPLOAD_CARD, CONTINUE_CARD] : []

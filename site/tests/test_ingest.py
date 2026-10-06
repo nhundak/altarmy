@@ -223,21 +223,35 @@ def test_build_db_counts_a_vendors_bind_on_pickup_recipe_as_a_normal_one(
 def test_build_db_charges_a_trainers_recipe_what_the_trainer_asks(
     db2_paths: dict[str, Path], conn: Connection, tmp_path: Path
 ) -> None:
-    fees = write_csv(tmp_path / "trainer_costs.csv", ["spell_id", "cost"], [{"spell_id": 900, "cost": 600}])
+    fees = write_csv(
+        tmp_path / "trainer_costs.csv",
+        ["spell_id", "cost", "req_skill"],
+        [{"spell_id": 900, "cost": 600, "req_skill": 40}],
+    )
 
-    def recipe() -> tuple[str, int]:
+    def recipe() -> tuple[str, int, int]:
         ingest.build_db(db2_paths, conn, FOREVER, trainer_costs_csv=fees)
-        row = conn.execute(select(schema.recipes.c.source, schema.recipes.c.train_cost)).one()
-        return str(row.source), int(row.train_cost)
+        row = conn.execute(
+            select(schema.recipes.c.source, schema.recipes.c.train_cost, schema.recipes.c.learn_skill)
+        ).one()
+        return str(row.source), int(row.train_cost), int(row.learn_skill)
 
-    assert recipe() == ("recipe", 0)  # an item teaches it: no trainer's fee
+    assert recipe() == ("recipe", 0, 50)  # an item teaches it: no trainer's fee, learned at the item's rank
     effects = db2_paths["ItemEffect"]
     rows: list[dict[str, object]] = [
         dict(r, TriggerType="0") if r["SpellID"] == "900" else dict(r) for r in ingest._rows(effects)
     ]
     write_csv(effects, list(rows[0]), rows)  # no item teaches the robe any more: a trainer does
-    assert recipe() == ("trainer", 600)
+    assert recipe() == ("trainer", 600, 40)  # at the skill the trainer asks for
+    # a recipe that comes with the profession: no trainer lists it, and it is known from the first point
+    abilities = db2_paths["SkillLineAbility"]
+    rows = [dict(r, AcquireMethod="1") if r["Spell"] == "900" else dict(r) for r in ingest._rows(abilities)]
+    write_csv(abilities, list(rows[0]), rows)
+    assert recipe() == ("trainer", 0, 1)
     assert ingest.trainer_costs(None) == {}
+    # a trainer_costs.csv from before the skill column still reads
+    old = write_csv(tmp_path / "old.csv", ["spell_id", "cost"], [{"spell_id": 900, "cost": 600}])
+    assert ingest.trainer_costs(old) == {900: (600, 0)}
 
 
 def test_craft_stations_are_the_foci_profession_spells_need(db2_paths: dict[str, Path]) -> None:

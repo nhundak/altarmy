@@ -90,7 +90,7 @@ class Recipe:
     trivial_high: int = 0  # skill where it turns grey (no more skillups); 0 if unknown
     cast_time_ms: int = 0  # one cast; 0 if instant or unknown
     station: str = ""  # the crafting station it is cast at (`timing.station_kind`: anvil, loom, ...); "" none
-    learn_skill: int = 0  # skill the recipe item teaching it requires; 0 if none does (a trainer's)
+    learn_skill: int = 0  # skill the recipe item or trainer teaching it asks for; 0 if nothing says
     source: Source = "trainer"  # what teaches it
     train_cost: int = 0  # copper a trainer asks to teach it (a trainer's); 0 if free or nobody knows
     # "craft"; "convert": enchanting materials turned into others with their Use spell (3 lesser essences

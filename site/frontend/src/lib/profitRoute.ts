@@ -1,10 +1,12 @@
 import type { CharacterGroup, Selection } from '../api/client'
-import { type Holder, type ProfessionChoice, professionsOf } from './setup'
+import { type Holder, type ProfessionChoice, professionsOf, professionsToImagine } from './setup'
 
 /*
  * The Profit page's paths: /profit (the start, then what the user is after), /profit/gold (making gold),
- * /profit/skill (which profession) and /profit/skill/<realm>/<character>/<profession> (one character skilling up one
- * profession: a link to it opens exactly that, switching the realm).
+ * /profit/skill (which profession), /profit/skill/<realm>/<character>/<profession> (one character skilling up one
+ * profession: a link to it opens exactly that, switching the realm) and /profit/skill/<realm>/<profession>/<skill>
+ * (a character nobody uploaded skilling up one profession from that skill; the last part is all digits, which a
+ * profession's never is).
  */
 
 export type ProfitView =
@@ -13,6 +15,8 @@ export type ProfitView =
   | { kind: 'skill' }
   /** `realm` and `profession` as slugs (`realmSlug`, `professionSlug`), `character` as named */
   | { kind: 'run'; realm: string; character: string; profession: string }
+  /** a character nobody uploaded, with `profession` (a slug) at `skill` on `realm` (a slug) */
+  | { kind: 'hypothetical'; realm: string; profession: string; skill: number }
 
 /** Lower-case words joined by dashes: "Classic Beta PvE" is "classic-beta-pve", "First Aid" "first-aid". */
 const slug = (text: string) =>
@@ -36,8 +40,12 @@ export function parseProfitPath(pathname: string): ProfitView | null {
   if (rest.length === 0) return { kind: 'skill' }
   if (rest.length !== 3 || rest.some((p) => !p)) return null
   try {
-    const [realm, character, profession] = rest.map(decodeURIComponent) as [string, string, string]
-    return { kind: 'run', realm, character, profession }
+    const [realm, second, third] = rest.map(decodeURIComponent) as [string, string, string]
+    if (/^\d+$/.test(third)) {
+      const skill = Number(third)
+      return skill > 0 ? { kind: 'hypothetical', realm, profession: second, skill } : null
+    }
+    return { kind: 'run', realm, character: second, profession: third }
   } catch {
     return null // a malformed escape
   }
@@ -54,12 +62,38 @@ export function profitPath(view: ProfitView): string {
       return '/profit/skill'
     case 'run':
       return `/profit/skill/${[view.realm, view.character, view.profession].map(encodeURIComponent).join('/')}`
+    case 'hypothetical':
+      return `/profit/skill/${[view.realm, view.profession, String(view.skill)].map(encodeURIComponent).join('/')}`
   }
 }
 
 /** The path of `character` on `group`'s realm skilling up `profession`. */
 export const runPath = (group: Selection, character: string, profession: string): string =>
   profitPath({ kind: 'run', realm: realmSlug(group), character, profession: professionSlug(profession) })
+
+/** The path of a character nobody uploaded skilling up `profession` from `skill` on `realm`. */
+export const hypotheticalPath = (realm: Selection, profession: string, skill: number): string =>
+  profitPath({ kind: 'hypothetical', realm: realmSlug(realm), profession: professionSlug(profession), skill })
+
+export type ResolvedHypothetical = { realm: Selection; profession: string; skill: number }
+
+/**
+ * The auction house (among `houses`, the realms with prices) and profession (among `professionNames`, the version's
+ * with recipes, as `professionsToImagine` offers them) a hypothetical climb's path names; null when there is no such
+ * house or profession.
+ */
+export function resolveHypothetical(
+  view: Extract<ProfitView, { kind: 'hypothetical' }>,
+  houses: readonly Selection[],
+  professionNames: readonly string[],
+): ResolvedHypothetical | null {
+  const slug = view.realm.toLowerCase()
+  const house = houses.find((h) => realmSlug(h) === slug)
+  const choice = professionsToImagine(professionNames).find(
+    (p) => professionSlug(p.name) === view.profession.toLowerCase(),
+  )
+  return house && choice ? { realm: { realm: house.realm, faction: house.faction }, profession: choice.name, skill: view.skill } : null
+}
 
 export type ResolvedRun = { group: CharacterGroup; professions: ProfessionChoice[]; choice: ProfessionChoice; holder: Holder }
 

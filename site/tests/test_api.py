@@ -33,7 +33,7 @@ from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.versions import GameVersion
 
 from .addon_fixtures import PROFIT_EXPORT
-from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices
+from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices, write_csv
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 from .test_auth import FakeVerifier
@@ -1626,6 +1626,72 @@ def test_browsing_without_characters(
     assert client.put("/api/selection", json={"realm": "Nowhere", "faction": ""}).status_code == 400
 
 
+def test_skilling_up_a_character_nobody_uploaded(
+    client: TestClient,
+    db2_paths: dict[str, Path],
+    conn: Connection,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    you = "Your character"
+    params = {**SKILL_UP, "skill_crafters": [you], "runs": True, "unlearned": "train", "climber_skill": 50}
+    assert client.get("/api/rank", params=params).status_code == 400  # no realm has prices: nothing to plan
+    set_prices(conn, {1: 20, 2: 100})
+    # a pattern teaches the robe from 50: not assumed known, so the climb counts the pattern (price unknown)
+    body = client.get("/api/rank", params=params).json()
+    (r,) = body["results"]
+    assert (r["crafter"], r["crafters"], r["learn_cost"]) == (you, [], None)
+    assert body["classes"] == {you: ""} and str(r["recipe_id"]) in body["learn"]
+    assert (r["stop_skill"], r["stop_reason"]) == (60, "trivial")
+    assert {s["who"] for s in r["steps"]} == {you}
+    # a trainer teaches it from 40 instead: known by 50 (trained on the way), not at 35 (nor craftable)
+    effects = db2_paths["ItemEffect"]
+    rows: list[dict[str, object]] = [
+        dict(e, TriggerType="0") if e["SpellID"] == "900" else dict(e) for e in ingest._rows(effects)
+    ]
+    write_csv(effects, list(rows[0]), rows)
+    fees = write_csv(
+        tmp_path / "trainer_costs.csv",
+        ["spell_id", "cost", "req_skill"],
+        [{"spell_id": 900, "cost": 600, "req_skill": 40}],
+    )
+    ingest.build_db(db2_paths, conn, FOREVER, trainer_costs_csv=fees)
+    db.set_build(conn, FOREVER, "test")  # a load, as the ingest job counts one: the markets are rebuilt
+    client.app.state.wow[FOREVER].cache.invalidate()  # type: ignore[attr-defined]  # not STAMP_TTL later
+    body = client.get("/api/rank", params=params).json()
+    (r,) = body["results"]
+    assert (r["crafters"], r["learn_cost"], r["learn_skill"]) == ([you], 0, 40)
+    assert client.get("/api/rank", params={**params, "climber_skill": 35}).json()["results"] == []
+    # planned again as ranked, or for some copies
+    plan = {"recipe_id": r["recipe_id"], "choices": {}, "skill_crafters": [you], "runs": True}
+    plan |= {"include_trivial": False, "exits": ["vendor", "keep"], "climber_skill": 50}
+    got = client.post("/api/evaluate", json=plan).json()["result"]
+    assert (got["crafter"], got["crafts"], got["climb_cost"]) == (you, r["crafts"], r["climb_cost"])
+    assert client.post("/api/evaluate", json={**plan, "copies": 12}).json()["result"]["crafts"] == 12
+    # what the request must say
+    bad = [
+        {**params, "climber_skill": 301},
+        {**params, "skill_crafters": [you, "Another"]},
+        {**params, "professions": []},
+        {**params, "professions": ["Cooking"]},
+    ]
+    assert [client.get("/api/rank", params=p).status_code for p in bad] == [400] * 4
+    assert client.post("/api/evaluate", json={**plan, "climber_skill": 301}).status_code == 400
+    # the same made-up character is ranked once for everyone
+    calls: list[int] = []
+    search = service.search
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", spy)
+    client.get("/api/rank", params=params)
+    client.get("/api/rank", params=params, headers=LINKED)
+    assert calls == []
+
+
 def test_serves_the_front_end_for_its_own_pages(
     tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
 ) -> None:
@@ -1634,7 +1700,13 @@ def test_serves_the_front_end_for_its_own_pages(
     (dist / "index.html").write_text("<html>app</html>")
     (dist / "assets" / "app.js").write_text("js")
     client = make_client(database, game_versions, dist)
-    pages = ("/addon", "/profit", "/profit/gold", "/profit/skill/dreamscythe-horde/Tailor%20Guy/tailoring")
+    pages = (
+        "/addon",
+        "/profit",
+        "/profit/gold",
+        "/profit/skill/dreamscythe-horde/Tailor%20Guy/tailoring",
+        "/profit/skill/dreamscythe-horde/tailoring/45",
+    )
     for page in (*pages, "/manage", "/admin"):
         assert client.get(page).text == "<html>app</html>"
     assert client.get("/assets/app.js").text == "js"

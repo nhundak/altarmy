@@ -82,9 +82,11 @@ def test_vendor_recipes_are_recipe_items_of_any_stock_unconditional_and_spawned(
 def test_trainer_costs_are_the_least_any_trainer_asks_for_the_spell_taught(world: sqlite3.Connection) -> None:
     world.executescript(
         """
-        CREATE TABLE npc_trainer (entry INTEGER, spell INTEGER, spellcost INTEGER, build_max INTEGER);
+        CREATE TABLE npc_trainer (
+            entry INTEGER, spell INTEGER, spellcost INTEGER, reqskillvalue INTEGER, build_max INTEGER
+        );
         CREATE TABLE npc_trainer_template (
-            entry INTEGER, spell INTEGER, spellcost INTEGER, build_max INTEGER
+            entry INTEGER, spell INTEGER, spellcost INTEGER, reqskillvalue INTEGER, build_max INTEGER
         );
         CREATE TABLE spell_template (
             entry INTEGER, build INTEGER, effect1 INTEGER, effectTriggerSpell1 INTEGER, effect2 INTEGER,
@@ -101,22 +103,22 @@ def test_trainer_costs_are_the_least_any_trainer_asks_for_the_spell_taught(world
         ],
     )
     world.executemany(
-        "INSERT INTO npc_trainer VALUES (?,?,?,?)",
+        "INSERT INTO npc_trainer VALUES (?,?,?,?,?)",
         [
-            (1, 3516, 600, 5875),
-            (2, 3516, 900, 5875),  # a dearer trainer
-            (3, 3516, 100, 4695),  # a fee a later patch changed
-            (1, 7000, 50, 5875),  # listed as the spell itself: no teach spell
+            (1, 3516, 600, 90, 5875),
+            (2, 3516, 900, 90, 5875),  # a dearer trainer
+            (3, 3516, 100, 90, 4695),  # a fee a later patch changed
+            (1, 7000, 50, 0, 5875),  # listed as the spell itself: no teach spell; a class spell, no skill
         ],
     )
-    world.execute("INSERT INTO npc_trainer_template VALUES (60, 3517, 250, 5875)")
-    assert vmangos.trainer_costs(world) == [(3491, 600), (3492, 250), (7000, 50)]
+    world.execute("INSERT INTO npc_trainer_template VALUES (60, 3517, 250, 125, 5875)")
+    assert vmangos.trainer_costs(world) == [(3491, 600, 90), (3492, 250, 125), (7000, 50, 0)]
 
 
 def test_write_trainer_costs_csv(tmp_path: Path) -> None:
     path = tmp_path / "trainer_costs.csv"
-    vmangos.write_trainer_costs_csv([(3491, 600)], path)
-    assert path.read_text(encoding="utf-8").splitlines() == ["spell_id,cost", "3491,600"]
+    vmangos.write_trainer_costs_csv([(3491, 600, 90)], path)
+    assert path.read_text(encoding="utf-8").splitlines() == ["spell_id,cost,req_skill", "3491,600,90"]
 
 
 def test_write_csv_round_trips(tmp_path: Path) -> None:

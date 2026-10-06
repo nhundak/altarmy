@@ -490,12 +490,15 @@ export function SkillWorkspace({
   climber,
   profession,
   reachTarget = DEFAULT_REACH_TARGET,
+  hypothetical = false,
 }: {
   filters: Filters
   climber: Holder
   profession: string
   /** the chance, in percent, that the crafts the checklist buys for reach the run's target */
   reachTarget?: number
+  /** the climber is a character nobody uploaded (`filters.climberSkill`): no cap to have uploaded */
+  hypothetical?: boolean
 }) {
   const track = useTrack()
   const status = useStatus().data
@@ -557,7 +560,8 @@ export function SkillWorkspace({
   const open = expanded || openAt === null ? undefined : openAt === 0 ? now : chain[openAt - 1]
   // the skill the run opened out starts at
   const openFrom = !openAt ? climber.rank : openAt === 1 ? (now?.stop_skill ?? 0) : (chain[openAt - 2]?.stop_skill ?? 0)
-  const atCap = climber.rank >= climber.maxRank
+  // a made-up climber is taken to train each rank as they come to it: never stuck at a cap
+  const atCap = !hypothetical && climber.rank >= climber.maxRank
   const training: Training = { ranks: useProfessionRanks(), maxRank: climber.maxRank, profession }
   const planParams: EvaluateParams = {
     unlearned: filters.unlearned,
@@ -569,6 +573,7 @@ export function SkillWorkspace({
     arcaneSalvager: filters.arcaneSalvager,
     runs: filters.runs,
     version,
+    ...(filters.climberSkill !== undefined ? { climberSkill: filters.climberSkill } : {}),
   }
   const evaluate: EvaluateParams =
     openAt && now

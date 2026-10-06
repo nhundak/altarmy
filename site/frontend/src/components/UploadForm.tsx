@@ -2,9 +2,19 @@ import { useState } from 'react'
 import { Alert, Button, Code, FileInput, Group, List, Stack } from '@mantine/core'
 import { useUpload, type UploadKind } from '../api/queries'
 import { GAME_FLAVOR, GAME_VERSION_LABEL } from '../lib/gameVersion'
+import { IconUpload } from './icons'
 import { Summary } from './PasteForm'
 
 const MAX_MB = 32
+
+/** The Upload your scan button (the Realm card's and the Addon page's), which opens the upload. */
+export function UploadScanButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Button size="xs" variant="light" leftSection={<IconUpload size={16} />} onClick={onClick}>
+      Upload your scan
+    </Button>
+  )
+}
 
 /** How to take a scan and bring it here, step by step (`upload`: the last step, where the file goes). */
 export function ScanSteps({ upload }: { upload: string }) {
