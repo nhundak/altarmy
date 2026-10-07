@@ -11,8 +11,9 @@
 --   - Each such member online in the guild roster (GUILD_ROSTER_UPDATE, polled every ROSTER_POLL), probed one
 --     linkable skill line at a time: Cooking and First Aid first, since nearly everyone has them. When
 --     both go unanswered the member is unreachable for now (offline since the roster was read) and their
---     other lines wait. Members on another server are left out (TRY_OTHER_SERVERS). Lines that never answer back off for days
---     (GuildShareData.linkProbes); known lines are read again after a few days or when the member levelled.
+--     other lines wait. Members on another server are left out (TRY_OTHER_SERVERS). Lines that never
+--     answer back off for days (GuildShareData.linkProbes); known lines are read again after a few days or
+--     when the member levelled.
 -- Pacing: reads run one at a time in OwnRecipeRead's queue after the player's own, SESSION_BUDGET per
 -- session, pausing PAUSE_SEC after PAUSE_AFTER_TIMEOUTS unanswered links in a row. With the Guild tab open
 -- on a character, their reads go first (RequestNow).

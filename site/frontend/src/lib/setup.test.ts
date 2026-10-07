@@ -3,7 +3,7 @@ import type { CharacterGroup } from '../api/client'
 import { filterRealmSkills, filterSkills, presetsFor, professionsOf, searchKey, skillsByCharacter, skillsByRealm, storePresets } from './setup'
 
 describe('professionsOf', () => {
-  it('leaves out Mining and Skinning', () => {
+  it('leaves out Herbalism, Mining and Skinning', () => {
     const profession = (name: string) => ({ name, rank: 1, max_rank: 75, recipes: 1 })
     const group = {
       realm: 'R',
@@ -13,7 +13,12 @@ describe('professionsOf', () => {
           name: 'Amy',
           class_file: 'MAGE',
           level: 22,
-          professions: [profession('Mining'), profession('Skinning'), profession('Tailoring')],
+          professions: [
+            profession('Herbalism'),
+            profession('Mining'),
+            profession('Skinning'),
+            profession('Tailoring'),
+          ],
           talents: [],
           vendor_discounts: [],
         },

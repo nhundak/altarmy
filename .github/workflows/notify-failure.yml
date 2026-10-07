@@ -1,0 +1,47 @@
+# Notify Discord when any of the other workflows fails, in the channel the site's alerts already post to
+# (site/src/altarmy_profit/alerts.py posts there through the altarmy-alerts relay; this posts directly).
+#
+# Requires: DISCORD_WEBHOOK_URL (secret), the same webhook URL as the alerts relay's `discord-webhook` secret in
+# Secret Manager. A new workflow must be added to the list below to be watched.
+
+name: notify-failure
+
+on:
+  workflow_run:
+    workflows: [site-check, site-deploy, sync-release, addon-check, addon-release, game-data]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: contains(fromJSON('["failure", "timed_out"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          URL: ${{ github.event.workflow_run.html_url }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT: ${{ github.event.workflow_run.event }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT: ${{ github.event.workflow_run.head_commit.message }}
+          ACTOR: ${{ github.event.workflow_run.actor.login }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "::error::DISCORD_WEBHOOK_URL is not set"
+            exit 1
+          fi
+          subject=$(printf '%s' "$COMMIT" | head -n 1 | cut -c1-200)
+          jq -n \
+            --arg title "$WORKFLOW ${CONCLUSION//_/ }" \
+            --arg url "$URL" \
+            --arg description "\`${SHA:0:7}\` $subject" \
+            --arg ref "$BRANCH ($EVENT)" \
+            --arg actor "$ACTOR" \
+            '{embeds: [{title: $title, url: $url, description: $description, color: 14171198,
+              fields: [{name: "Ref", value: $ref, inline: true}, {name: "By", value: $actor, inline: true}]}]}' \
+            | curl --fail-with-body --silent --show-error -H "Content-Type: application/json" \
+                --data @- "$WEBHOOK"

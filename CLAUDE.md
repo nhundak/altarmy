@@ -14,7 +14,8 @@ Conventions for AI agents working in the `altarmy` monorepo: Alt Army, one produ
   `sync-release` (`sync-v*` tags), `addon-check` (on `addon/**` changes: `npm run setup:dev`, `npm test`,
   `npm run check` on Ubuntu, the Lua tools cached), `addon-release` (`addon-v*` tags: CurseForge, Wago and a
   GitHub Release) and `game-data` (daily: `game_data.py`, below; its `GAME_DATA_TOKEN` secret pushes, so the
-  workflows a push or tag starts still run).
+  workflows a push or tag starts still run). `notify-failure` posts any of those that fails to the alerts' Discord
+  channel (its `DISCORD_WEBHOOK_URL` secret; a new workflow joins its list by hand).
 - `.githooks/pre-commit` – the addon's Waylaid Crates and Craftsman's Writs checks, run only for commits touching `addon/` (enabled by
   `npm install` in `addon/`, which sets `core.hooksPath` at this root).
 - `.claude/skills/` – the addon's skills (paths inside them are relative to `addon/`).

@@ -9,7 +9,8 @@ generators import its package. The daily game-data workflow (.github/workflows/g
                  the TOC's interface and the CurseForge versions then need a person) and a cache key.
   update         regenerates everything made from the game data, at the newest builds and releases
                  (`--to latest`, the default) or at the pins (`--to pinned`: a clean checkout must come out
-                 unchanged), then writes the pins (site/data/game-data.json):
+                 unchanged), then writes the pins (site/data/game-data.json; an emulator release that
+                 changed no generated file leaves its pin alone, a new build never does):
                    addon  data/recipes/<v>/*.csv (build-recipe-server-facts.py),
                           AltArmy_TBC/Data/Recipes/RecipeData_*.lua (generate-recipe-data.py),
                           AltArmy_TBC/Data/Economy/WaylaidCrates.lua (generate-waylaid-crates.py) and
@@ -232,6 +233,12 @@ def cmd_update(args: argparse.Namespace) -> None:
     run(py, "scripts/generate-waylaid-crates.py", "--db", db, cwd=ADDON)
     run(py, "scripts/generate-writs.py", "--db", db, "--build", new["forever"].build, cwd=ADDON)
 
+    # The emulators publish a release every day or so, mostly with nothing we use changed: a release that
+    # changed no generated file is no news, so the pins keep the one the committed data came from. A new
+    # build still moves its pin, since the site's ingest loads it.
+    pins = PINS.relative_to(ROOT).as_posix()
+    if not [f for f in changed_files() if f != pins]:
+        new = {key: gamedata.Pin(pin.build, pin.emulator, old[key].release) for key, pin in new.items()}
     gamedata.write_pins(new, PINS)
 
     changed = changed_files()

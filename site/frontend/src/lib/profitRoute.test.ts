@@ -86,6 +86,7 @@ describe('resolveHypothetical', () => {
     expect(resolveHypothetical(view('nowhere-horde', 'tailoring'), houses, ['Tailoring'])).toBeNull()
     expect(resolveHypothetical(view('dreamscythe-alliance', 'alchemy'), houses, ['Tailoring'])).toBeNull()
     expect(resolveHypothetical(view('dreamscythe-alliance', 'mining'), houses, ['Mining', 'Tailoring'])).toBeNull()
+    expect(resolveHypothetical(view('dreamscythe-alliance', 'herbalism'), houses, ['Herbalism', 'Tailoring'])).toBeNull()
   })
 })
 
