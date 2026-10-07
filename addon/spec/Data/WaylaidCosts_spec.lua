@@ -5,7 +5,9 @@ describe("WaylaidCosts", function()
 
     setup(function()
         _G.AltArmy = _G.AltArmy or {}
+        package.loaded["CraftPlan"] = nil
         package.loaded["WaylaidCosts"] = nil
+        require("CraftPlan")
         require("WaylaidCosts")
         W = AltArmy.WaylaidCosts
         assert.truthy(W)
@@ -68,6 +70,19 @@ describe("WaylaidCosts", function()
         return out
     end
 
+    -- Smelt Gold: one Gold Ore (item 5) makes a Gold Bar (item 3); a character called Miner knows it.
+    local RECIPES = {
+        [500] = { out = 3, n = 1, prof = "Mining", name = "Smelt Gold", reagents = { { item = 5, count = 1 } } },
+    }
+    local function context(book, known)
+        return {
+            book = book, items = { [3] = { name = "Gold Bar", stack = 20 }, [5] = { name = "Gold Ore", stack = 20 } },
+            recipes = RECIPES, byOutput = { [3] = { 500 } }, current = "Me",
+            knownBy = function(spell) return (known or { [500] = "Miner" })[spell] end,
+            discountOf = function() return 0 end,
+        }
+    end
+
     describe("BuildRows", function()
         local book = {
             [900] = { lv(500, 4) },
@@ -76,6 +91,7 @@ describe("WaylaidCosts", function()
             [1] = { lv(50, 20) }, -- Copper Ore: 1000c for 20
             [2] = { lv(30, 25) }, -- Tin Ore: 600c for 20, cheaper
             [3] = { lv(900, 4) }, -- Gold Bar: only 4 of 10 listed
+            [5] = { lv(50, 20) }, -- Gold Ore: 10 smelt into the 10 Gold Bars for 500c
         }
 
         it("lists every crate, those not on the auction house without a price", function()
@@ -86,75 +102,113 @@ describe("WaylaidCosts", function()
             local r = rows[903]
             assert.is_nil(r.price)
             assert.equals(0, r.listed)
-            assert.is_nil(r.total)
-            assert.equals("none listed", r.bundleText)
+            assert.is_nil(r.bestCost)
+            assert.is_nil(r.perFavor)
         end)
 
-        it("still prices the fill of a crate that is not listed", function()
-            local r = byId(W.BuildRows({ [2] = { lv(30, 25) } }, CRATES))[901]
-            assert.is_nil(r.price)
-            assert.equals(600, r.bundle.cost)
-            assert.equals("20 x Tin Ore", r.bundleText)
-            assert.is_nil(r.total)
-        end)
-
-        it("fills with the cheapest bundle and adds the cheapest crate", function()
+        it("fills from the auction house with the cheapest bundle listed in full", function()
             local r = byId(W.BuildRows(book, CRATES))[901]
             assert.equals(1000, r.price)
             assert.equals(3, r.listed)
-            assert.equals("Tin Ore", r.bundle.name)
-            assert.equals(600, r.bundle.cost)
-            assert.equals(1600, r.total)
-            assert.equals("20 x Tin Ore", r.bundleText)
+            assert.equals("Tin Ore", r.buyBundle.name)
+            assert.equals(600, r.buy)
+            assert.equals("buy", r.best)
+            assert.equals(r.buyBundle, r.bundle)
             assert.equals("Gathered", r.kind)
             assert.equals("Apprentice", r.tier)
         end)
 
-        it("has no total when no bundle can be bought in full", function()
-            local r = byId(W.BuildRows(book, CRATES))[902]
-            assert.is_nil(r.bundle)
-            assert.is_nil(r.total)
-            assert.equals(1, r.shortBundles)
-            assert.equals("not enough listed", r.bundleText)
+        it("takes the turn-in's gold off the total and divides by its Favor", function()
+            local r = byId(W.BuildRows(book, CRATES))[901] -- Apprentice, gathered: 5 Favor and 2.5s back
+            assert.equals(5, r.favor)
+            assert.is_nil(r.favorGuess)
+            assert.is_true(byId(W.BuildRows(book, CRATES))[903].favorGuess) -- Artisan: a guess
+            assert.equals(250, r.goldBack)
+            assert.equals(1350, r.total) -- 1000 crate + 600 Tin Ore - 250
+            assert.equals(270, r.perFavor)
         end)
 
-        it("says when no bundle item is listed at all", function()
-            local r = byId(W.BuildRows({ [901] = { lv(1000, 1) } }, CRATES))[901]
+        it("still prices the fill of a crate that is not listed, without a total", function()
+            local r = byId(W.BuildRows({ [2] = { lv(30, 25) } }, CRATES))[901]
+            assert.is_nil(r.price)
+            assert.equals(600, r.buy)
             assert.is_nil(r.total)
-            assert.equals(2, r.unlisted)
-            assert.equals("none listed", r.bundleText)
+            assert.is_nil(r.perFavor)
         end)
 
-        it("prices an unread crate without a fill", function()
-            local r = byId(W.BuildRows(book, CRATES))[900]
+        it("fills by crafting when the bundle can't be bought in full, and plans the steps", function()
+            local r = byId(W.BuildRows(book, CRATES, false, context(book)))[902]
+            assert.is_nil(r.buy) -- only 4 of 10 Gold Bars listed
+            assert.equals(500, r.craft)
+            assert.equals("Miner", r.who)
+            assert.is_true(r.canCraft)
+            assert.equals("craft", r.best)
+            assert.equals("Gold Bar", r.bundle.name)
+            assert.equals(2000, r.total) -- 3000 crate + 500 crafted - 1500 back
+            assert.equals(67, r.perFavor) -- / 30 Favor, rounded
+            assert.equals("ah", r.steps[1].kind)
+            assert.equals(5, r.steps[1].item)
+            assert.equals("craft", r.steps[#r.steps].kind)
+        end)
+
+        it("prices both ways and takes the cheaper", function()
+            local cheapBars = { [902] = { lv(3000, 1) }, [3] = { lv(40, 10) }, [5] = { lv(50, 20) } }
+            local r = byId(W.BuildRows(cheapBars, CRATES, false, context(cheapBars)))[902]
+            assert.equals(400, r.buy)
+            assert.equals(500, r.craft)
+            assert.equals("buy", r.best)
+            assert.equals(400, r.bestCost)
+        end)
+
+        it("has no craft price when nobody knows the recipe", function()
+            local r = byId(W.BuildRows(book, CRATES, false, context(book, {})))[902]
+            assert.is_nil(r.craft)
+            assert.is_false(r.canCraft)
+            assert.is_nil(r.best)
+            assert.equals(30, r.favor)
+            assert.equals(1500, r.goldBack)
+            assert.is_nil(r.perFavor)
+        end)
+
+        it("goes negative when the turn-in gives back more than the crate cost", function()
+            local r = byId(W.BuildRows({ [901] = { lv(100, 1) }, [2] = { lv(5, 20) } }, CRATES))[901]
+            assert.equals(-50, r.total) -- 100 + 100 - 250
+            assert.equals(-10, r.perFavor)
+        end)
+
+        it("prices an unread crate without a fill or a reward", function()
+            local r = byId(W.BuildRows(book, CRATES, false, context(book)))[900]
             assert.equals(500, r.price)
             assert.is_true(r.random)
-            assert.is_nil(r.total)
-            assert.equals("random", r.bundleText)
+            assert.is_nil(r.favor)
+            assert.is_nil(r.perFavor)
+            assert.is_nil(r.bestCost)
         end)
 
-        it("keeps every bundle's cost for the tooltip, cheapest first", function()
-            local rows = byId(W.BuildRows(book, CRATES))
+        it("keeps every bundle priced both ways for the tooltip, cheapest first", function()
+            local rows = byId(W.BuildRows(book, CRATES, false, context(book)))
             assert.equals(2, #rows[901].options)
             assert.equals("Tin Ore", rows[901].options[1].name)
             assert.equals(600, rows[901].options[1].cost)
             assert.equals("Copper Ore", rows[901].options[2].name)
             assert.equals(1000, rows[901].options[2].cost)
-            assert.is_nil(rows[902].options[1].cost)
-            assert.equals(4, rows[902].options[1].listed)
+            local bar = rows[902].options[1]
+            assert.is_nil(bar.cost)
+            assert.equals(4, bar.listed)
+            assert.equals(500, bar.craft)
         end)
 
-        it("marks every multi-unit fill from a summary scan as an estimate", function()
+        it("marks the row from a summary scan, not its costs", function()
             local r = byId(W.BuildRows(book, CRATES, true))[901]
             assert.is_true(r.summary)
-            assert.equals(600, r.bundle.cost)
-            assert.is_true(r.bundle.approx)
+            assert.equals(600, r.buy)
+            assert.is_false(r.buyApprox)
             local exact = byId(W.BuildRows(book, CRATES))[901]
             assert.is_nil(exact.summary)
-            assert.is_false(exact.bundle.approx)
+            assert.is_false(exact.buyApprox)
         end)
 
-        it("lists bundles that cannot be bought after the priced ones", function()
+        it("lists bundles that cannot be had after the priced ones", function()
             local r = byId(W.BuildRows({ [901] = { lv(1000, 1) }, [2] = { lv(30, 25) } }, CRATES))[901]
             assert.equals("Tin Ore", r.options[1].name)
             assert.equals("Copper Ore", r.options[2].name)
@@ -179,19 +233,53 @@ describe("WaylaidCosts", function()
         end
 
         it("keeps every crate unless asked", function()
-            assert.equals(4, #W.FilterRows(W.BuildRows(book, CRATES), false))
+            assert.equals(4, #W.FilterRows(W.BuildRows(book, CRATES), {}))
+            assert.equals(4, #W.FilterRows(W.BuildRows(book, CRATES)))
         end)
 
         it("hides crates not listed, and those no bundle can fill (the unread crate is kept)", function()
-            assert.same({ 900, 901 }, ids(W.FilterRows(W.BuildRows(book, CRATES), true)))
+            assert.same({ 900, 901 }, ids(W.FilterRows(W.BuildRows(book, CRATES), { hideUnavailable = true })))
+        end)
+
+        it("counts a crate a craft can fill as available", function()
+            local withOre = { [5] = { lv(50, 20) } }
+            for k, v in pairs(book) do withOre[k] = v end
+            local rows = W.BuildRows(withOre, CRATES, false, context(withOre))
+            assert.same({ 900, 901, 902 }, ids(W.FilterRows(rows, { hideUnavailable = true })))
+        end)
+
+        it("hides the crates the characters can't fill by crafting", function()
+            local withOre = { [5] = { lv(50, 20) } }
+            for k, v in pairs(book) do withOre[k] = v end
+            local rows = W.BuildRows(withOre, CRATES, false, context(withOre))
+            assert.same({ 902 }, ids(W.FilterRows(rows, { hideUncraftable = true })))
+        end)
+    end)
+
+    describe("Reward", function()
+        it("gives the Favor and gold measured per tier, crafted crates twice gathered", function()
+            assert.same({ favor = 5, copper = 250 }, W.Reward("Apprentice", "Gathered"))
+            assert.same({ favor = 10, copper = 500 }, W.Reward("Apprentice", "Crafted"))
+            assert.same({ favor = 10, copper = 500 }, W.Reward("Journeyman", "Gathered"))
+            assert.same({ favor = 20, copper = 1000 }, W.Reward("Journeyman", "Crafted"))
+            assert.same({ favor = 15, copper = 750 }, W.Reward("Expert", "Gathered"))
+            assert.same({ favor = 30, copper = 1500 }, W.Reward("Expert", "Crafted"))
+        end)
+
+        it("assumes Artisan continues the steps (not measured yet)", function()
+            assert.same({ favor = 20, copper = 1000, guess = true }, W.Reward("Artisan", "Gathered"))
+            assert.same({ favor = 40, copper = 2000, guess = true }, W.Reward("Artisan", "Crafted"))
+            assert.is_nil(W.Reward("Expert", "Crafted").guess)
+        end)
+
+        it("knows nothing for the unread crate", function()
+            assert.is_nil(W.Reward(nil, nil))
         end)
     end)
 
     describe("Compare", function()
-        local a = { name = "A", tier = "Apprentice", price = 10, total = 100,
-            bundle = { name = "Tin Ore", cost = 90 } }
-        local b = { name = "B", tier = "Expert", price = 20, total = 50,
-            bundle = { name = "Gold Bar", cost = 30 } }
+        local a = { name = "A", tier = "Apprentice", price = 10, favor = 5, perFavor = 100, buy = 90 }
+        local b = { name = "B", tier = "Expert", price = 20, favor = 30, perFavor = 50, buy = 30, craft = 25 }
         local n = { name = "C", tier = "Artisan", price = 5 }
 
         local function sorted(key, asc)
@@ -200,15 +288,20 @@ describe("WaylaidCosts", function()
             return { rows[1].name, rows[2].name, rows[3].name }
         end
 
-        it("sorts by total, rows without a total last either way", function()
-            assert.same({ "B", "A", "C" }, sorted("total", true))
-            assert.same({ "A", "B", "C" }, sorted("total", false))
+        it("sorts by total cost per Favor, rows without one last either way", function()
+            assert.same({ "B", "A", "C" }, sorted("perFavor", true))
+            assert.same({ "A", "B", "C" }, sorted("perFavor", false))
         end)
 
-        it("sorts by fill cost and fill name, rows without a fill last", function()
-            assert.same({ "B", "A", "C" }, sorted("bundleCost", true))
-            assert.same({ "A", "B", "C" }, sorted("bundleCost", false))
-            assert.same({ "B", "A", "C" }, sorted("bundle", true))
+        it("sorts by Favor, rows without it last either way", function()
+            assert.same({ "A", "B", "C" }, sorted("favor", true))
+            assert.same({ "B", "A", "C" }, sorted("favor", false))
+        end)
+
+        it("sorts by either way to fulfil, rows without it last", function()
+            assert.same({ "B", "A", "C" }, sorted("buy", true))
+            assert.same({ "A", "B", "C" }, sorted("buy", false))
+            assert.same({ "B", "A", "C" }, sorted("craft", true)) -- A and C tie on no craft: by tier
         end)
 
         it("sorts by crate price, crates not listed last either way", function()
@@ -268,17 +361,18 @@ describe("WaylaidCosts", function()
 
 
     describe("EnsureOptions", function()
-        it("defaults to the currency view, crates sorted by total", function()
+        it("defaults to the currency view, crates sorted by cost per Favor", function()
             _G.AltArmyTBC_Options = nil
             local o = W.EnsureOptions()
             assert.equals("currency", o.activeView)
-            assert.equals("total", o.waylaidSortKey)
+            assert.equals("perFavor", o.waylaidSortKey)
             assert.is_true(o.waylaidSortAscending)
             assert.equals("perRep", o.writsSortKey)
             assert.is_true(o.writsSortAscending)
             assert.is_false(o.writsOnlyCraftable)
             assert.is_true(o.writsOnlyAvailable)
             assert.is_true(o.waylaidOnlyAvailable)
+            assert.is_false(o.waylaidOnlyCraftable)
             assert.equals(o, AltArmyTBC_Options.economy)
         end)
 
@@ -308,19 +402,21 @@ describe("WaylaidCosts", function()
                 waylaidSortAscending = false } }
             local o = W.EnsureOptions()
             assert.equals("supply", o.activeView)
-            assert.equals("total", o.waylaidSortKey)
+            assert.equals("perFavor", o.waylaidSortKey)
             assert.is_false(o.waylaidSortAscending)
             _G.AltArmyTBC_Options.economy.activeView = "nope"
             assert.equals("currency", W.EnsureOptions().activeView)
             _G.AltArmyTBC_Options.economy.activeView = "waylaid"
             assert.equals("waylaid", W.EnsureOptions().activeView)
+            _G.AltArmyTBC_Options.economy.waylaidSortKey = "total" -- the column Cost / Favor replaced
+            assert.equals("perFavor", W.EnsureOptions().waylaidSortKey)
         end)
     end)
 
     describe("SearchTerms", function()
-        it("searches the crate, then its cheapest fill at its count", function()
+        it("searches the crate, then the bundle it is bought with at its count", function()
             local tin = { name = "Tin Ore", count = 20, cost = 100 }
-            local row = { name = "Waylaid Crate: Apprentice Ore", bundle = tin, options = {
+            local row = { name = "Waylaid Crate: Apprentice Ore", best = "buy", bundle = tin, options = {
                 tin,
                 { name = "Copper Ore", count = 20, cost = 200 },
             } }
@@ -330,7 +426,19 @@ describe("WaylaidCosts", function()
             }, W.SearchTerms(row))
         end)
 
-        it("searches only the crate when no fill can be bought in full", function()
+        it("searches what a craft buys when the fill is crafted", function()
+            local row = { name = "Waylaid Crate: Expert Ingots", best = "craft",
+                bundle = { name = "Gold Bar", count = 10 }, steps = {
+                    { kind = "ah", item = 5, qty = 10, cost = 500 },
+                    { kind = "craft", item = 3, qty = 10, casts = 10, who = "Miner", spell = 500 },
+                } }
+            assert.same({
+                { searchString = "Waylaid Crate: Expert Ingots", quantity = 1, isExact = true },
+                { searchString = "Gold Ore", quantity = 10, isExact = true },
+            }, W.SearchTerms(row, { [5] = { name = "Gold Ore" } }))
+        end)
+
+        it("searches only the crate when no fill can be had", function()
             assert.same({ { searchString = "Waylaid Crate: Apprentice Ore", quantity = 1, isExact = true } },
                 W.SearchTerms({ name = "Waylaid Crate: Apprentice Ore", options = {
                     { name = "Tin Ore", count = 20, listed = 5 },

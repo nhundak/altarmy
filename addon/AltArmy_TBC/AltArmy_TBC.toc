@@ -30,6 +30,7 @@ Data\Economy\WaylaidCrates.lua
 Data\Economy\WaylaidCosts.lua
 Data\Economy\Writs.lua
 Data\Economy\CraftPlan.lua
+Data\Economy\CraftContext.lua
 Data\Economy\WritCosts.lua
 Data\Economy\CurrencyGrid.lua
 Data\DataStore\DataStore.lua

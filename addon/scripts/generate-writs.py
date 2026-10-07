@@ -164,8 +164,21 @@ def plan_data(writs, items, vendor, recipes, sparse, labels):
             "tier": tier, "rep": REP[tier], "items": candidates,
             "count": recipes[by_output[candidates[0]][0]]["n"],
         })
+    out_items, out_recipes = trees([item for row in rows for item in row["items"]], items, vendor, recipes)
+    if not RECIPE_BAND[0] <= len(out_recipes) <= RECIPE_BAND[1]:
+        sys.exit(f"the writs' trees reach {len(out_recipes)} recipes, expected {RECIPE_BAND[0]}-{RECIPE_BAND[1]}")
+    return rows, out_items, out_recipes
+
+
+def trees(roots, items, vendor, recipes):
+    """Every item and craft recipe the reagent trees under `roots` reach (read_game's tables): the items with
+    their stack size, vendor price (`vendor` copper per `per` units, where a vendor sells them) and `bop`,
+    and the recipes by spell id. Also used by generate-waylaid-crates.py for the crates' bundles."""
+    by_output = {}
+    for spell, r in recipes.items():
+        by_output.setdefault(r["out"], []).append(spell)
     used_items, used_recipes = set(), set()
-    stack = [item for row in rows for item in row["items"]]
+    stack = list(roots)
     while stack:
         item = stack.pop()
         if item in used_items:
@@ -176,8 +189,6 @@ def plan_data(writs, items, vendor, recipes, sparse, labels):
         for spell in by_output.get(item, ()):
             used_recipes.add(spell)
             stack.extend(i for i, _ in recipes[spell]["reagents"])
-    if not RECIPE_BAND[0] <= len(used_recipes) <= RECIPE_BAND[1]:
-        sys.exit(f"the writs' trees reach {len(used_recipes)} recipes, expected {RECIPE_BAND[0]}-{RECIPE_BAND[1]}")
     out_items = {}
     for item in sorted(used_items):
         it = items[item]
@@ -189,7 +200,31 @@ def plan_data(writs, items, vendor, recipes, sparse, labels):
             entry["bop"] = True
         out_items[item] = entry
     out_recipes = {spell: recipes[spell] for spell in sorted(used_recipes)}
-    return rows, out_items, out_recipes
+    return out_items, out_recipes
+
+
+def render_trees(module, out_items, out_recipes):
+    """Lua lines for `<module>.ITEMS` and `<module>.RECIPES` (trees' output). Also used by
+    generate-waylaid-crates.py."""
+    out = [f"{module}.ITEMS = {{"]
+    for item, entry in out_items.items():
+        parts = [f"name = {lua_str(entry['name'])}", f"stack = {entry['stack']}"]
+        if "vendor" in entry:
+            parts.append(f"vendor = {entry['vendor']}, per = {entry['per']}")
+        if entry.get("bop"):
+            parts.append("bop = true")
+        out.append(f"    [{item}] = {{ {', '.join(parts)} }},")
+    out += ["}", "", f"{module}.RECIPES = {{"]
+    for spell, r in out_recipes.items():
+        out.append(
+            f"    [{spell}] = {{ out = {r['out']}, n = {r['n']}, prof = {lua_str(r['prof'])},"
+            f" name = {lua_str(r['name'])}, reagents = {{"
+        )
+        reagents = [f"{{ item = {i}, count = {c} }}" for i, c in r["reagents"]]
+        for start in range(0, len(reagents), 3):  # three a line keeps lines under 120 characters
+            out.append("      " + ", ".join(reagents[start:start + 3]) + ",")
+        out.append("    } },")
+    return out + ["}"]
 
 
 def render(build, rows, out_items, out_recipes):
@@ -219,26 +254,9 @@ def render(build, rows, out_items, out_recipes):
         )
         out.append(f"      name = {lua_str(row['name'])},")
         out.append(f"      short = {lua_str(row['short'])} }},")
-    out += ["}", "", "W.ITEMS = {"]
-    for item, entry in out_items.items():
-        parts = [f"name = {lua_str(entry['name'])}", f"stack = {entry['stack']}"]
-        if "vendor" in entry:
-            parts.append(f"vendor = {entry['vendor']}, per = {entry['per']}")
-        if entry.get("bop"):
-            parts.append("bop = true")
-        out.append(f"    [{item}] = {{ {', '.join(parts)} }},")
-    out += ["}", "", "W.RECIPES = {"]
-    for spell, r in out_recipes.items():
-        out.append(
-            f"    [{spell}] = {{ out = {r['out']}, n = {r['n']}, prof = {lua_str(r['prof'])},"
-            f" name = {lua_str(r['name'])}, reagents = {{"
-        )
-        reagents = [f"{{ item = {i}, count = {c} }}" for i, c in r["reagents"]]
-        for start in range(0, len(reagents), 3):  # three a line keeps lines under 120 characters
-            out.append("      " + ", ".join(reagents[start:start + 3]) + ",")
-        out.append("    } },")
+    out += ["}", ""]
+    out += render_trees("W", out_items, out_recipes)
     out += [
-        "}",
         "",
         "W.ById, W.ByQuest, W.ByOutput = {}, {}, {}",
         "for _, writ in ipairs(W.LIST) do",

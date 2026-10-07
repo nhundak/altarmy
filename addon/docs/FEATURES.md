@@ -9,7 +9,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 - Collects and persists character data automatically while you play.
 - Presents cross-character information in tabbed dashboards.
 - Supports item and recipe search across characters, with recipe skill, difficulty and source filters from built-in recipe data (optional guildmate recipes).
-- Shows what each Waylaid Crate costs to buy and fill from the auction house scan, what each Craftsman's Writ's order costs to buy or to craft with your characters, and explains alt-army.com's crafting planner (WoW Forever).
+- Shows what each Waylaid Crate costs per point of Merchant's Favor, filled from the auction house or crafted by your characters, what each Craftsman's Writ's order costs to buy or to craft with your characters, and explains alt-army.com's crafting planner (WoW Forever).
 - Tracks profession cooldown readiness (including WoW Forever's Comprehension "Research"), stockpile mailing, and raid/heroic lockouts.
 - Graphs leveling progress over calendar and played time.
 - Optionally shares character cards and recipes with guildmates.
@@ -37,7 +37,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 |-----|-----|
 | [Summary](tabs/summary.md) | Character overview, totals, missing-data warnings, bank-alt icons |
 | [Gear](tabs/gear.md) | Equipment grid, item check, compare panel, upgrade scoring / alerts |
-| [Economy](tabs/economy.md) | Currency × character grid; Waylaid Crate fill costs from the auction scan; Craftsman's Writ orders priced to buy or craft; alt-army.com crafting planner guide (WoW Forever only) |
+| [Economy](tabs/economy.md) | Currency × character grid; Waylaid Crate costs per Merchant's Favor, filled via the AH or crafting; Craftsman's Writ orders priced to buy or craft; alt-army.com crafting planner guide (WoW Forever only) |
 | [Reputation](tabs/reputation.md) | Faction matrix, score-sort, optional Zygor guide links |
 | [Cooldowns](tabs/cooldowns.md) | Crafting cooldowns + Raids lockouts, stockpile send / send-all |
 | [Search](tabs/search.md) | Items and recipes (toolbar Search mode) |
@@ -75,7 +75,7 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 
 | Addon | Used for |
 |-------|----------|
-| Auctionator | `/altarmy networth` AH pricing; Economy → Waylaid Crates row click searches the crate and its cheapest fill, Craftsman's Writs row click the writ, its order and the craft's reagents (temporary shopping list, at the auction house) |
+| Auctionator | `/altarmy networth` AH pricing; Economy → Waylaid Crates row click searches the crate and its cheaper fill (the bundle, or a craft's reagents), Craftsman's Writs row click the writ, its order and the craft's reagents (temporary shopping list, at the auction house) |
 | TacoTip / GearScoreTBCClassic | Gear score providers for score-sort and upgrades |
 | RestedXP (RXPGuides) | Level history import; quest-reward conflict dialog |
 | Questie / NovaInstanceTracker | Level history import into Graphs |
@@ -122,8 +122,8 @@ the reading of other addons' full scans are all off, whatever the client's API o
 - The last 3 scans per realm and faction are kept, for 7 days. Seller names are never saved.
 - The scan is uploaded with the rest of Alt Army's data (Alt Army Sync, or the site's Upload page after a
   `/reload` or logout).
-- In game, the [Economy](tabs/economy.md) tab's **Waylaid Crates** view prices every Waylaid Crate and its
-  cheapest fill from the newest scan, full or summary, and can turn on the automatic scan too; its
+- In game, the [Economy](tabs/economy.md) tab's **Waylaid Crates** view prices every Waylaid Crate per point of Merchant's Favor,
+  filled from the newest scan, full or summary, or crafted by your characters, and can turn on the automatic scan too; its
   **Craftsman's Writs** view prices every writ's order bought on the auction house or crafted by your characters.
 
 ### Data collection and persistence

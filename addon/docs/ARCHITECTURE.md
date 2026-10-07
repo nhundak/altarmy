@@ -45,7 +45,7 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 |-----|--------|
 | **Summary** | Character list overview |
 | **Gear** | Equipment grid, item check, compare / upgrades |
-| **Economy** | **Currency** grid (default), **Waylaid Crates** fill costs, **Craftsman's Writs** buy-or-craft costs (`Tabs/TabEconomyWrits.lua`) + **Supply Chain** (alt-army.com, off behind `AltArmy.FeatureFlags.economySupplyChain`) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
+| **Economy** | **Currency** grid (default), **Waylaid Crates** buy-or-craft costs per Merchant's Favor, **Craftsman's Writs** buy-or-craft costs (`Tabs/TabEconomyWrits.lua`) + **Supply Chain** (alt-army.com, off behind `AltArmy.FeatureFlags.economySupplyChain`) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
 | **Reputation** | Faction × character matrix |
 | **Cooldowns** | Crafting cooldowns + **Raids** lockout sub-view |
 | **Graphs** | Level progress over time |

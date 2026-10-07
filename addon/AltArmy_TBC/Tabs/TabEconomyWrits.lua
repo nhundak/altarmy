@@ -14,7 +14,8 @@ local WC = AltArmy.WritCosts
 local Writs = AltArmy.Writs
 local Book = AltArmy.AuctionBook
 local DS = AltArmy.DataStore
-if not (Theme and W and WC and Writs and Book and DS and AltArmy.CraftPlan and frame.CreateScanFooter) then return end
+if not (Theme and W and WC and Writs and Book and DS and AltArmy.CraftPlan and AltArmy.CraftContext
+    and frame.CreateScanFooter) then return end
 
 local panel = frame.WritsView
 local inner = Theme.CreatePanelInnerContent(panel)
@@ -36,17 +37,11 @@ local UI = {
     rowPool = {},
     activeRows = {},
     cache = nil, -- { scan, book }: the decoded scan, kept until a newer one arrives
-    classOf = {}, -- character name -> class file (BuildContext)
+    classOf = {}, -- character name -> class file (CraftContext.Build)
     WRIT_COLOR = "|cff0070dd", -- the writs are rare items
+    -- The tooltip's greyed-out text (the dearer way to fulfil): as dark as its hints, as on the Waylaid view.
+    DIM = 0.5,
 }
-
--- The vendor discounts (see docs/tabs/economy.md): Bartering's ranks, and the city factions' Honored
--- discount, assumed once a character is Honored with any of them.
-local BARTERING = AltArmy.DataStoreLegacy and AltArmy.DataStoreLegacy.SPELL_BARTERING or 1225459
-local BARTERING_PER_RANK = 0.05
-local CITY_FACTIONS = AltArmy.ProfitExport and AltArmy.ProfitExport.CITY_FACTIONS
-    or { 47, 54, 68, 69, 72, 76, 81, 530 }
-local HONORED, CITY_DISCOUNT = 6, 0.10
 
 local function TotalColWidth()
     local w = 0
@@ -224,15 +219,16 @@ local function CharName(name)
 end
 
 --- A step's tooltip line: its text, and its cost (nil for a craft: it costs nothing more). Counts read "3x"
---- (a craft's is its casts).
-local function StepText(step)
+--- (a craft's is its casts). `plain`: names without their class colour (a greyed-out line).
+local function StepText(step, plain)
     local name = ItemName(step.item)
+    local who = plain and step.who or CharName(step.who)
     if step.kind == "craft" then
-        return "Craft " .. step.casts .. "x " .. name .. " on " .. CharName(step.who), nil
+        return "Craft " .. step.casts .. "x " .. name .. " on " .. who, nil
     end
     local left = "Buy " .. step.qty .. "x " .. name
     if step.kind == "vendor" then
-        left = left .. " from a vendor on " .. CharName(step.who)
+        left = left .. " from a vendor on " .. who
     else
         left = left .. " on the auction house"
     end
@@ -263,22 +259,44 @@ local function ShowRowTooltip(row)
     GameTooltip:AddDoubleLine(rd.tier .. " writ", "+" .. rd.rep .. " reputation", 1, 1, 1, 1, 1, 1)
     GameTooltip:AddLine(" ")
     AddCostLine("Writ on the auction house", rd.writPrice and Money(rd.writPrice))
-    AddCostLine("Fulfill via AH", rd.buy and MoneyMarked(rd.buy, rd.buyApprox, rd.buyShort))
+    -- With both ways priced, the dearer line is grey, label and cost (a tie greys the craft: the writ buys),
+    -- and so are the craft's steps when crafting is the dearer way; a greyed line's names lose their class
+    -- colour, which would show through the grey.
+    local both = rd.buy and rd.craft
+    local buyC = both and rd.best ~= "buy" and UI.DIM or 1
+    local craftC = both and rd.best ~= "craft" and UI.DIM or 1
+    if rd.buy then
+        GameTooltip:AddDoubleLine("Fulfill via AH", MoneyMarked(rd.buy, rd.buyApprox, rd.buyShort),
+            buyC, buyC, buyC, buyC, buyC, buyC)
+    else
+        AddCostLine("Fulfill via AH", nil)
+    end
     if rd.craft then
-        GameTooltip:AddDoubleLine("Fulfill via craft on " .. CharName(rd.who),
-            MoneyMarked(rd.craft, rd.craftApprox, rd.craftShort), 1, 1, 1, 1, 1, 1)
-        GameTooltip:AddLine(" ")
-        GameTooltip:AddLine("To craft it:", 1, 0.82, 0)
-        for _, step in ipairs(rd.steps or {}) do
-            local left, right = StepText(step)
-            if right then
-                GameTooltip:AddDoubleLine(left, right, 1, 1, 1, 0.8, 0.8, 0.8)
-            else
-                GameTooltip:AddLine(left, 1, 1, 1)
-            end
-        end
+        local who = craftC < 1 and rd.who or CharName(rd.who)
+        GameTooltip:AddDoubleLine("Fulfill via craft on " .. who,
+            MoneyMarked(rd.craft, rd.craftApprox, rd.craftShort), craftC, craftC, craftC, craftC, craftC, craftC)
     else
         AddCostLine("Fulfill via craft", nil)
+    end
+    if rd.bestCost and rd.writPrice then
+        GameTooltip:AddDoubleLine("Total cost", Money(rd.bestCost + rd.writPrice), 1, 0.82, 0, 1, 1, 1)
+        if rd.perRep then
+            GameTooltip:AddDoubleLine("Total cost per rep", Money(rd.perRep), 1, 0.82, 0, 1, 1, 1)
+        end
+    end
+    if rd.craft then
+        GameTooltip:AddLine(" ")
+        local r, g, b = 1, 0.82, 0
+        if craftC < 1 then r, g, b = craftC, craftC, craftC end
+        GameTooltip:AddLine("To craft " .. rd.count .. "x " .. ItemName(rd.item) .. ":", r, g, b)
+        for _, step in ipairs(rd.steps or {}) do
+            local left, right = StepText(step, craftC < 1)
+            if right then
+                GameTooltip:AddDoubleLine(left, right, craftC, craftC, craftC, craftC, craftC, craftC)
+            else
+                GameTooltip:AddLine(left, craftC, craftC, craftC)
+            end
+        end
     end
     local short = (rd.best == "craft" and rd.craftShort or rd.buyShort) or 0
     if short > 0 then
@@ -340,83 +358,6 @@ local function CurrentScan()
     return Book.Newest(realm, faction), realm, faction
 end
 
---- A character's vendor discount, 0..1.
-local function Discount(char)
-    if not char then return 0 end
-    local d = 0
-    local legacy = char.legacyTalents
-    if type(legacy) == "table" and type(legacy.spells) == "table" then
-        d = d + BARTERING_PER_RANK * (tonumber(legacy.spells[BARTERING]) or 0)
-    end
-    local reps = char.Reputations
-    if type(reps) == "table" then
-        for _, factionID in ipairs(CITY_FACTIONS) do
-            local r = reps[factionID]
-            if type(r) == "table" and (tonumber(r.s) or 0) >= HONORED then
-                d = d + CITY_DISCOUNT
-                break
-            end
-        end
-    end
-    return math.min(d, 1)
-end
-
---- True for a stored recipe row that is the recipe itself, not an alias key of it.
-local function IsPrimary(spell, data)
-    return type(data) ~= "table" or data.primaryRecipeID == nil or data.primaryRecipeID == spell
-end
-
---- The CraftPlan context for the realm's characters of `faction`: who knows which recipe (the highest
---- skilled, then A-Z), each one's discount, the writs they hold.
-local function BuildContext(realm, faction, book)
-    local chars = {}
-    for _, char in pairs(DS:GetCharacters(realm)) do
-        if type(char) == "table" and char.name and (char.faction or faction) == faction then
-            chars[char.name] = char
-        end
-    end
-    local known = {}
-    for name, char in pairs(chars) do
-        for _, prof in pairs(DS:GetProfessions(char)) do
-            local rank = tonumber(prof.rank) or 0
-            for spell, data in pairs(prof.Recipes or {}) do
-                if Writs.RECIPES[spell] and IsPrimary(spell, data) then
-                    local cur = known[spell]
-                    if not cur or rank > cur.rank or (rank == cur.rank and name < cur.name) then
-                        known[spell] = { name = name, rank = rank }
-                    end
-                end
-            end
-        end
-    end
-    local current = DS:GetCurrentPlayerName()
-    local discounts = {}
-    UI.classOf = {} -- name -> class file, for the Crafter column's colour
-    for name, char in pairs(chars) do
-        UI.classOf[name] = char.classFile
-    end
-    return {
-        book = book, items = Writs.ITEMS, recipes = Writs.RECIPES, byOutput = Writs.ByOutput,
-        current = current,
-        knownBy = function(spell)
-            local k = known[spell]
-            return k and k.name or nil
-        end,
-        discountOf = function(name)
-            name = name or current
-            if discounts[name] == nil then discounts[name] = Discount(chars[name]) end
-            return discounts[name]
-        end,
-        heldBy = function(writID)
-            local held = 0
-            for _, char in pairs(chars) do
-                held = held + (DS:GetTotalItemCount(char, writID) or 0)
-            end
-            return held
-        end,
-    }
-end
-
 local function RefreshWrits()
     ReleaseRows()
     local scan, realm, faction = CurrentScan()
@@ -429,7 +370,8 @@ local function RefreshWrits()
     else
         UI.cache = nil
     end
-    local ctx = BuildContext(realm, faction, book)
+    local ctx
+    ctx, UI.classOf = AltArmy.CraftContext.Build(DS, realm, faction, book, Writs)
     local orders = AltArmy.WritOrders and AltArmy.WritOrders.Orders() or nil
     local o = W.EnsureOptions()
     local rows = WC.Filter(WC.BuildRows(book, Writs, orders, ctx),
