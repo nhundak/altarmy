@@ -1,0 +1,227 @@
+/* The plan as a strip of items: bought, made, sold, disenchanted, each group under its caption. */
+.strip {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.group {
+  display: grid;
+  gap: 4px;
+  flex: none;
+  align-content: start;
+}
+
+.caption {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mantine-color-dimmed);
+}
+
+.tiles {
+  display: flex;
+  gap: 6px;
+}
+
+.arrow {
+  align-self: center;
+  padding-top: 16px;
+  color: var(--mantine-color-dimmed);
+}
+
+.tile {
+  display: grid;
+  gap: 2px;
+  min-width: 118px;
+  max-width: 200px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  text-align: left;
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-default);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  cursor: pointer;
+}
+
+.tile:hover {
+  background: var(--mantine-color-default-hover);
+}
+
+.tile[aria-pressed='true'] {
+  border-color: var(--mantine-primary-color-filled);
+  box-shadow: 0 0 0 1px var(--mantine-primary-color-filled);
+}
+
+.tile:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}
+
+.tileName {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tileMeta {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the item's share of the plan's cost */
+.share {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mantine-primary-color-filled);
+}
+
+.cue {
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+}
+
+.cue[data-tone='bad'] {
+  color: var(--mantine-color-red-text);
+}
+
+.cue[data-tone='good'] {
+  color: var(--mantine-color-teal-text);
+}
+
+.cue[data-tone='note'] {
+  color: var(--mantine-color-dimmed);
+}
+
+.more {
+  align-self: center;
+}
+
+.summary {
+  min-width: 0;
+  font-weight: 400;
+}
+
+/* --- charts ------------------------------------------------------------------------------------------- */
+.chart {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+}
+
+.axis {
+  fill: var(--mantine-color-dimmed);
+  font: 11px var(--mantine-font-family-monospace);
+}
+
+.note {
+  font: 11px var(--mantine-font-family-monospace);
+}
+
+.grid {
+  stroke: var(--mantine-color-default-border);
+  stroke-width: 1;
+}
+
+.step {
+  stroke: var(--mantine-color-text);
+  stroke-width: 2;
+}
+
+.uncounted {
+  stroke: var(--mantine-color-dimmed);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+.riser {
+  stroke: var(--mantine-color-text);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+.hatch {
+  stroke: var(--mantine-color-dimmed);
+  stroke-width: 1.5;
+  opacity: 0.6;
+}
+
+.taken {
+  fill: var(--mantine-primary-color-light);
+}
+
+.you {
+  fill: var(--mantine-primary-color-filled);
+}
+
+.youText {
+  fill: var(--mantine-primary-color-contrast);
+  font: 600 11px var(--mantine-font-family-monospace);
+}
+
+.rule {
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+}
+
+.profitLine {
+  stroke: var(--mantine-color-teal-text);
+  stroke-width: 2.5;
+}
+
+.toneCost {
+  fill: var(--mantine-color-red-text);
+  stroke: var(--mantine-color-red-text);
+}
+
+.toneProfit {
+  fill: var(--mantine-color-teal-text);
+  stroke: var(--mantine-color-teal-text);
+}
+
+.tonePlain {
+  fill: var(--mantine-color-dimmed);
+  stroke: var(--mantine-color-dimmed);
+}
+
+.toneYou {
+  fill: var(--mantine-primary-color-filled);
+  stroke: var(--mantine-primary-color-filled);
+}
+
+/* text labels take only a fill */
+text.toneCost,
+text.toneProfit,
+text.tonePlain,
+text.toneYou {
+  stroke: none;
+}
+
+.tableWrap {
+  overflow-x: auto;
+}
+
+.ladder {
+  width: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ladder tr[data-uncounted] td {
+  color: var(--mantine-color-dimmed);
+}
+
+.ladder tr[data-taken] td {
+  color: var(--mantine-primary-color-filled);
+  font-weight: 600;
+}

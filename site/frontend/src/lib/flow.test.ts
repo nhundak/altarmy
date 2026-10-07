@@ -30,6 +30,7 @@ const tree: FlowNode = {
   convert: false,
   flip: false,
   enchant: false,
+  short: 0,
   inputs: [
     {
       item_id: 5,
@@ -52,6 +53,7 @@ const tree: FlowNode = {
       convert: false,
       flip: false,
       enchant: false,
+      short: 0,
       inputs: [bought(1, 'Linen Cloth', 6, 60)],
     },
     bought(2, 'Coarse Thread', 1, 5),

@@ -1,5 +1,5 @@
 import { type CSSProperties, Fragment, type ReactNode, type Ref, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Group, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
+import { Accordion, ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Group, Loader, NumberInput, Paper, Stack, Text, Title, Tooltip, UnstyledButton } from '@mantine/core'
 import { LayoutGroup, animate, motion } from 'motion/react'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
@@ -16,6 +16,7 @@ import {
   useTrack,
 } from '../api/queries'
 import { choose as chooseAt, type Choices } from '../lib/choices'
+import { MarketFocus } from '../lib/marketFocus'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import { useStoredState } from '../lib/storage'
 import type { Holder } from '../lib/setup'
@@ -30,6 +31,7 @@ import { CharacterClasses } from './CharacterName'
 import { IconSwap } from './icons'
 import { ItemLink } from './ItemTooltip'
 import { LearnStep, LearnTooltip } from './LearnTooltip'
+import { MarketSection, MarketSummary, useMarket } from './MarketSection'
 import { Money } from './Money'
 import { RecipeFlow } from './RecipeFlow'
 import { PlanViewSwitch, type PlanView } from './SessionDetails'
@@ -622,6 +624,10 @@ export function SkillWorkspace({
     () => ({ ...rank.data?.items, ...chainRank.data?.items, ...plan.data?.items }),
     [rank.data, chainRank.data, plan.data],
   )
+  // The run's market: closed at first; an item name in the plan opens it on that item.
+  const [marketOpen, setMarketOpen] = useState<string | null>(null)
+  const market = useMarket(checklist, 'skill', () => setMarketOpen('market'))
+  const watchedHours = plan.data?.watched_hours ?? rank.data?.watched_hours ?? 0
   useEffect(() => {
     if (bestId !== undefined) track('next_up_shown', { profession })
   }, [bestId, profession, track])
@@ -833,6 +839,7 @@ export function SkillWorkspace({
                 }}
               />
             )}
+            <MarketFocus.Provider value={market.focus}>
             {checklist &&
               (view === 'flow' ? (
                 <RecipeFlow result={checklist} items={items} editing={editing} />
@@ -856,6 +863,26 @@ export function SkillWorkspace({
                   }
                 />
               ))}
+            {checklist && (
+              <Accordion variant="separated" transitionDuration={0} value={marketOpen} onChange={setMarketOpen}>
+                <Accordion.Item value="market" ref={market.ref}>
+                  <Accordion.Control>
+                    Market <MarketSummary result={checklist} list={market.list} items={items} mode="skill" />
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    <MarketSection
+                      result={checklist}
+                      items={items}
+                      list={market.list}
+                      selected={market.selected}
+                      onSelect={market.select}
+                      watchedHours={watchedHours}
+                    />
+                  </Accordion.Panel>
+                </Accordion.Item>
+              </Accordion>
+            )}
+            </MarketFocus.Provider>
             <Group gap="xs">
               <Button size="xs" variant="light" onClick={copy}>
                 {copied ? 'Copied' : 'Copy steps'}

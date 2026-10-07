@@ -12,6 +12,7 @@ import {
   speedText,
 } from '../lib/wow'
 import classes from './ItemTooltip.module.css'
+import { useMarketFocus } from '../lib/marketFocus'
 import { Money } from './Money'
 
 const qualityColor = (quality: number) => QUALITY_COLORS[quality] ?? QUALITY_COLORS[1]
@@ -20,7 +21,7 @@ const qualityColor = (quality: number) => QUALITY_COLORS[quality] ?? QUALITY_COL
 const LEVELS_SHOWN = 5
 
 /** A CDN icon that disappears if it cannot load (offline, or an icon Wowhead does not have). */
-function Icon({
+export function Icon({
   icon,
   size,
   className,
@@ -288,7 +289,8 @@ export function Hover({
 /** An item name in its quality colour with a small icon; hover for the tooltip. `name` is the fallback
  * when the item has no details (e.g. a database from before tooltips were ingested). With `truncate`, a
  * name too long for its (flex) container ends in an ellipsis instead of overflowing. `tooltip` replaces the
- * item's own tooltip (e.g. a recipe's). */
+ * item's own tooltip (e.g. a recipe's). Inside a plan with a Market section that shows the item, the name is a
+ * button opening the section on it. */
 export function ItemLink({
   item,
   name,
@@ -300,16 +302,35 @@ export function ItemLink({
   truncate?: boolean
   tooltip?: ReactNode
 }) {
+  const focus = useMarketFocus()
   if (!item) {
     const plain = truncate ? <span className={classes.plainName}>{name}</span> : <>{name}</>
     return tooltip ? <Hover tooltip={tooltip}>{plain}</Hover> : plain
   }
+  const inner = (
+    <>
+      <Icon icon={item.icon} size="small" className={classes.smallIcon} />
+      <span className={classes.name}>{item.name}</span>
+    </>
+  )
   return (
     <Hover tooltip={tooltip ?? <ItemTooltip item={item} />} truncate={truncate}>
-      <span className={classes.link} data-quality={item.quality} data-truncate={truncate || undefined}>
-        <Icon icon={item.icon} size="small" className={classes.smallIcon} />
-        <span className={classes.name}>{item.name}</span>
-      </span>
+      {focus?.has(item.id) ? (
+        <button
+          type="button"
+          className={`${classes.link} ${classes.focus}`}
+          data-quality={item.quality}
+          data-truncate={truncate || undefined}
+          title="Show its market"
+          onClick={() => focus.select(item.id)}
+        >
+          {inner}
+        </button>
+      ) : (
+        <span className={classes.link} data-quality={item.quality} data-truncate={truncate || undefined}>
+          {inner}
+        </span>
+      )}
     </Hover>
   )
 }

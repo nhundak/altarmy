@@ -512,6 +512,7 @@ export function ResultsTable({
   goldSort,
   goldOrder = 'desc',
   onGoldSort,
+  watchedHours = 0,
 }: {
   results: RankResult[]
   items: ItemMap
@@ -539,6 +540,8 @@ export function ResultsTable({
   goldSort?: string
   goldOrder?: SortOrder
   onGoldSort?: (sort: GoldSort, order: SortOrder) => void
+  /** The hours the auction house was watched this week, for what an expanded row's market says was seen sold. */
+  watchedHours?: number
 }) {
   const actions = Boolean(onSetAhBlocked || onSetFavorite)
   const shownColumns = columnsFor(rankBy)
@@ -846,6 +849,7 @@ export function ResultsTable({
                               params={params}
                               choices={choices[r.recipe_id]}
                               market={gold}
+                              watchedHours={watchedHours}
                             />
                           </motion.div>
                         </Table.Td>

@@ -183,3 +183,24 @@
   height: 16px;
   border-radius: 2px;
 }
+
+/* An item name that opens the plan's Market section on it: a link-like button, underlined with dots. */
+.focus {
+  padding: 0;
+  font: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.focus .name {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.focus:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

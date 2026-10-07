@@ -418,6 +418,24 @@ describe('SkillWorkspace', () => {
     expect(await screen.findByRole('region', { name: 'Your options' })).toBeInTheDocument()
   })
 
+  it("shows the run's market under the plan, on the costliest reagent, and on any item named in the steps", async () => {
+    api()
+    show()
+    const run = await choose('Green Robe')
+    const header = within(run).getByRole('button', { name: /^Market/ })
+    expect(header).toHaveAttribute('aria-expanded', 'false')
+    expect(header).toHaveTextContent(/Buying 2 reagents for/)
+    await userEvent.click(header)
+    const section = within(run).getByRole('region', { name: /^Market/ })
+    expect(within(section).getByRole('button', { name: /^Linen Cloth/, pressed: true })).toBeInTheDocument()
+    await userEvent.click(header) // closed again: a name in the steps opens it on that item
+    const stepsGroup = within(run).getByRole('group', { name: "Tailor Guy's steps" })
+    await userEvent.click(within(stepsGroup).getByRole('button', { name: 'Coarse Thread' }))
+    expect(header).toHaveAttribute('aria-expanded', 'true')
+    const opened = within(run).getByRole('region', { name: /^Market/ })
+    expect(within(opened).getByRole('button', { name: /^Coarse Thread/, pressed: true })).toBeInTheDocument()
+  })
+
   it('buys for the chance to reach the target the Options ask for', async () => {
     const fetch = api()
     renderWithProviders(

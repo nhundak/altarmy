@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { ItemMap, RankResult } from '../api/client'
 import { useSessionPlan, useTrack, type EvaluateParams } from '../api/queries'
 import type { Choices } from '../lib/choices'
+import { MarketFocus } from '../lib/marketFocus'
 import { stepsText } from '../lib/skill'
 import { useStoredState } from '../lib/storage'
 import type { PlanEditing } from './ChoiceMenu'
@@ -13,7 +14,7 @@ import nameClasses from './CharacterName.module.css'
 import { Money } from './Money'
 import { RecipeFlow } from './RecipeFlow'
 import { Earned, StepList } from './StepList'
-import { MarketPanel } from './MarketPanel'
+import { MarketSection, MarketSummary, useMarket } from './MarketSection'
 import { TimingNotes } from './TimingSummary'
 
 const MAX_COPIES = 1000
@@ -87,15 +88,19 @@ export function SessionDetails({
   params,
   choices,
   market = false,
+  watchedHours = 0,
 }: {
   result: RankResult
   items: ItemMap
   editing: PlanEditing
   params: EvaluateParams
   choices: Choices | undefined
-  /** a gold list's row: no skill points; Market details (closed), the flow chart (open) and the steps (closed) as
-   * sections, instead of a switch between them */
+  /** a gold list's row: no skill points; Market (closed, summed up in its header), the flow chart (open) and the
+   * steps (closed) as sections, instead of a switch between them; an item name in the steps or flow chart opens
+   * Market on that item */
   market?: boolean
+  /** the hours the auction house was watched this week, for what was seen sold */
+  watchedHours?: number
 }) {
   const [view, setView] = useState<PlanView>('steps')
   const defaultCopies = result.crafts
@@ -114,6 +119,10 @@ export function SessionDetails({
   const session = custom ? plan.data?.result : undefined
   const shown = session ?? result
   const shownItems = session ? { ...items, ...plan.data?.items } : items
+  const [sections, setSections] = useState<string[]>(['flow'])
+  const openMarket = () => setSections((open) => (open.includes('market') ? open : [...open, 'market']))
+  const marketState = useMarket(shown, 'gold', openMarket)
+  const watched = (session && plan.data?.watched_hours) ?? watchedHours
   const shownCopies = copies ?? defaultCopies
   const shownCrafter = crafter ?? result.crafter
   const changed = editing.modified || wantedCopies !== null || wantedCrafter !== null
@@ -164,11 +173,22 @@ export function SessionDetails({
         )}
       </Group>
       {market ? (
-        <Accordion multiple variant="separated" transitionDuration={0} defaultValue={['flow']}>
-          <Accordion.Item value="market">
-            <Accordion.Control>Market details</Accordion.Control>
+        <MarketFocus.Provider value={marketState.focus}>
+        <Accordion multiple variant="separated" transitionDuration={0} value={sections} onChange={setSections}>
+          <Accordion.Item value="market" ref={marketState.ref}>
+            <Accordion.Control>
+              Market{' '}
+              <MarketSummary result={shown} list={marketState.list} items={shownItems} mode="gold" />
+            </Accordion.Control>
             <Accordion.Panel>
-              <MarketPanel result={shown} items={shownItems} />
+              <MarketSection
+                result={shown}
+                items={shownItems}
+                list={marketState.list}
+                selected={marketState.selected}
+                onSelect={marketState.select}
+                watchedHours={watched}
+              />
             </Accordion.Panel>
           </Accordion.Item>
           <Accordion.Item value="flow">
@@ -184,6 +204,7 @@ export function SessionDetails({
             </Accordion.Panel>
           </Accordion.Item>
         </Accordion>
+        </MarketFocus.Provider>
       ) : (
         <>
           <Summary result={shown} />

@@ -29,6 +29,7 @@ export const bought = (
   convert: false,
   flip: false,
   enchant: false,
+  short: 0,
   inputs: [],
 })
 
@@ -116,6 +117,7 @@ export const robeResult: RankResult = {
     convert: false,
     flip: false,
     enchant: false,
+    short: 0,
     inputs: [
       bought(1, 'Linen Cloth', 10, 200),
       bought(2, 'Coarse Thread', 1, 100, 'vendor', [

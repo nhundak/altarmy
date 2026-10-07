@@ -1233,6 +1233,22 @@ def test_rank_buys_at_the_cheapest_listing_and_says_how_many_are_listed(
     assert buy["value"] == -(3 * 20 + (buy["quantity"] - 3) * 25)
 
 
+def test_rank_says_what_each_ah_buy_is_short_of_and_how_long_the_house_was_watched(
+    client: TestClient, priced: Connection
+) -> None:
+    now = db.utcnow()
+    for at in (now - timedelta(minutes=20), now):  # one pair of scans, 20 minutes apart
+        scanned(priced, {1: [(20, 3)], 2: [(100, 50)]}, at=at)
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
+    linen = next(n for n in r["tree"]["inputs"] if n["item_id"] == 1)
+    assert linen["short"] == linen["quantity"] - 3 > 0
+    assert sum(n["short"] for n in r["tree"]["inputs"]) == r["short"]
+    assert body["watched_hours"] == pytest.approx(1 / 3)
+    got = client.post("/api/evaluate", json={"recipe_id": r["recipe_id"], "choices": {}}).json()
+    assert got["watched_hours"] == body["watched_hours"]
+
+
 @pytest.mark.parametrize(("listed", "level", "reason"), [(2, "low", "thin"), (50, "medium", "unwatched")])
 def test_rank_says_how_far_an_ah_sell_price_can_be_trusted(
     client: TestClient, priced: Connection, listed: int, level: str, reason: str

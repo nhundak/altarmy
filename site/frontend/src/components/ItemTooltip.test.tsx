@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { MarketFocus } from '../lib/marketFocus'
 import { renderWithProviders, shown } from '../test/utils'
 import { hammer, helm, linen, robe, thread } from '../test/items'
 import { ItemLink, ItemTooltip, RecipeTooltip } from './ItemTooltip'
@@ -111,6 +112,25 @@ describe('ItemTooltip', () => {
     expect(screen.getByText('Tailoring')).toBeInTheDocument()
     expect(screen.getByText('Reagents: Linen Cloth (10), Coarse Thread')).toBeInTheDocument()
     expect(screen.getByText('Binds when equipped')).toBeInTheDocument()
+  })
+
+  it("is a button opening the plan's Market section on it, inside a plan that shows the item", async () => {
+    const select = vi.fn()
+    const focus = (has: boolean) => ({ has: () => has, select })
+    const { unmount } = renderWithProviders(
+      <MarketFocus.Provider value={focus(false)}>
+        <ItemLink item={robe} />
+      </MarketFocus.Provider>,
+    )
+    expect(screen.queryByRole('button', { name: 'Green Robe' })).not.toBeInTheDocument()
+    unmount()
+    renderWithProviders(
+      <MarketFocus.Provider value={focus(true)}>
+        <ItemLink item={robe} />
+      </MarketFocus.Provider>,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Green Robe' }))
+    expect(select).toHaveBeenCalledWith(robe.id)
   })
 
   it('opens on hover of an item link', async () => {

@@ -802,6 +802,11 @@
           },
           "result": {
             "$ref": "#/components/schemas/RankResult"
+          },
+          "watched_hours": {
+            "default": 0.0,
+            "title": "Watched Hours",
+            "type": "number"
           }
         },
         "required": [
@@ -1926,6 +1931,11 @@
             "title": "Seconds",
             "type": "number"
           },
+          "short": {
+            "default": 0,
+            "title": "Short",
+            "type": "integer"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -2217,6 +2227,11 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "watched_hours": {
+            "default": 0.0,
+            "title": "Watched Hours",
+            "type": "number"
           }
         },
         "required": [

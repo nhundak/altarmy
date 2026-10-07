@@ -183,6 +183,7 @@ class NodeOut(BaseModel):
     convert: bool = False  # crafted by an essence conversion
     flip: bool = False  # a flip's root: nothing is crafted, its one input (bought) is what is sold
     enchant: bool = False  # an enchant's root: no item (`item_id` 0), named after the spell
+    short: int = 0  # bought on the AH: units more than its ladder lists (priced at its dearest level)
     inputs: list[NodeOut]
 
 
@@ -209,6 +210,7 @@ def _node_out(n: engine.Node, faction: Callable[[str, int, int], str]) -> NodeOu
         convert=n.convert,
         flip=n.flip,
         enchant=n.enchant,
+        short=n.short,
         inputs=[_node_out(i, faction) for i in n.inputs],
     )
 
@@ -512,6 +514,9 @@ class RankResponse(BaseModel):
     options: list[RankResult] = []
     # each option's `chain` (`SKILL_CHAIN` runs at most), in the options' order: the first is `chain`'s start
     option_chains: list[list[RankResult]] = []
+    # the hours the selected auction house was watched this week (`prices.watched_hours`): what any
+    # item's "seen sold" counts are measured against
+    watched_hours: float = 0.0
 
 
 class EvaluateRequest(BaseModel):
@@ -548,6 +553,7 @@ class EvaluateRequest(BaseModel):
 class EvaluateResponse(BaseModel):
     result: RankResult
     items: dict[int, ItemInfo]  # every item the result mentions, for tooltips
+    watched_hours: float = 0.0  # as RankResponse's
 
 
 class TimeConfigModel(BaseModel):
@@ -1378,6 +1384,7 @@ def get_rank(
         chain_start=start_out,
         options=options_out,
         option_chains=option_chains_out,
+        watched_hours=s.watched,
     )
 
 
@@ -1469,7 +1476,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     )
     if r.recipe.id in taken:
         _learned_by_then(out)
-    return EvaluateResponse(result=out, items=_item_infos(state, s, [r]))
+    return EvaluateResponse(result=out, items=_item_infos(state, s, [r]), watched_hours=s.watched)
 
 
 EVENTS = logging.getLogger("altarmy_profit.events")

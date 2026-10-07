@@ -763,6 +763,11 @@ export interface components {
                 [key: string]: components["schemas"]["ItemInfo"];
             };
             result: components["schemas"]["RankResult"];
+            /**
+             * Watched Hours
+             * @default 0
+             */
+            watched_hours: number;
         };
         /** EventIn */
         EventIn: {
@@ -1188,6 +1193,11 @@ export interface components {
              * @default 0
              */
             seconds: number;
+            /**
+             * Short
+             * @default 0
+             */
+            short: number;
             /** Source */
             source: string;
             /** Via */
@@ -1329,6 +1339,11 @@ export interface components {
             results: components["schemas"]["RankResult"][];
             /** Total */
             total: number;
+            /**
+             * Watched Hours
+             * @default 0
+             */
+            watched_hours: number;
         };
         /** RankResult */
         RankResult: {

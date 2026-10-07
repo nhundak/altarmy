@@ -226,6 +226,7 @@ const Results = memo(function Results({
         items={items}
         classes={rank.data.classes}
         learn={rank.data.learn}
+        watchedHours={rank.data.watched_hours}
         params={{
           unlearned: filters.unlearned,
           lookAhead: filters.lookAhead,
