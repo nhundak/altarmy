@@ -2,7 +2,7 @@
 
 Account-wide alt management for **World of Warcraft: The Burning Crusade Classic**.
 
-AltArmy collects character data while you play and presents it in tabbed dashboards: character summary, gear and reputation grids, profession cooldowns and raid lockouts, item/recipe search, leveling graphs, and optional guild data sharing.
+AltArmy collects character data while you play and presents it in tabbed dashboards: character summary, gear and reputation grids, each character's bags, bank and mail slot by slot, profession cooldowns and raid lockouts, item/recipe search, leveling graphs, and optional guild data sharing.
 
 ## Docs
 

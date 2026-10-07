@@ -24,20 +24,20 @@ Empty slots are drawn as empty slot art. A slot's tooltip is the item's, plus wh
 
 The bank shows "Bank not recorded yet" until the character has opened its bank once. Characters scanned before slot counts were recorded (containers v2) get their bag sizes estimated from the items seen (a `~` before the count, explained in the header tooltip) until their next bag or bank scan.
 
-On WoW Forever the bank is its tabs (each a bag slot), there is no separate main bank grid, the keyring is container -1 and bag 5 is the carried reagent bag; DataStore's bag roles (`DS:GetBagRoles()`) sort that out for the tab and for Search's locations. The first bank tab's slot holds a hidden placeholder item ("Character Bank Tab Bag (DNT)", Blizzard's do-not-translate marker), so that first tab is headed "Bank Bag" (later tabs without a real bag "Bank Tab N") and shows no item tooltip.
+On WoW Forever the bank is its tabs (each a bag slot), there is no separate main bank grid, the keyring is container -1 and bag 5 is the carried reagent bag; DataStore's bag roles (`DS:GetBagRoles()`) sort that out for the tab and for Search's locations. The first bank tab's slot holds a hidden placeholder item ("Character Bank Tab Bag (DNT)", Blizzard's do-not-translate marker); DataStore never records it as a bag, so that tab is headed "Bank Bag" with the bank icon and no item tooltip (later tabs without a real bag are "Bank Tab N").
 
 ## Mail
 
 Two layouts:
 
-- **Inbox view** (default): one row per message with its attachment icons (wrapping when there are many), subject, sender, money and time left (yellow under 7 days, red under 3). The Subject, From, Money and Expires headers sort the rows (click again to flip; the choice is kept), latest expiry first by default like the stock inbox. Subject and From stretch with the window; the other columns are fixed. Mail predicted from a send or a return is marked "(sent)" / "(returned)" until that character opens its mailbox. Hovering a row repeats the message's details; hovering an icon shows the item.
+- **Inbox view** (default): one row per message with its attachment icons (wrapping when there are many), subject, sender, money and time left (yellow under 7 days, red under 3). The Subject, From, Money and Expires headers sort the rows (click again to flip; the choice is kept), latest expiry first by default like the stock inbox. Subject and From stretch with the window; the other columns are fixed. Mail predicted from a send is marked "(sent)" and mail the game returned "(returned)" (a return predicted from the hook too), until that character opens its mailbox and the inbox is read for real. Hovering a row repeats the message's details; hovering an icon shows the item.
 - **Combined items**: every attachment as an item slot, the message's sender and expiry in the tooltip; under the grid, a coin slot with the total gold waiting in the mail.
 
 "No mail recorded yet" until the character has opened its mailbox once. The footer counts messages and items and says when the mailbox was last checked.
 
 ## Refresh
 
-The open view redraws after any bag, bank or mailbox scan (`DS:OnContainerDataChanged`), when a cached send is written, and when an item's icon arrives from the server (`GET_ITEM_INFO_RECEIVED`).
+The open view redraws after any bag, bank, equipment or mailbox scan (`DS:OnContainerDataChanged`), when a cached send is written, and when an item's icon arrives from the server (`GET_ITEM_INFO_RECEIVED`, through `UI/PendingItemIcons.lua`). Bursts (looting fires one bag update per bag) are coalesced into one redraw on the next frame, and nothing redraws while the window is closed.
 
 ## Data source
 

@@ -52,6 +52,12 @@ local function FindCharacterByName(realm, name)
 end
 DS._FindCharacterByName = FindCharacterByName
 
+--- Days a mail row has left now: its daysLeft at the scan less the time since (nil without an expiry).
+function DS.MailRowDaysLeft(row, now)
+    if type(row) ~= "table" or type(row.daysLeft) ~= "number" then return nil end
+    return row.daysLeft - ((now or Now()) - (row.lastCheck or 0)) / 86400
+end
+
 local function GetMailTable(char, index)
     if not char or not index or index < 1 then return nil end
     local mails = char.Mails or {}
@@ -146,11 +152,7 @@ function DS:GetMailInfo(char, index)
     end
     local data = GetMailTable(char, index)
     if not data then return nil, nil, nil, nil, nil, nil, nil, nil end
-    local daysLeft = data.daysLeft
-    local lastCheck = data.lastCheck or 0
-    if daysLeft and lastCheck then
-        daysLeft = daysLeft - (Now() - lastCheck) / 86400
-    end
+    local daysLeft = DS.MailRowDaysLeft(data, Now())
     return data.icon, data.count, data.link, data.money, data.subject, data.sender, daysLeft, data.returned
 end
 
@@ -165,12 +167,9 @@ function DS:GetSoonestMailDaysLeft(char, now)
     local soonest = nil
     local function consider(rows)
         for _, data in ipairs(rows or {}) do
-            if data and type(data.daysLeft) == "number" then
-                local lastCheck = data.lastCheck or 0
-                local left = data.daysLeft - (now - lastCheck) / 86400
-                if soonest == nil or left < soonest then
-                    soonest = left
-                end
+            local left = DS.MailRowDaysLeft(data, now)
+            if left and (soonest == nil or left < soonest) then
+                soonest = left
             end
         end
     end

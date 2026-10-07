@@ -30,9 +30,10 @@ local function resolveCaps(opts)
     return NativeUI and NativeUI.GetCaps and NativeUI.GetCaps() or {}
 end
 
+-- Theme.FONTS.count (NumberFontNormal, as ItemButtonTemplate's Count); Theme loads before this file.
 local function countFont()
     local Theme = AltArmy.Theme
-    return Theme and Theme.FONTS and Theme.FONTS.count or "NumberFontNormal"
+    return Theme and Theme.FONTS and Theme.FONTS.count
 end
 
 --- name, quality, texture for an item id or link, from whichever item API the client has.
@@ -235,26 +236,30 @@ function ISB.SetItem(btn, entry)
 end
 
 --- A pool of slot buttons on `parent`: Acquire() hands out a shown button (made with opts), ReleaseAll()
---- hides them all. `active` lists the buttons handed out since the last release.
+--- hides them all. `active` lists the objects handed out since the last release. Other frame kinds pool
+--- the same way with opts.create(parent) -> frame and opts.reset(frame) (run on release).
 function ISB.CreatePool(parent, opts)
+    opts = opts or {}
+    local create = opts.create or function(p) return ISB.Create(p, opts) end
+    local reset = opts.reset or ISB.SetEmpty
     local pool = { free = {}, active = {} }
     function pool.Acquire()
-        local btn = table.remove(pool.free)
-        if not btn then
-            btn = ISB.Create(parent, opts)
+        local obj = table.remove(pool.free)
+        if not obj then
+            obj = create(parent)
         end
-        btn:Show()
-        pool.active[#pool.active + 1] = btn
-        return btn
+        obj:Show()
+        pool.active[#pool.active + 1] = obj
+        return obj
     end
     function pool.ReleaseAll()
         for i = #pool.active, 1, -1 do
-            local btn = pool.active[i]
+            local obj = pool.active[i]
             pool.active[i] = nil
-            ISB.SetEmpty(btn)
-            btn:Hide()
-            btn:ClearAllPoints()
-            pool.free[#pool.free + 1] = btn
+            reset(obj)
+            obj:Hide()
+            obj:ClearAllPoints()
+            pool.free[#pool.free + 1] = obj
         end
     end
     return pool

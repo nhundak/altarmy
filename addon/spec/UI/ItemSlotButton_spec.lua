@@ -266,6 +266,18 @@ describe("ItemSlotButton", function()
   end)
 
   describe("CreatePool", function()
+    it("pools any frame kind with a create and reset of the caller's", function()
+      local made, resets = 0, 0
+      local pool = ISB.CreatePool({}, {
+        create = function() made = made + 1; return stubFrame() end,
+        reset = function() resets = resets + 1 end,
+      })
+      local a = pool.Acquire()
+      pool.ReleaseAll()
+      assert.are.equal(a, pool.Acquire())
+      assert.are.same({ 1, 1 }, { made, resets })
+    end)
+
     it("reuses released buttons and empties them", function()
       local pool = ISB.CreatePool({}, { caps = {} })
       local a = pool.Acquire()

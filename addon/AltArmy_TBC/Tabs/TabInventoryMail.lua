@@ -13,7 +13,8 @@ local IO = AltArmy.InventoryOptions
 local IL = AltArmy.InventoryLayout
 local ISB = AltArmy.ItemSlotButton
 local SD = AltArmy.SummaryData
-if not (DS and Theme and IO and IL and ISB and SD) then return end
+local PendingIcons = AltArmy.PendingItemIcons
+if not (DS and Theme and IO and IL and ISB and SD and PendingIcons) then return end
 
 local panel = frame.MailView
 
@@ -28,6 +29,7 @@ local UI = {
     SLOT = ISB.SIZE,
     GAP = ISB.SPACING,
     STATUS_HEIGHT = 20,
+    FOOTER_RIGHT_MARGIN = AltArmy.WINDOW_GRIP_INSET or 16, -- clear of the window's resize grip
     FALLBACK_WIDTH = 600,
     -- Sums to 626 at the stock window size (the list viewport's width; see Tabs/TabEconomy.lua). Items,
     -- Money and Expires are fixed; Subject and From share what a wider window adds (FitColumns).
@@ -43,7 +45,7 @@ local UI = {
     GOLD_ROW_GAP = 20, -- between the item grid and the gold line
 }
 
-local state = { rows = {}, rowPool = {}, pendingIcons = {}, iconEvents = nil }
+local state = { rows = {}, rowPool = {} }
 
 local function TotalColWidth()
     local w = 0
@@ -58,7 +60,7 @@ status:SetPoint("BOTTOMLEFT", inner, "BOTTOMLEFT", 0, 0)
 status:SetHeight(UI.STATUS_HEIGHT)
 status:SetJustifyH("LEFT")
 local money = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-money:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", 0, 0)
+money:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -UI.FOOTER_RIGHT_MARGIN, 0)
 money:SetHeight(UI.STATUS_HEIGHT)
 money:SetJustifyH("RIGHT")
 status:SetPoint("RIGHT", money, "LEFT", -Theme.SECTION_GAP, 0)
@@ -161,19 +163,12 @@ empty:Hide()
 
 local Refresh
 
+-- Item ids whose icons were not cached when drawn; the view redraws (once) when they arrive.
+local pendingIcons = PendingIcons.Create(function()
+    if panel:IsVisible() then Refresh() end
+end)
 local function TrackPendingIcon(itemID)
-    if not itemID then return end
-    state.pendingIcons[itemID] = true
-    if not state.iconEvents and CreateFrame then
-        state.iconEvents = CreateFrame("Frame")
-        state.iconEvents:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-        state.iconEvents:SetScript("OnEvent", function(_, _, itemId)
-            itemId = tonumber(itemId)
-            if not itemId or not state.pendingIcons[itemId] then return end
-            state.pendingIcons[itemId] = nil
-            if panel:IsShown() and frame:IsShown() then Refresh() end
-        end)
-    end
+    pendingIcons.Track(itemID)
 end
 
 local function Money(copper)
@@ -190,10 +185,12 @@ end
 --- The lines a message adds under an attachment's tooltip, and the row tooltip's body.
 local function MessageLines(tooltip, msg)
     local from = msg.sender and msg.sender ~= "" and ("From " .. msg.sender) or nil
-    if msg.predicted then
+    local mark = IL.MessageMark(msg)
+    if mark == "returned" then
+        from = (from and from .. ", " or "") .. (msg.predicted and "returned, not seen in the mailbox yet"
+            or "returned")
+    elseif mark == "sent" then
         from = (from and from .. ", " or "") .. "sent, not seen in the mailbox yet"
-    elseif msg.returned then
-        from = (from and from .. ", " or "") .. "returned"
     end
     if from then tooltip:AddLine(from, UI.GRAY[1], UI.GRAY[2], UI.GRAY[3]) end
     local text, level = IL.FormatDaysLeft(msg.daysLeft)
@@ -305,10 +302,9 @@ local function LayoutRows(messages, width)
             attachments = attachments + 1
         end
         local subject = msg.subject and msg.subject ~= "" and msg.subject or "(no subject)"
-        if msg.predicted then
-            subject = subject .. " |cff9d9d9d(sent)|r"
-        elseif msg.returned then
-            subject = subject .. " |cff9d9d9d(returned)|r"
+        local mark = IL.MessageMark(msg)
+        if mark then
+            subject = subject .. " |cff9d9d9d(" .. mark .. ")|r"
         end
         row.cells.subject:SetText(subject)
         row.cells.sender:SetText(msg.sender or "")
@@ -355,6 +351,7 @@ local function LastChecked(char)
 end
 
 Refresh = function()
+    pendingIcons.Clear()
     ReleaseRows()
     gridSlots.ReleaseAll()
     goldText:Hide()
@@ -402,7 +399,7 @@ frame.RefreshMail = Refresh
 
 -- Both layouts follow the window's width (the resize grip).
 viewport.scroll:HookScript("OnSizeChanged", function()
-    if panel:IsShown() and frame:IsShown() then
+    if panel:IsVisible() then
         Refresh()
     end
 end)

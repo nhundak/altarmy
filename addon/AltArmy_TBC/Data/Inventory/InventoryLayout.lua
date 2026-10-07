@@ -1,7 +1,8 @@
 -- AltArmy TBC — the Inventory tab's layout model: turns a stored character record (DataStore containers
--- and mail) into the blocks, grids and inbox rows the tab draws. Pure: no WoW API and no frames, so bag
--- names and icons come from the caller (opts.resolveBag) and slot counts for data saved before
--- containers v3 are estimated here (ResolveNumSlots).
+-- and mail) into the blocks, grids and inbox rows the tab draws. No WoW API and no frames: bag names
+-- and icons come from the caller (opts.resolveBag), which container is which from DataStore's bag
+-- roles (opts.ids = DS:GetBagRoles()), and slot counts for data saved before containers v3 are
+-- estimated here (ResolveNumSlots).
 
 if not AltArmy then return end
 
@@ -10,7 +11,7 @@ local IL = AltArmy.InventoryLayout
 
 IL.CONST = {
     DEFAULT_BACKPACK_SLOTS = 16,
-    DEFAULT_BANK_SLOTS = 24, -- TBC Anniversary's NUM_BANKGENERIC_SLOTS; the tab passes the client's value
+    DEFAULT_BANK_SLOTS = 28, -- TBC Anniversary's NUM_BANKGENERIC_SLOTS; the tab passes the client's live value
     KEYRING_COLUMNS = 4, -- the keyring grows by rows of four, so an estimate rounds up to one
     -- Stock ContainerFrame geometry: 37 px slots on a 42 px pitch.
     SLOT = 37,
@@ -20,7 +21,6 @@ IL.CONST = {
     WIDE_BLOCK_SLOTS = 20, -- a bag bigger than this (Forever's bank tabs) is drawn 7 wide too
     COMBINED_MAX_COLUMNS = 10, -- retail's combined bags
     MAIL_ATTACHMENTS_MAX = 12,
-    SECONDS_PER_DAY = 86400,
 }
 local C = IL.CONST
 
@@ -29,18 +29,14 @@ IL.DEFAULT_NAMES = {
     bankbag = "Bank Bag %d",
 }
 
--- Which stored container id plays which role: DataStore's bag roles (DS:GetBagRoles(), the shape
--- DS._BuildBagRoles makes), passed as opts.ids. These two are what it builds on TBC Anniversary and on
--- WoW Forever (there the keyring is -1, bag 5 is carried, the bank is tabs 6-14 and has no main
--- container), and the Classic one is the default.
-IL.CLASSIC_IDS = {
-    backpack = 0, bags = { 1, 2, 3, 4 }, keyring = -2, bank = -1, bankBags = { 5, 6, 7, 8, 9, 10, 11 },
-    bankBagName = "Bank Bag %d",
-}
-IL.FOREVER_IDS = {
-    backpack = 0, bags = { 1, 2, 3, 4, 5 }, reagentBag = 5, keyring = -1, bank = nil,
-    bankBags = { 6, 7, 8, 9, 10, 11, 12, 13, 14 }, bankBagName = "Bank Tab %d", firstBankBagName = "Bank Bag",
-}
+-- Which stored container id plays which role: DataStore's bag roles (DS:GetBagRoles(), the table
+-- DS._BuildBagRoles makes: backpack, bags, reagentBag, keyring, bank, bankBags, bankBagName,
+-- firstBankBagName, bagSet, bankBagSet), passed as opts.ids. Without one the loaded DataStore's roles
+-- are used, so the two never disagree.
+local function defaultIds()
+    local DS = AltArmy.DataStore
+    return DS and DS.GetBagRoles and DS:GetBagRoles() or nil
+end
 
 local function indexOf(list, value)
     for i, v in ipairs(list or {}) do
@@ -49,16 +45,17 @@ local function indexOf(list, value)
     return nil
 end
 
---- The role a container id plays under an id map: "backpack", "bag", "reagentbag", "keyring", "bank",
---- "bankbag" or nil.
+--- The role a container id plays under a roles table: "backpack", "bag", "reagentbag", "keyring",
+--- "bank", "bankbag" or nil (the same answers as DS:GetBagRole for the running client's roles).
 local function kindOf(bagID, ids)
-    ids = ids or IL.CLASSIC_IDS
+    ids = ids or defaultIds()
+    if not ids or type(bagID) ~= "number" then return nil end
     if bagID == ids.backpack then return "backpack" end
-    if ids.bank ~= nil and bagID == ids.bank then return "bank" end
-    if bagID == ids.keyring then return "keyring" end
     if ids.reagentBag ~= nil and bagID == ids.reagentBag then return "reagentbag" end
-    if indexOf(ids.bags, bagID) then return "bag" end
-    if indexOf(ids.bankBags, bagID) then return "bankbag" end
+    if (ids.bagSet and ids.bagSet[bagID]) or indexOf(ids.bags, bagID) then return "bag" end
+    if ids.keyring ~= nil and bagID == ids.keyring then return "keyring" end
+    if ids.bank ~= nil and bagID == ids.bank then return "bank" end
+    if (ids.bankBagSet and ids.bankBagSet[bagID]) or indexOf(ids.bankBags, bagID) then return "bankbag" end
     return nil
 end
 IL.KindOf = kindOf
@@ -115,7 +112,7 @@ end
 --- opts.resolveBag(block) -> name, icon may override both.
 function IL.BuildBlocks(char, bagIDs, opts)
     opts = opts or {}
-    local ids = opts.ids or IL.CLASSIC_IDS
+    local ids = opts.ids or defaultIds() or {}
     local containers = char and char.Containers or {}
     local blocks = {}
     for _, bagID in ipairs(bagIDs) do
@@ -168,7 +165,9 @@ end
 --- The Bags view: backpack, the bags, then the keyring (opts.includeKeyring ~= false).
 function IL.BagsBlocks(char, opts)
     opts = opts or {}
-    local ids = opts.ids or IL.CLASSIC_IDS
+    local ids = opts.ids or defaultIds()
+    if not ids then return {} end
+    opts.ids = ids
     local list = { ids.backpack }
     for _, bagID in ipairs(ids.bags) do list[#list + 1] = bagID end
     if opts.includeKeyring ~= false and ids.keyring ~= nil then
@@ -181,9 +180,10 @@ end
 --- character's bank was scanned once (no bank container stored).
 function IL.BankBlocks(char, opts)
     opts = opts or {}
-    local ids = opts.ids or IL.CLASSIC_IDS
+    local ids = opts.ids or defaultIds()
     local containers = char and char.Containers
-    if not containers then return nil end
+    if not containers or not ids then return nil end
+    opts.ids = ids
     local list = {}
     if ids.bank ~= nil then list[#list + 1] = ids.bank end
     for _, bagID in ipairs(ids.bankBags) do list[#list + 1] = bagID end
@@ -225,11 +225,20 @@ function IL.Combined(blocks)
     return out
 end
 
+-- DataStore owns the expiry arithmetic (DS.MailRowDaysLeft, as GetMailInfo uses).
 local function daysLeftNow(row, now)
-    local daysLeft = row.daysLeft
-    if type(daysLeft) ~= "number" then return nil end
-    local lastCheck = row.lastCheck or 0
-    return daysLeft - (now - lastCheck) / C.SECONDS_PER_DAY
+    local DS = AltArmy.DataStore
+    if not DS or not DS.MailRowDaysLeft then return nil end
+    return DS.MailRowDaysLeft(row, now)
+end
+
+--- How the inbox marks a message: "returned" when the game marked it returned (a return predicted
+--- from the hook too), "sent" when it was predicted from a send, nil otherwise.
+function IL.MessageMark(msg)
+    if not msg then return nil end
+    if msg.returned then return "returned" end
+    if msg.predicted then return "sent" end
+    return nil
 end
 
 --- Inbox messages from char.Mails (scanned) then char.MailCache (predicted from sends and returns),

@@ -107,13 +107,20 @@ elseif main.SetMinResize then
     main:SetMinResize(FRAME_WIDTH, FRAME_HEIGHT)
 end
 
---- The saved window size, when it is a valid one no smaller than the stock size.
+--- The saved window size, when it is a valid one no smaller than the stock size, clamped to the
+--- screen so a size saved on a bigger monitor still opens with its grip reachable.
 local function SavedWindowSize()
     local o = _G.AltArmyTBC_Options
     local w = type(o) == "table" and type(o.window) == "table" and o.window or nil
     if not w or type(w.width) ~= "number" or type(w.height) ~= "number" then return nil end
     if w.width < FRAME_WIDTH or w.height < FRAME_HEIGHT then return nil end
-    return w.width, w.height
+    local width, height = w.width, w.height
+    if UIParent and UIParent.GetWidth then
+        local maxW, maxH = UIParent:GetWidth(), UIParent:GetHeight()
+        if maxW and maxW > 0 then width = math.min(width, math.max(FRAME_WIDTH, math.floor(maxW))) end
+        if maxH and maxH > 0 then height = math.min(height, math.max(FRAME_HEIGHT, math.floor(maxH))) end
+    end
+    return width, height
 end
 
 local function ApplySavedWindowSize()
@@ -154,6 +161,8 @@ sizeGrip:SetScript("OnEnter", function(self)
 end)
 sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
 main:HookScript("OnShow", ApplySavedWindowSize)
+-- Tab content that sits in the window's bottom-right corner keeps clear of the grip.
+AltArmy.WINDOW_GRIP_INSET = 16
 AltArmy.ResetWindowSize = function()
     main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
     SaveWindowSize()

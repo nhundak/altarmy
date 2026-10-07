@@ -17,7 +17,8 @@ Compared against:
 |---|---|---|
 | Leveling timeline analytics | **Shipped** | [tabs/graphs.md](tabs/graphs.md) |
 | Lockouts planner | **Partial** | [tabs/cooldowns.md](tabs/cooldowns.md) Raids view lists active lockouts; no “available now” list |
-| Mail expiration alerts | **Partial** | Login chat within 5 days; no mailbox-attention UI ([FEATURES.md](FEATURES.md) alerts) |
+| Mail expiration alerts | **Partial** | Login chat within 5 days; the Inventory tab's Mail view shows a character's waiting items, gold and expiry ([tabs/inventory.md](tabs/inventory.md)); no cross-character attention UI |
+| Per-character inventory view | **Shipped** | [tabs/inventory.md](tabs/inventory.md): bags, bank and mail drawn like the stock windows |
 | Global tooltip integration | **Not started** | Search already breaks down location *inside* the addon |
 | Daily/weekly task tracker | **Not started** | |
 | Gold and economy history | **Not started** | Research: [GOLD_ECONOMY_HISTORY_RESEARCH.md](GOLD_ECONOMY_HISTORY_RESEARCH.md) |
@@ -52,9 +53,9 @@ Compared against:
 
 ### 4) Mail expiration and pending mailbox alerts — partial
 
-**Shipped:** login chat within 5 days; mail gold in Summary; mail items in Search.
+**Shipped:** login chat within 5 days; mail gold in Summary; mail items in Search; one character's inbox (items, gold, expiry) in the Inventory tab.
 
-**Remaining:** mailbox-attention UI, gold/items waiting indicator, opt-in / threshold controls.
+**Remaining:** a cross-character mailbox-attention UI, opt-in / threshold controls.
 
 ### 5) Gold and economy history — not started
 

@@ -1299,11 +1299,12 @@ end
 local function weaponLoadoutStorageLocation(bagID)
     bagID = tonumber(bagID)
     if not bagID then return "bag" end
-    local bankContainer = (DS and DS.BANK_CONTAINER) or -1
-    local minBank = (DS and DS.MIN_BANK_BAG_ID) or 5
-    local maxBank = (DS and DS.MAX_BANK_BAG_ID) or 11
-    if bagID == bankContainer or (bagID >= minBank and bagID <= maxBank) then
+    local role = DS and DS.GetBagRole and DS:GetBagRole(bagID)
+    if role == "bank" or role == "bankbag" then
         return "bank"
+    end
+    if role == nil and (bagID == -1 or (bagID >= 5 and bagID <= 11)) then
+        return "bank" -- no DataStore loaded (tests): the Classic ids
     end
     return "bag"
 end

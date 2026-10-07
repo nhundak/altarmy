@@ -14,7 +14,8 @@ local IO = AltArmy.InventoryOptions
 local IL = AltArmy.InventoryLayout
 local ISB = AltArmy.ItemSlotButton
 local SD = AltArmy.SummaryData
-if not (DS and Theme and IO and IL and ISB and SD) then return end
+local PendingIcons = AltArmy.PendingItemIcons
+if not (DS and Theme and IO and IL and ISB and SD and PendingIcons) then return end
 
 local UI = {
     SLOT = ISB.SIZE,
@@ -29,6 +30,7 @@ local UI = {
     BAR_GAP = 4,
     BAR_HEIGHT = 34,
     STATUS_HEIGHT = 20,
+    FOOTER_RIGHT_MARGIN = AltArmy.WINDOW_GRIP_INSET or 16, -- clear of the window's resize grip
     FALLBACK_WIDTH = 600, -- before the viewport has a size
     EMPTY_NOTE_HEIGHT = 16,
     BACKPACK_ICON = "Interface\\Buttons\\Button-Backpack-Up",
@@ -37,31 +39,18 @@ local UI = {
     REAGENT_ICON = "Interface\\Icons\\INV_Misc_Bag_10",
     STATUS_ICON = 14,
     ESTIMATE_NOTE = "Slot count estimated from the items seen; exact after the next scan on this character.",
-    -- Blizzard's placeholder items ("Character Bank Tab Bag (DNT)" sits in Forever's first bank tab slot;
-    -- DNT = do not translate) are never shown by name.
-    INTERNAL_ITEM_MARK = "(DNT)",
 }
 
 local views = {} -- kind -> view
 
--- Item ids whose icons were not cached when drawn; the views redraw when they arrive.
-local pendingIcons = {}
-local iconEvents
-local function TrackPendingIcon(itemID)
-    if not itemID then return end
-    pendingIcons[itemID] = true
-    if not iconEvents and CreateFrame then
-        iconEvents = CreateFrame("Frame")
-        iconEvents:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-        iconEvents:SetScript("OnEvent", function(_, _, itemId)
-            itemId = tonumber(itemId)
-            if not itemId or not pendingIcons[itemId] then return end
-            pendingIcons[itemId] = nil
-            for _, view in pairs(views) do
-                if view.panel:IsShown() then view.Refresh() end
-            end
-        end)
+-- Item ids whose icons were not cached when drawn; the open view redraws (once) when they arrive.
+local pendingIcons = PendingIcons.Create(function()
+    for _, view in pairs(views) do
+        if view.panel:IsVisible() then view.Refresh() end
     end
+end)
+local function TrackPendingIcon(itemID)
+    pendingIcons.Track(itemID)
 end
 
 local function BagItemInfo(itemIDOrLink)
@@ -70,8 +59,8 @@ local function BagItemInfo(itemIDOrLink)
     return name, texture
 end
 
---- Name and icon for a block: the bag item's, or the stock art for the backpack, bank and keyring. A
---- placeholder bag item keeps its icon but not its name or tooltip (the block falls back to "Bank Tab N").
+--- Name and icon for a block: the bag item's, or the stock art for the backpack, bank and keyring. A bank
+--- bag slot without a recorded bag item (Forever's built-in first tab) gets the bank's icon.
 local function ResolveBag(block)
     if block.kind == "backpack" then return nil, UI.BACKPACK_ICON end
     if block.kind == "bank" then return nil, UI.BANK_ICON end
@@ -81,11 +70,8 @@ local function ResolveBag(block)
         texture = GetItemIcon and GetItemIcon(block.bagItemID) or nil
         if not texture then TrackPendingIcon(block.bagItemID) end
     end
-    if name and name:find(UI.INTERNAL_ITEM_MARK, 1, true) then
-        block.bagLink, block.bagItemID = nil, nil
-        name = nil
-    end
     if not texture and block.kind == "reagentbag" then texture = UI.REAGENT_ICON end
+    if not texture and block.kind == "bankbag" and not block.bagItemID then texture = UI.BANK_ICON end
     return name, texture
 end
 
@@ -177,27 +163,9 @@ local function CreateHeader(parent)
     return h
 end
 
---- A pool of header frames on `parent` (same Acquire / ReleaseAll shape as the slot pool).
-local function CreateHeaderPool(parent)
-    local pool = { free = {}, active = {} }
-    function pool.Acquire()
-        local h = table.remove(pool.free) or CreateHeader(parent)
-        h:Show()
-        pool.active[#pool.active + 1] = h
-        return h
-    end
-    function pool.ReleaseAll()
-        for i = #pool.active, 1, -1 do
-            local h = pool.active[i]
-            pool.active[i] = nil
-            h.block = nil
-            h.note:Hide()
-            h:Hide()
-            h:ClearAllPoints()
-            pool.free[#pool.free + 1] = h
-        end
-    end
-    return pool
+local function ResetHeader(h)
+    h.block = nil
+    h.note:Hide()
 end
 
 local function SlotWhere(block, slot)
@@ -322,7 +290,7 @@ local function CreateContainerView(panel, kind)
     view.status:SetJustifyH("LEFT")
     -- The character's gold, bottom right (as the stock bag and bank windows show it).
     view.money = inner:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
-    view.money:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", 0, 0)
+    view.money:SetPoint("BOTTOMRIGHT", inner, "BOTTOMRIGHT", -UI.FOOTER_RIGHT_MARGIN, 0)
     view.money:SetHeight(UI.STATUS_HEIGHT)
     view.money:SetJustifyH("RIGHT")
     view.status:SetPoint("RIGHT", view.money, "LEFT", -Theme.SECTION_GAP, 0)
@@ -346,7 +314,7 @@ local function CreateContainerView(panel, kind)
     view.child = view.viewport.child
     view.slots = ISB.CreatePool(view.child)
     view.bar = ISB.CreatePool(view.child, { size = UI.BAR_SLOT })
-    view.headers = CreateHeaderPool(view.child)
+    view.headers = ISB.CreatePool(view.child, { create = CreateHeader, reset = ResetHeader })
 
     view.empty = listViewport:CreateFontString(nil, "OVERLAY", Theme.FONTS.emptyState)
     view.empty:SetPoint("CENTER", listViewport, "CENTER", 0, 20)
@@ -356,6 +324,7 @@ local function CreateContainerView(panel, kind)
     view.empty:Hide()
 
     function view.Refresh()
+        pendingIcons.Clear()
         view.slots.ReleaseAll()
         view.bar.ReleaseAll()
         view.headers.ReleaseAll()
@@ -409,6 +378,6 @@ frame.RefreshBank = bank.Refresh
 -- The grid reflows when the window's size settles (the viewport has no width before the first show).
 for _, view in pairs(views) do
     view.viewport.scroll:HookScript("OnSizeChanged", function()
-        if view.panel:IsShown() and frame:IsShown() then view.Refresh() end
+        if view.panel:IsVisible() then view.Refresh() end
     end)
 end

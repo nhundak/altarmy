@@ -3,8 +3,28 @@
 describe("InventoryLayout", function()
     local IL
 
+    local DS, CLASSIC, FOREVER
+    local FOREVER_ENUM = {
+        Keyring = -1, Characterbanktab = -2, Backpack = 0, Bag_1 = 1, Bag_2 = 2, Bag_3 = 3, Bag_4 = 4,
+        ReagentBag = 5, CharacterBankTab_1 = 6, CharacterBankTab_2 = 7, CharacterBankTab_3 = 8,
+        CharacterBankTab_4 = 9, CharacterBankTab_5 = 10, CharacterBankTab_6 = 11, CharacterBankTab_7 = 12,
+        CharacterBankTab_8 = 13, CharacterBankTab_9 = 14,
+    }
+
     setup(function()
         _G.AltArmy = _G.AltArmy or {}
+        _G.AltArmyTBC_Data = _G.AltArmyTBC_Data or { Characters = {} }
+        _G.CreateFrame = _G.CreateFrame or function()
+            return { SetScript = function() end, RegisterEvent = function() end }
+        end
+        _G.UIParent = _G.UIParent or {}
+        -- The roles and the mail expiry arithmetic come from DataStore.
+        require("DataStore")
+        require("DataStoreContainers")
+        require("DataStoreMail")
+        DS = AltArmy.DataStore
+        CLASSIC = DS._BuildBagRoles(nil)
+        FOREVER = DS._BuildBagRoles(FOREVER_ENUM)
         package.loaded["InventoryLayout"] = nil
         require("InventoryLayout")
         IL = AltArmy.InventoryLayout
@@ -38,8 +58,8 @@ describe("InventoryLayout", function()
             assert.are.equal(16, n)
             assert.is_true(estimate)
             assert.are.equal(20, (IL.ResolveNumSlots(0, bag({ [20] = { 1, 1 } }), { backpack = 16 })))
-            assert.are.equal(28, (IL.ResolveNumSlots(-1, bag({}), { bank = 28 })))
-            assert.are.equal(24, (IL.ResolveNumSlots(-1, nil)))
+            assert.are.equal(24, (IL.ResolveNumSlots(-1, bag({}), { bank = 24 })))
+            assert.are.equal(28, (IL.ResolveNumSlots(-1, nil)))
             assert.are.equal(16, (IL.ResolveNumSlots(0, nil)))
         end)
 
@@ -123,7 +143,7 @@ describe("InventoryLayout", function()
     describe("BankBlocks", function()
         it("is nil until the bank was scanned", function()
             assert.is_nil(IL.BankBlocks({ Containers = { [0] = bag({}) } }))
-            assert.is_nil(IL.BankBlocks({ Containers = { [0] = bag({}) } }, { ids = IL.FOREVER_IDS }))
+            assert.is_nil(IL.BankBlocks({ Containers = { [0] = bag({}) } }, { ids = FOREVER }))
             assert.is_nil(IL.BankBlocks(nil))
         end)
 
@@ -152,13 +172,13 @@ describe("InventoryLayout", function()
         } }
 
         it("shows -1 as the keyring and bag 5 as the reagent bag in Bags, and tabs with no main bank in Bank", function()
-            local bags = IL.BagsBlocks(char, { ids = IL.FOREVER_IDS })
+            local bags = IL.BagsBlocks(char, { ids = FOREVER })
             assert.are.same({ 0, 1, 5, -1 }, { bags[1].bagID, bags[2].bagID, bags[3].bagID, bags[4].bagID })
             assert.are.equal("reagentbag", bags[3].kind)
             assert.are.equal("Reagent Bag", bags[3].name)
             assert.are.equal("keyring", bags[4].kind)
             assert.are.equal(12, bags[4].numSlots)
-            local bank = IL.BankBlocks(char, { ids = IL.FOREVER_IDS })
+            local bank = IL.BankBlocks(char, { ids = FOREVER })
             assert.are.equal(1, #bank)
             assert.are.equal(6, bank[1].bagID)
             assert.are.equal("bankbag", bank[1].kind)
@@ -166,17 +186,32 @@ describe("InventoryLayout", function()
             assert.are.equal(48, bank[1].numSlots)
         end)
 
-        it("KindOf follows the id map", function()
+        it("KindOf follows the roles table and agrees with DS:GetBagRole", function()
             assert.are.equal("bank", IL.KindOf(-1))
-            assert.are.equal("keyring", IL.KindOf(-1, IL.FOREVER_IDS))
-            assert.is_nil(IL.KindOf(-2, IL.FOREVER_IDS))
-            assert.are.equal("keyring", IL.KindOf(-2, IL.CLASSIC_IDS))
-            assert.are.equal("bankbag", IL.KindOf(14, IL.FOREVER_IDS))
+            assert.are.equal("keyring", IL.KindOf(-1, FOREVER))
+            assert.is_nil(IL.KindOf(-2, FOREVER))
+            assert.are.equal("keyring", IL.KindOf(-2, CLASSIC))
+            assert.are.equal("reagentbag", IL.KindOf(5, FOREVER))
+            assert.are.equal("bankbag", IL.KindOf(14, FOREVER))
             assert.is_nil(IL.KindOf(12))
+            assert.is_nil(IL.KindOf("x"))
+            for _, roles in ipairs({ CLASSIC, FOREVER }) do
+                DS.RebuildBagRoles(roles.retail and FOREVER_ENUM or nil)
+                for bagID = -3, 16 do
+                    assert.are.equal(DS:GetBagRole(bagID), IL.KindOf(bagID, roles), "bag " .. bagID)
+                end
+            end
+            DS.RebuildBagRoles(nil)
+        end)
+
+        it("uses the loaded DataStore's roles when none are passed", function()
+            local char = { Containers = { [0] = bag({}, { numSlots = 16 }), [-2] = bag({ [1] = { 1, 1 } }) } }
+            local blocks = IL.BagsBlocks(char)
+            assert.are.equal("keyring", blocks[#blocks].kind)
         end)
 
         it("estimates v2 data under the Forever map too", function()
-            local n, estimate = IL.ResolveNumSlots(-1, bag({ [5] = { 1, 1 } }), {}, IL.FOREVER_IDS)
+            local n, estimate = IL.ResolveNumSlots(-1, bag({ [5] = { 1, 1 } }), {}, FOREVER)
             assert.are.equal(8, n)
             assert.is_true(estimate)
         end)
@@ -229,13 +264,16 @@ describe("InventoryLayout", function()
                 { mailIndex = -1, itemID = 20, count = 3, sender = "Me", subject = "Sent", money = 0,
                     lastCheck = 1000, daysLeft = 30 },
                 { mailIndex = -1, money = 700, sender = "Me", subject = "Sent", lastCheck = 1000, daysLeft = 30 },
+                { mailIndex = -2, itemID = 21, count = 1, sender = "Me", subject = "Back", money = 0,
+                    lastCheck = 1000, daysLeft = 30, returned = true },
             },
         }
 
         it("groups rows by message in inbox order, scanned before predicted", function()
             local msgs = IL.MailMessages(char, 1000)
-            assert.are.equal(4, #msgs)
-            assert.are.same({ 1, 2, nil, -1 }, { msgs[1].index, msgs[2].index, msgs[3].index, msgs[4].index })
+            assert.are.equal(5, #msgs)
+            assert.are.same({ 1, 2, nil, -1, -2 },
+                { msgs[1].index, msgs[2].index, msgs[3].index, msgs[4].index, msgs[5].index })
             assert.are.equal("Alice", msgs[1].sender)
             assert.are.equal("Mats", msgs[1].subject)
             assert.are.equal(2, #msgs[1].items)
@@ -249,6 +287,11 @@ describe("InventoryLayout", function()
             assert.is_true(msgs[4].predicted)
             assert.are.equal(700, msgs[4].money)
             assert.are.equal(20, msgs[4].items[1].itemID)
+            -- a return predicted from the ReturnInboxItem hook: predicted and returned
+            assert.is_true(msgs[5].predicted)
+            assert.is_true(msgs[5].returned)
+            assert.are.equal("returned", IL.MessageMark(msgs[5]))
+            assert.are.equal("sent", IL.MessageMark(msgs[4]))
         end)
 
         it("adjusts days left by the time since the scan, keeping the soonest row", function()
@@ -258,9 +301,24 @@ describe("InventoryLayout", function()
             assert.are.equal(28, msgs[4].daysLeft)
         end)
 
+        it("takes the remaining days from DataStore's arithmetic", function()
+            local m = IL.MailMessages({ Mails = { { daysLeft = 10, lastCheck = 0 } } }, 2 * 86400)
+            assert.are.equal(8, m[1].daysLeft)
+        end)
+
         it("is empty without mail", function()
             assert.are.same({}, IL.MailMessages(nil, 0))
             assert.are.same({}, IL.MailMessages({ Mails = {} }, 0))
+        end)
+    end)
+
+    describe("MessageMark", function()
+        it("prefers returned over sent", function()
+            assert.are.equal("returned", IL.MessageMark({ returned = true, predicted = true }))
+            assert.are.equal("returned", IL.MessageMark({ returned = true }))
+            assert.are.equal("sent", IL.MessageMark({ predicted = true }))
+            assert.is_nil(IL.MessageMark({}))
+            assert.is_nil(IL.MessageMark(nil))
         end)
     end)
 

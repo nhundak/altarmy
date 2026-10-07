@@ -185,31 +185,19 @@ local clearRecipeFocus
 local applyRecipeFocus
 local updateWhisperButton
 
--- Item ids whose icons were missing on last layout; refreshed when GET_ITEM_INFO_RECEIVED fires.
-local pendingRecipeIconIds = {}
-local recipeIconEvents
+-- Item ids whose icons were missing on last layout; the view redraws (once) when they arrive.
+local recipeIcons = AltArmy.PendingItemIcons and AltArmy.PendingItemIcons.Create(function()
+    if selectedCharacter then
+        layoutRecipeView(selectedCharacter)
+    end
+end)
 
 local function clearPendingRecipeIcons()
-    for k in pairs(pendingRecipeIconIds) do
-        pendingRecipeIconIds[k] = nil
-    end
+    if recipeIcons then recipeIcons.Clear() end
 end
 
 local function trackPendingRecipeIcon(itemID)
-    if not itemID then return end
-    pendingRecipeIconIds[itemID] = true
-    if not recipeIconEvents and CreateFrame then
-        recipeIconEvents = CreateFrame("Frame")
-        recipeIconEvents:RegisterEvent("GET_ITEM_INFO_RECEIVED")
-        recipeIconEvents:SetScript("OnEvent", function(_, _, itemId)
-            itemId = tonumber(itemId)
-            if not itemId or not pendingRecipeIconIds[itemId] then return end
-            pendingRecipeIconIds[itemId] = nil
-            if selectedCharacter then
-                layoutRecipeView(selectedCharacter)
-            end
-        end)
-    end
+    if recipeIcons then recipeIcons.Track(itemID) end
 end
 
 local function copyExpandState(src)

@@ -660,4 +660,75 @@ describe("DataStoreContainers", function()
         { DS.NUM_BAG_SLOTS, DS.BANK_CONTAINER, DS.KEYRING_CONTAINER, DS.MIN_BANK_BAG_ID, DS.MAX_BANK_BAG_ID })
     end)
   end)
+
+  describe("scans under WoW Forever's roles", function()
+    local FOREVER = {
+      Keyring = -1, Characterbanktab = -2, Backpack = 0, Bag_1 = 1, Bag_2 = 2, Bag_3 = 3, Bag_4 = 4,
+      ReagentBag = 5, CharacterBankTab_1 = 6, CharacterBankTab_2 = 7, CharacterBankTab_3 = 8,
+    }
+    local sizes
+
+    before_each(function()
+      DS.RebuildBagRoles(FOREVER)
+      _G.UnitName = function() return "Forever" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.C_Container = nil
+      _G.ContainerIDToInventoryID = function(bagID) return 60 + bagID end
+      _G.GetInventoryItemLink = function(_, invSlot)
+        if invSlot == 66 then return "|Hitem:242709:0|h[Character Bank Tab Bag (DNT)]|h" end
+        if invSlot == 67 then return "|Hitem:5571:0|h[Small Black Pouch]|h" end
+        if invSlot == 65 then return "|Hitem:277114:0|h[Reagent Pouch]|h" end
+        return nil
+      end
+      _G.GetInventoryItemID = function() return nil end
+      _G.GetContainerNumSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.GetContainerItemLink = function() return nil end
+      _G.GetContainerItemInfo = function() return nil end
+      _G.GetContainerNumFreeSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.time = function() return 1 end
+      DS.IsBankOpen = function() return true end
+    end)
+
+    after_each(function()
+      DS.RebuildBagRoles(nil)
+    end)
+
+    it("exports the roles and the Classic names from them", function()
+      assert.are.same({ 5, nil, -1, 6, 8 },
+        { DS.NUM_BAG_SLOTS, DS.BANK_CONTAINER, DS.KEYRING_CONTAINER, DS.MIN_BANK_BAG_ID, DS.MAX_BANK_BAG_ID })
+      assert.are.equal("keyring", DS:GetBagRole(-1))
+      assert.are.equal("reagentbag", DS:GetBagRole(5))
+      assert.are.equal("bankbag", DS:GetBagRole(6))
+      assert.is_nil(DS:GetBagRole(-2))
+      assert.is_true(DS._IsPlayerCarriedBagID(5))
+      assert.is_true(DS._IsPlayerCarriedBagID(-1))
+    end)
+
+    it("ScanBags scans the backpack, bags 1-5 (reagent bag with its identity) and the keyring at -1", function()
+      sizes = { [0] = 20, [1] = 6, [5] = 1, [-1] = 12 }
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {}
+      DS:ScanBags()
+      assert.are.equal(20, char.Containers[0].numSlots)
+      assert.are.equal(6, char.Containers[1].numSlots)
+      assert.are.equal(1, char.Containers[5].numSlots)
+      assert.are.equal(277114, char.Containers[5].bagItemID)
+      assert.are.equal(12, char.Containers[-1].numSlots)
+      assert.is_nil(char.Containers[-2])
+      assert.are.equal(27, char.bagInfo.totalSlots)
+    end)
+
+    it("ScanBank scans the tabs, never records the built-in first tab's placeholder item, and skips -1", function()
+      sizes = { [-1] = 12, [6] = 48, [7] = 6 }
+      local char = DS:GetCurrentCharacter()
+      char.Containers = { [6] = { items = {}, links = {}, bagItemID = 242709, bagLink = "old" } }
+      DS:ScanBank()
+      assert.are.equal(48, char.Containers[6].numSlots)
+      assert.is_nil(char.Containers[6].bagItemID)
+      assert.is_nil(char.Containers[6].bagLink)
+      assert.are.equal(5571, char.Containers[7].bagItemID)
+      assert.is_nil(char.Containers[-1]) -- the keyring belongs to ScanBags
+      assert.are.equal(54, char.bankInfo.totalSlots)
+    end)
+  end)
 end)

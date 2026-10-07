@@ -232,6 +232,15 @@ describe("DataStoreMail", function()
     end)
   end)
 
+  describe("MailRowDaysLeft", function()
+    it("subtracts the time since the scan, nil without an expiry", function()
+      assert.are.equal(8, DS.MailRowDaysLeft({ daysLeft = 10, lastCheck = 1000 }, 1000 + 2 * 86400))
+      assert.are.equal(10, DS.MailRowDaysLeft({ daysLeft = 10 }, 0))
+      assert.is_nil(DS.MailRowDaysLeft({ itemID = 1 }, 0))
+      assert.is_nil(DS.MailRowDaysLeft(nil, 0))
+    end)
+  end)
+
   describe("message index (mail v2)", function()
     it("ScanMailbox stamps every row of a message with its inbox position", function()
       local char = { Mails = {}, MailCache = {} }

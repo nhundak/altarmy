@@ -108,6 +108,7 @@ UI\CharacterPinHideList.lua
 UI\ScoreSortRow.lua
 UI\ItemActions.lua
 UI\ItemSlotButton.lua
+UI\PendingItemIcons.lua
 UI\GraphCore.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua

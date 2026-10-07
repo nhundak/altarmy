@@ -62,9 +62,30 @@ function DS._BuildBagRoles(bagIndex)
     return roles
 end
 
-local ROLES = DS._BuildBagRoles(_G.Enum and _G.Enum.BagIndex)
+-- The Classic names other modules read (contiguous on both clients); set with the roles.
+local NUM_BAG_SLOTS, BANK_CONTAINER, KEYRING_CONTAINER, MIN_BANK_BAG_ID, MAX_BANK_BAG_ID
+local ROLES = {}
 DS.BagRoles = ROLES
 function DS:GetBagRoles() return ROLES end
+
+--- Build the roles for `bagIndex` (Enum.BagIndex) into the shared table. Done once at load; tests
+--- call it to switch clients.
+function DS.RebuildBagRoles(bagIndex)
+    local roles = DS._BuildBagRoles(bagIndex)
+    for k in pairs(ROLES) do ROLES[k] = nil end
+    for k, v in pairs(roles) do ROLES[k] = v end
+    NUM_BAG_SLOTS = #ROLES.bags
+    BANK_CONTAINER = ROLES.bank
+    KEYRING_CONTAINER = ROLES.keyring
+    MIN_BANK_BAG_ID = ROLES.bankBags[1]
+    MAX_BANK_BAG_ID = ROLES.bankBags[#ROLES.bankBags]
+    DS.NUM_BAG_SLOTS = NUM_BAG_SLOTS
+    DS.BANK_CONTAINER = BANK_CONTAINER
+    DS.KEYRING_CONTAINER = KEYRING_CONTAINER
+    DS.MIN_BANK_BAG_ID = MIN_BANK_BAG_ID
+    DS.MAX_BANK_BAG_ID = MAX_BANK_BAG_ID
+end
+DS.RebuildBagRoles(_G.Enum and _G.Enum.BagIndex)
 
 --- "backpack", "bag", "reagentbag", "keyring", "bank", "bankbag", or nil for an id this client does not use.
 function DS:GetBagRole(bagID)
@@ -77,19 +98,6 @@ function DS:GetBagRole(bagID)
     if ROLES.bankBagSet[bagID] then return "bankbag" end
     return nil
 end
-
--- The Classic names other modules read (contiguous on both clients).
-local NUM_BAG_SLOTS = #ROLES.bags
-local BANK_CONTAINER = ROLES.bank
-local KEYRING_CONTAINER = ROLES.keyring
-local MIN_BANK_BAG_ID = ROLES.bankBags[1]
-local MAX_BANK_BAG_ID = ROLES.bankBags[#ROLES.bankBags]
-
-DS.NUM_BAG_SLOTS = NUM_BAG_SLOTS
-DS.BANK_CONTAINER = BANK_CONTAINER
-DS.KEYRING_CONTAINER = KEYRING_CONTAINER
-DS.MIN_BANK_BAG_ID = MIN_BANK_BAG_ID
-DS.MAX_BANK_BAG_ID = MAX_BANK_BAG_ID
 
 local function IsPlayerCarriedBagID(bagID)
     local role = DS:GetBagRole(bagID)
@@ -190,9 +198,19 @@ local function GetBagInventorySlot(bagID)
     return nil
 end
 
+--- WoW Forever's first bank tab is the built-in bank: its slot holds a placeholder item, "Character
+--- Bank Tab Bag (DNT)" (Blizzard's do-not-translate marker), not a bag anyone owns.
+local function IsBuiltInBankTab(bagID)
+    return ROLES.retail and bagID == ROLES.bankBags[1]
+end
+
 local function ScanBagIdentity(char, bagID, preserveIfUnknown)
     if not char or not IsEquippableBagSlot(bagID) then return end
     local bag = GetContainer(char, bagID)
+    if IsBuiltInBankTab(bagID) then
+        ClearBagIdentity(bag) -- never recorded, so no reader shows the placeholder as a bag
+        return
+    end
     local invSlot = GetBagInventorySlot(bagID)
     if not invSlot then
         if not preserveIfUnknown then

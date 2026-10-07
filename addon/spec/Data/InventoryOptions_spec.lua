@@ -19,11 +19,9 @@ describe("InventoryOptions", function()
         it("creates the table with defaults", function()
             local o = IO.EnsureOptions()
             assert.are.equal(o, AltArmyTBC_Options.inventory)
-            assert.is_nil(o.activeView)
             assert.are.equal("blocks", o.bagLayout)
             assert.are.equal("blocks", o.bankLayout)
             assert.are.equal("rows", o.mailLayout)
-            assert.is_nil(o.selectedChar)
         end)
 
         it("keeps valid values and repairs invalid ones", function()
@@ -31,17 +29,14 @@ describe("InventoryOptions", function()
                 activeView = "mail", bagLayout = "combined", bankLayout = "nope", mailLayout = "grid",
             } }
             local o = IO.EnsureOptions()
-            assert.is_nil(o.activeView)
             assert.are.equal("combined", o.bagLayout)
             assert.are.equal("blocks", o.bankLayout)
             assert.are.equal("grid", o.mailLayout)
         end)
 
-        it("drops the selected character and active view saved by an older version", function()
-            _G.AltArmyTBC_Options = { inventory = { activeView = "mail", selectedChar = "Realm\\Name" } }
-            local o = IO.EnsureOptions()
-            assert.is_nil(o.activeView)
-            assert.is_nil(o.selectedChar)
+        it("leaves keys it does not own alone", function()
+            _G.AltArmyTBC_Options = { inventory = { somethingElse = 1 } }
+            assert.are.equal(1, IO.EnsureOptions().somethingElse)
         end)
     end)
 

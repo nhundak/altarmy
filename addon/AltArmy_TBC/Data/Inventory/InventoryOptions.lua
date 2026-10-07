@@ -1,5 +1,6 @@
--- AltArmy TBC — the Inventory tab's saved state (AltArmyTBC_Options.inventory): the active sub-view, the
--- chosen character and each view's layout. Pure: no WoW API, so the tab's choices are unit-tested.
+-- AltArmy TBC — the Inventory tab's saved state (AltArmyTBC_Options.inventory): each view's layout and
+-- the mail sort. The chosen character and sub-view are per opening (Tabs/TabInventory.lua), not saved.
+-- Pure: no WoW API, so the tab's choices are unit-tested.
 -- luacheck: globals AltArmyTBC_Options
 
 if not AltArmy then return end
@@ -53,8 +54,6 @@ function IO.EnsureOptions()
         o = {}
         AltArmyTBC_Options.inventory = o
     end
-    -- The active view is not saved either: every opening starts on Bags (older versions saved it).
-    o.activeView = nil
     for view, key in pairs(LAYOUT_KEYS) do
         if not validLayouts(view)[o[key]] then
             o[key] = LAYOUT_DEFAULTS[view]
@@ -67,9 +66,6 @@ function IO.EnsureOptions()
     if type(o.mailSortAscending) ~= "boolean" then
         o.mailSortAscending = IO.DEFAULT_MAIL_SORT.ascending
     end
-    -- The chosen character is not saved: each time the window opens, the tab starts on the character
-    -- playing (older versions saved it here).
-    o.selectedChar = nil
     return o
 end
 

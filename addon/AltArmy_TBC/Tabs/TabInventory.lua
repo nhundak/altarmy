@@ -31,7 +31,6 @@ local UI = {
 }
 
 local VIEW = {
-    active = "bags",
     tabs = nil,
     defs = {
         { name = "bags", label = "Bags", icon = "Interface\\Icons\\INV_Misc_Bag_08" },
@@ -104,7 +103,7 @@ function frame.GetSelectedCharacter()
 end
 
 local function RefreshActive()
-    local which = VIEW.active
+    local which = state.activeView
     if which == "bags" and frame.RefreshBags then
         frame.RefreshBags()
     elseif which == "bank" and frame.RefreshBank then
@@ -114,7 +113,23 @@ local function RefreshActive()
     end
 end
 frame.RefreshActive = RefreshActive
-frame.GetActiveView = function() return VIEW.active end
+frame.GetActiveView = function() return state.activeView end
+
+-- Scans arrive in bursts (one BAG_UPDATE per bag when looting): redraw once, next frame.
+local refreshScheduled = false
+local function ScheduleRefresh()
+    if refreshScheduled then return end
+    if C_Timer and C_Timer.After then
+        refreshScheduled = true
+        C_Timer.After(0, function()
+            refreshScheduled = false
+            if frame:IsVisible() then RefreshActive() end
+        end)
+    elseif frame:IsVisible() then
+        RefreshActive()
+    end
+end
+frame.ScheduleRefresh = ScheduleRefresh
 
 -- Toolbar: the character picker at the right end of the search slot, the layout dropdown left of it.
 local picker = Theme.CreateSingleSelectDropdown({
@@ -141,10 +156,10 @@ local layoutDropdown = Theme.CreateSingleSelectDropdown({
     dropdownParent = frame,
     width = UI.LAYOUT_WIDTH,
     popupAlign = "right",
-    getEntries = function() return IO.LayoutEntries(VIEW.active) end,
-    getSelectedId = function() return IO.GetLayout(IO.EnsureOptions(), VIEW.active) end,
+    getEntries = function() return IO.LayoutEntries(state.activeView) end,
+    getSelectedId = function() return IO.GetLayout(IO.EnsureOptions(), state.activeView) end,
     onSelect = function(id)
-        if IO.SetLayout(IO.EnsureOptions(), VIEW.active, id) then
+        if IO.SetLayout(IO.EnsureOptions(), state.activeView, id) then
             RefreshActive()
         end
     end,
@@ -164,7 +179,6 @@ local function SetActiveInventoryView(which)
     if not IO.VIEWS[which] then
         which = IO.DEFAULT_VIEW
     end
-    VIEW.active = which
     state.activeView = which
     for name, panel in pairs(panels) do
         panel:SetShown(name == which)
@@ -180,7 +194,7 @@ frame.SetInventoryView = SetActiveInventoryView
 -- Sub-view tabs hang from the panel top into the main window's toolbar row (as on Economy and Gear).
 VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
     onSelect = function(id)
-        if VIEW.active ~= id then
+        if state.activeView ~= id then
             SetActiveInventoryView(id)
         end
     end,
@@ -201,11 +215,12 @@ if AltArmy.MainFrame and AltArmy.MainFrame.HookScript then
     end)
 end
 
--- A bag, bank or mailbox scan (or a cached send) redraws the open view.
+-- A bag, bank, equipment or mailbox scan (or a cached send) redraws the open view. IsVisible, not
+-- IsShown: the tab frame stays "shown" while the main window is closed.
 if DS.OnContainerDataChanged then
     DS:OnContainerDataChanged(function()
-        if frame:IsShown() then
-            RefreshActive()
+        if frame:IsVisible() then
+            ScheduleRefresh()
         end
     end)
 end

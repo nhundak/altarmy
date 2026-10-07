@@ -19,7 +19,7 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 | Title / portrait | `SetTitle("Alt Army - <Tab>")` and `SetPortraitToAsset(icon)` on every tab switch. Both come from `UI/MainTabs.lua`. |
 | Tabs | `UI/SideTabs.lua`: icon flyouts anchored like CharacterFrame's mode tabs. Forever uses `LargeSideTabButtonTemplate`; TBC uses spellbook skill-line tab art. On Forever, Reputation and Graphs use CharacterFrame's own Reputation / Statistics side-tab icons (`INV_SideTab_*_c60`). Guild shows the player's guild crest (`UI/GuildCrest.lua`), falling back to the tabard icon. |
 | Sub-view tabs | `UI/TopTabs.lua`: spellbook-style tabs hanging from a panel top into the toolbar row Forever uses `TabSystemTemplate` + `TabSystemTopButtonTemplate` square icon tabs. TBC doesn't load TabSystem, so it uses classic text top tabs (`PanelTopTabButtonTemplate` + `PanelTemplates_SelectTab`). Anchor the tab row's BOTTOMLEFT at the tab frame's TOPLEFT + `AltArmy.MainToolbarInsetX`. Economy's Currency sub-view uses CharacterFrame's Currency side-tab icon (`Interface\Icons\INV_SideTab_Currency_c60`); Economy is Forever-only, so it needs no bundled copy. |
-| Toolbar | A row under the title bar, right of the portrait: a search slot (Summary's item search, or the Reputation / Guild tab's own filter), the active tab's settings button, and the search-mode Filter dropdown. |
+| Toolbar | A row under the title bar, right of the portrait: a search slot (Summary's item search, or the Reputation / Guild tab's own filter; Inventory's character picker and layout dropdown sit at its right end), the active tab's settings button, and the search-mode Filter dropdown. |
 
 ## Helper → native art
 
@@ -41,6 +41,7 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 | `InstallHoverTint`, `BindInteractableHover` | Additive `UI-QuestTitleHighlight` list glow | `nineSlice` |
 | `StyleGridHeader`, `ApplyGridLabelColumnBackground` | Tiled inset background, so pinned headers stay opaque over scrolling rows | `nineSlice` |
 | Pinned scroll fades | Neutral shadow (`NATIVE_SCROLL_SHADOW`) | `nineSlice` |
+| `ItemSlotButton.Create` (`UI/ItemSlotButton.lua`) | `ItemButtonTemplate`'s pieces drawn by hand: `UI-Quickslot2` slot art, `WhiteIconFrame` quality border, `NumberFontNormal` count; the empty well is retail's `bags-item-slot64` atlas, else the classic `UI-Backpack-EmptySlot` texture | `bagSlotAtlas` |
 
 Rules:
 - **Use atlases and texture paths, never bundled art, for chrome.** The textures under `AltArmy_TBC/Textures/` are for content, such as the compare arrow and quest reward markers.
