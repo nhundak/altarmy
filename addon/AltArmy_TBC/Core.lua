@@ -97,6 +97,68 @@ dragRegion:SetScript("OnDragStop", function()
     main:StopMovingOrSizing()
 end)
 
+-- Resize from the bottom-right corner (the chat window's size grabber), never below the stock
+-- 670 x 484; the size is kept in AltArmyTBC_Options.window and applied when the window opens.
+-- Tab content stretches with the window (the content area is anchored to its edges).
+main:SetResizable(true)
+if main.SetResizeBounds then
+    main:SetResizeBounds(FRAME_WIDTH, FRAME_HEIGHT)
+elseif main.SetMinResize then
+    main:SetMinResize(FRAME_WIDTH, FRAME_HEIGHT)
+end
+
+--- The saved window size, when it is a valid one no smaller than the stock size.
+local function SavedWindowSize()
+    local o = _G.AltArmyTBC_Options
+    local w = type(o) == "table" and type(o.window) == "table" and o.window or nil
+    if not w or type(w.width) ~= "number" or type(w.height) ~= "number" then return nil end
+    if w.width < FRAME_WIDTH or w.height < FRAME_HEIGHT then return nil end
+    return w.width, w.height
+end
+
+local function ApplySavedWindowSize()
+    local w, h = SavedWindowSize()
+    if w then
+        main:SetSize(w, h)
+    end
+end
+
+local function SaveWindowSize()
+    if type(_G.AltArmyTBC_Options) ~= "table" then return end
+    local w, h = math.floor(main:GetWidth() + 0.5), math.floor(main:GetHeight() + 0.5)
+    if w <= FRAME_WIDTH and h <= FRAME_HEIGHT then
+        _G.AltArmyTBC_Options.window = nil -- back at the stock size: nothing to remember
+    else
+        _G.AltArmyTBC_Options.window = { width = w, height = h }
+    end
+end
+
+local sizeGrip = CreateFrame("Button", nil, main)
+sizeGrip:SetSize(16, 16)
+sizeGrip:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -4, 4)
+sizeGrip:SetFrameLevel(main:GetFrameLevel() + 200)
+sizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+sizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+sizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+sizeGrip:SetScript("OnMouseDown", function()
+    main:StartSizing("BOTTOMRIGHT")
+end)
+sizeGrip:SetScript("OnMouseUp", function()
+    main:StopMovingOrSizing()
+    SaveWindowSize()
+end)
+sizeGrip:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+    GameTooltip:SetText("Drag to resize", 1, 1, 1)
+    GameTooltip:Show()
+end)
+sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+main:HookScript("OnShow", ApplySavedWindowSize)
+AltArmy.ResetWindowSize = function()
+    main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
+    SaveWindowSize()
+end
+
 -- Title bar text + portrait icon follow the active tab (see applyWindowChrome).
 local fallbackTitle
 if not main.SetTitle then

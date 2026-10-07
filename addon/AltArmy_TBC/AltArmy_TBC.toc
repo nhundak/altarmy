@@ -67,6 +67,8 @@ Data\Integrations\AuctionatorScans.lua
 Data\Integrations\AuctionatorSearch.lua
 Data\DataStore\DataStoreReputations.lua
 Data\DataStore\DataStoreMail.lua
+Data\Inventory\InventoryOptions.lua
+Data\Inventory\InventoryLayout.lua
 Data\Economy\WritOrders.lua
 Data\MailAlerts.lua
 Data\DataStore\DataStoreAuctions.lua
@@ -105,6 +107,7 @@ ReputationGridWindow.lua
 UI\CharacterPinHideList.lua
 UI\ScoreSortRow.lua
 UI\ItemActions.lua
+UI\ItemSlotButton.lua
 UI\GraphCore.lua
 Tabs\TabSummary.lua
 Tabs\TabGear.lua
@@ -112,6 +115,9 @@ Tabs\TabEconomy.lua
 Tabs\TabEconomySupplyChain.lua
 Tabs\TabEconomyCurrency.lua
 Tabs\TabEconomyWrits.lua
+Tabs\TabInventory.lua
+Tabs\TabInventoryBags.lua
+Tabs\TabInventoryMail.lua
 Tabs\TabReputation.lua
 Tabs\TabCooldowns.lua
 Tabs\TabCooldownsRaids.lua

@@ -13,7 +13,7 @@ AltArmy TBC is a **World of Warcraft: The Burning Crusade Classic** account-wide
 
 Product docs live in **`docs/`**. Start at [`docs/README.md`](docs/README.md).
 
-Do **not** recreate deleted root specs (`ALTARMY_TBC_STRUCTURE.md`, `ALTARMY_TBC_SUMMARY.md`, `ALTARMY_TBC_CHARACTERS.md`, `ALTARMY_TBC_SEARCH.md`, `ALTARMY_TBC_OPTIONS_AND_MINIMAP.md`). There is no Characters containers tab; inventory is Search.
+Do **not** recreate deleted root specs (`ALTARMY_TBC_STRUCTURE.md`, `ALTARMY_TBC_SUMMARY.md`, `ALTARMY_TBC_CHARACTERS.md`, `ALTARMY_TBC_SEARCH.md`, `ALTARMY_TBC_OPTIONS_AND_MINIMAP.md`). Cross-character item lookup is Search; one character's containers are the Inventory tab (`Tabs/TabInventory*.lua`).
 
 ### Keep docs in the same task
 

@@ -10,7 +10,7 @@ local ADDON_TITLE = "Alt Army"
 local ICON_PREFIX = "Interface\\Icons\\"
 
 -- "Guild" stays last so hiding it (no guilded characters) never leaves a gap in the stack.
-MainTabs.ORDER = { "Summary", "Economy", "Gear", "Reputation", "Cooldowns", "Graph", "Guild" }
+MainTabs.ORDER = { "Summary", "Economy", "Gear", "Inventory", "Reputation", "Cooldowns", "Graph", "Guild" }
 
 -- settings.toggle / settings.isShown: method names on AltArmy.TabFrames[name].
 -- settings.isAvailable: optional method name; when it returns false the tab shows no settings button.
@@ -27,6 +27,10 @@ local DEFS = {
         label = "Gear",
         icon = "INV_Chest_Plate01",
         settings = { toggle = "ToggleGearSettings", isShown = "IsGearSettingsShown" },
+    },
+    Inventory = {
+        label = "Inventory",
+        icon = "INV_Misc_Bag_10", -- one character's bags, bank and mail, drawn like the stock windows
     },
     Economy = {
         label = "Economy",

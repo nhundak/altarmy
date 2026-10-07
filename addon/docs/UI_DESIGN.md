@@ -15,7 +15,7 @@ Background research is in [WOW_FOREVER_NATIVE_UI_RESEARCH.md](WOW_FOREVER_NATIVE
 
 | Piece | Implementation |
 |-------|----------------|
-| Shell | `PortraitFrameTemplate`, 670 × 484 (Forever's `CHARACTER_FRAME_HEIGHT`). Provides the rock background, NineSlice border, close button, portrait circle and title bar. |
+| Shell | `PortraitFrameTemplate`, 670 × 484 (Forever's `CHARACTER_FRAME_HEIGHT`) at least; a bottom-right grip (the chat window's `UI-ChatIM-SizeGrabber` art) resizes it and the size is kept. Provides the rock background, NineSlice border, close button, portrait circle and title bar. |
 | Title / portrait | `SetTitle("Alt Army - <Tab>")` and `SetPortraitToAsset(icon)` on every tab switch. Both come from `UI/MainTabs.lua`. |
 | Tabs | `UI/SideTabs.lua`: icon flyouts anchored like CharacterFrame's mode tabs. Forever uses `LargeSideTabButtonTemplate`; TBC uses spellbook skill-line tab art. On Forever, Reputation and Graphs use CharacterFrame's own Reputation / Statistics side-tab icons (`INV_SideTab_*_c60`). Guild shows the player's guild crest (`UI/GuildCrest.lua`), falling back to the tabard icon. |
 | Sub-view tabs | `UI/TopTabs.lua`: spellbook-style tabs hanging from a panel top into the toolbar row Forever uses `TabSystemTemplate` + `TabSystemTopButtonTemplate` square icon tabs. TBC doesn't load TabSystem, so it uses classic text top tabs (`PanelTopTabButtonTemplate` + `PanelTemplates_SelectTab`). Anchor the tab row's BOTTOMLEFT at the tab frame's TOPLEFT + `AltArmy.MainToolbarInsetX`. Economy's Currency sub-view uses CharacterFrame's Currency side-tab icon (`Interface\Icons\INV_SideTab_Currency_c60`); Economy is Forever-only, so it needs no bundled copy. |
@@ -74,6 +74,7 @@ Like native panels (Character, Reputation, Skills), all AltArmy text is 12pt, in
 | `headline` | `GameFontHighlightLarge` | Dialog headline |
 | `pageTitle` | `GameFontNormalHuge` | Interface Options page header |
 | `badge` | `GameFontNormalSmall` (10, drawn ×2) | Gear upgrade glyphs on item icons |
+| `count` | `NumberFontNormal` (outlined) | Stack counts on item slots (`UI/ItemSlotButton.lua`), as `ItemButtonTemplate` draws them |
 
 The title bar text comes from the template (`GameFontNormal`).
 

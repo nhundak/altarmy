@@ -25,6 +25,10 @@ describe("Theme.FONTS", function()
     assert.are.equal("GameFontDisableLarge", Theme.FONTS.emptyState)
   end)
 
+  it("draws item slot stack counts with the stock outlined number font", function()
+    assert.are.equal("NumberFontNormal", Theme.FONTS.count)
+  end)
+
   it("has no 10pt text roles; only icon badges stay Small", function()
     for _, role in ipairs({ "gridCell", "gridHeader", "gridMuted", "fineprint", "smallButton" }) do
       assert.is_nil(Theme.FONTS[role], role)
@@ -38,7 +42,6 @@ describe("Theme.FONTS", function()
     ["AltArmy_TBC/UI/ScoreSortRow.lua"] = true,         -- body
     ["AltArmy_TBC/UI/GraphCore.lua"] = true,            -- muted
     ["AltArmy_TBC/UI/QuestRewardIndicators.lua"] = true, -- badge
-    ["AltArmy_TBC/Tabs/TabCharacters.lua"] = true,      -- unloaded placeholder
   }
 
   local function luaFiles()

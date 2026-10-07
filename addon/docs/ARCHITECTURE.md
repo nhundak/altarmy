@@ -26,7 +26,7 @@ Visual language: [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua) — see [UI_DESIG
 
 ## Main window
 
-- Native Blizzard window: `PortraitFrameTemplate`, 670 × 484 (the height of Forever's CharacterFrame). It has a close button, and it can be dragged by the title bar and closed with Escape.
+- Native Blizzard window: `PortraitFrameTemplate`, 670 × 484 (the height of Forever's CharacterFrame) by default. It has a close button, it can be dragged by the title bar and closed with Escape, and it resizes from the bottom-right grip (the stock size is the minimum; `AltArmyTBC_Options.window` keeps a larger one). The content area is anchored to the window's edges, so tabs stretch with it; the Inventory views reflow their grids and the Mail subject column to the width.
 - The portrait circle and title (`Alt Army - <Tab>`) follow the active tab.
 - Open with `/altarmy` or `/alta`, or the minimap button.
 - **Toolbar row** under the title bar: a search slot and the active tab's settings button. The slot holds the global item/recipe search box (`SearchBoxTemplate`) on Summary (`MainTabs` `headerSearch`) and in Search mode. Reputation (faction filter) and Guild (character/profession search) put their own box in the same slot via `AltArmy.PlaceInToolbarSearchSlot`. Gear, Cooldowns and Graphs show no search. A native **Filter** dropdown (`Theme.CreateFilterDropdown`, entries from `Data/Search/SearchFilterMenu.lua`) appears left of the global search box once it has text; the box has a fixed width.
@@ -46,12 +46,13 @@ The order, icons, titles, and each tab's settings button action live in `UI/Main
 | **Summary** | Character list overview |
 | **Gear** | Equipment grid, item check, compare / upgrades |
 | **Economy** | **Currency** grid (default), **Waylaid Crates** buy-or-craft costs per Merchant's Favor, **Craftsman's Writs** buy-or-craft costs (`Tabs/TabEconomyWrits.lua`) + **Supply Chain** (alt-army.com, off behind `AltArmy.FeatureFlags.economySupplyChain`) sub-views; WoW Forever only, hidden elsewhere by `Tabs/TabEconomy.lua` |
+| **Inventory** | One character's **Bags**, **Bank** and **Mail** sub-views drawn like the stock windows (`Tabs/TabInventory.lua` shell; `TabInventoryBags.lua`, `TabInventoryMail.lua`; slots from `UI/ItemSlotButton.lua`) |
 | **Reputation** | Faction × character matrix |
 | **Cooldowns** | Crafting cooldowns + **Raids** lockout sub-view |
 | **Graphs** | Level progress over time |
 | **Guild** | Shown only when guild sharing is enabled and the realm has a guilded character |
 
-`Tabs/TabCharacters.lua` is an unloaded placeholder. There is no Characters containers tab; inventory is reached via **Search**.
+Cross-character item lookup is **Search**; one character's containers are the **Inventory** tab.
 
 ## Data strategy
 
@@ -69,7 +70,7 @@ Declared in `AltArmy_TBC.toc`:
 | Variable | Role |
 |----------|------|
 | `AltArmyTBC_Data` | Account-wide character / domain data |
-| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, Economy view and sort, debug, etc.) |
+| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, Economy view and sort, Inventory view / character / layouts, debug, etc.) |
 | `AltArmyTBC_GearSettings` | Gear tab settings |
 | `AltArmyTBC_ReputationSettings` | Reputation tab settings |
 | `AltArmyTBC_SummarySettings` | Summary tab settings |

@@ -23,11 +23,11 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 ## Main UI and access
 
-- The main frame is a native Blizzard window (portrait, title bar, close button, rock background), as tall as the character sheet. It can be moved and closed with Escape.
+- The main frame is a native Blizzard window (portrait, title bar, close button, rock background), as tall as the character sheet. It can be moved, closed with Escape, and resized from the bottom-right grip (never smaller than its stock size; the size is remembered).
 - Tabs are icon flyouts on the right edge; hovering one shows its name. The portrait icon and title show the active tab.
 - Open with `/altarmy` or `/alta`.
 - Minimap button (left-click toggle, drag to move).
-- The toolbar item/recipe search box is on the Summary tab. Typing in it switches into Search mode. Reputation and Guild use the same toolbar spot for their own filter. Gear, Economy, Cooldowns and Graphs have no toolbar search. Clicking any side tab leaves Search mode.
+- The toolbar item/recipe search box is on the Summary tab. Typing in it switches into Search mode. Reputation and Guild use the same toolbar spot for their own filter; Inventory puts its character picker and layout dropdown there. Gear, Economy, Cooldowns and Graphs have no toolbar search. Clicking any side tab leaves Search mode.
 - One toolbar settings button opens the active tab's settings (Summary, Gear, Reputation, Search panels; Cooldowns opens Interface Options).
 - `/altarmy networth [all] [scale]` — vendor + Auctionator AH value across characters (Auctionator required).
 
@@ -38,14 +38,13 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 | [Summary](tabs/summary.md) | Character overview, totals, missing-data warnings, bank-alt icons |
 | [Gear](tabs/gear.md) | Equipment grid, item check, compare panel, upgrade scoring / alerts |
 | [Economy](tabs/economy.md) | Currency × character grid; Waylaid Crate costs per Merchant's Favor, filled via the AH or crafting; Craftsman's Writ orders priced to buy or craft; alt-army.com crafting planner guide (WoW Forever only) |
+| [Inventory](tabs/inventory.md) | One character's bags, bank and mail as slot grids like the stock windows (per-bag blocks or one combined grid; inbox rows or an item grid) |
 | [Reputation](tabs/reputation.md) | Faction matrix, score-sort, optional Zygor guide links |
 | [Cooldowns](tabs/cooldowns.md) | Crafting cooldowns + Raids lockouts, stockpile send / send-all |
 | [Search](tabs/search.md) | Items and recipes (toolbar Search mode) |
 | [Graphs](tabs/graphs.md) | Level progress charts and history imports |
 | [Guild](tabs/guild.md) | Opt-in guild data sharing (conditional tab) |
 | [Options](tabs/options.md) | Interface Options + slash commands |
-
-There is no Characters containers tab; inventory is via Search.
 
 ## Cross-cutting
 

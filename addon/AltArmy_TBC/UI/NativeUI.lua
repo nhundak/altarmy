@@ -44,6 +44,9 @@ local function hasField(tbl, key)
     return type(tbl) == "table" and tbl[key] ~= nil
 end
 
+-- The empty bag slot art of retail's ContainerFrame (bags-item-slot64).
+NativeUI.BAG_SLOT_ATLAS = "bags-item-slot64"
+
 -- Layouts Theme.ApplyBackdrop draws natively; present on both Forever and TBC Anniversary.
 NativeUI.NINE_SLICE_LAYOUTS = { "InsetFrameTemplate", "Dialog", "TooltipDefaultLayout" }
 
@@ -94,6 +97,9 @@ function NativeUI.DetectCaps()
     caps.scrollBoxList = caps.minimalScrollBar and has("WowScrollBoxList")
         and _G.CreateScrollBoxListLinearView ~= nil and _G.CreateDataProvider ~= nil
         and hasField(_G.ScrollUtil, "InitScrollBoxListWithScrollBar")
+    -- Retail / Forever bag windows draw empty slots with this atlas (UI/ItemSlotButton.lua); TBC
+    -- Anniversary's classic bags use the UI-EmptySlot texture file instead.
+    caps.bagSlotAtlas = NativeUI.HasAtlas(NativeUI.BAG_SLOT_ATLAS)
     return caps
 end
 

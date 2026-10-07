@@ -23,6 +23,9 @@ local function notifyContainerDataChanged()
     if SD and SD.NotifyContainerDataChanged then
         SD.NotifyContainerDataChanged()
     end
+    if DS.FireContainerDataChanged then
+        DS:FireContainerDataChanged()
+    end
 end
 
 local function Now()
@@ -98,6 +101,7 @@ function DS:ScanMailbox(_self)
                         lastCheck = Now(),
                         daysLeft = daysLeft,
                         returned = wasReturned,
+                        mailIndex = i, -- mail v2: the message this row belongs to
                     })
                 end
             end
@@ -116,6 +120,7 @@ function DS:ScanMailbox(_self)
                 lastCheck = Now(),
                 daysLeft = daysLeft,
                 returned = wasReturned,
+                mailIndex = i,
             })
         end
     end
@@ -239,7 +244,21 @@ function DS:GetMailMoneyTotal(char)
     return total
 end
 
-function DS:SaveMailToCache(char, money, body, subject, sender, returned)
+--- A fresh message index for rows predicted from a send or return (mail v2). Scanned rows use the
+--- inbox position (1..n); predicted messages count down from -1 so the two never collide, and every
+--- row written for one send shares the index the caller got here.
+function DS:NextMailCacheIndex(char)
+    local lowest = 0
+    for _, row in ipairs(char and char.MailCache or {}) do
+        local idx = row and row.mailIndex
+        if type(idx) == "number" and idx < lowest then
+            lowest = idx
+        end
+    end
+    return lowest - 1
+end
+
+function DS:SaveMailToCache(char, money, body, subject, sender, returned, mailIndex)
     if not char then return end
     char.MailCache = char.MailCache or {}
     table.insert(char.MailCache, {
@@ -251,11 +270,12 @@ function DS:SaveMailToCache(char, money, body, subject, sender, returned)
         lastCheck = Now(),
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
+        mailIndex = mailIndex,
     })
     notifyContainerDataChanged()
 end
 
-function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, subject, returned)
+function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, subject, returned, mailIndex)
     if not char or not itemID then return end
     char.MailCache = char.MailCache or {}
     table.insert(char.MailCache, {
@@ -269,6 +289,7 @@ function DS:SaveMailAttachmentToCache(char, icon, itemID, link, count, sender, s
         lastCheck = Now(),
         daysLeft = MAIL_EXPIRY_DAYS,
         returned = returned or false,
+        mailIndex = mailIndex,
     })
     notifyContainerDataChanged()
 end
@@ -292,18 +313,20 @@ local function CacheSentMailToAlt(recipient, subject, body)
     local targetChar = FindCharacterByName(realm, recipientName)
     if not targetChar then return end
 
+    local mailIndex = DS:NextMailCacheIndex(targetChar)
     for attachmentIndex = 1, ATTACHMENTS_MAX_SEND do
         local itemName, itemID, icon, count = GetSendMailItem(attachmentIndex)
         if itemName and itemID then
             local link = GetSendMailItemLink and GetSendMailItemLink(attachmentIndex) or nil
-            DS:SaveMailAttachmentToCache(targetChar, icon, itemID, link, count, _playerName, subject, false)
+            DS:SaveMailAttachmentToCache(targetChar, icon, itemID, link, count, _playerName, subject, false,
+                mailIndex)
         end
     end
 
     body = body or ""
     local money = GetSendMailMoney and GetSendMailMoney() or 0
     if (money and money > 0) or (body and body ~= "") then
-        DS:SaveMailToCache(targetChar, money or 0, body, subject, _playerName, false)
+        DS:SaveMailToCache(targetChar, money or 0, body, subject, _playerName, false, mailIndex)
     end
 end
 
@@ -325,6 +348,7 @@ local function CacheReturnedMailToAlt(index)
     local targetChar = FindCharacterByName(realm, senderName)
     if not targetChar then return end
 
+    local mailIndex = DS:NextMailCacheIndex(targetChar)
     if numAttachments and numAttachments > 0 then
         for attachmentIndex = 1, ATTACHMENTS_MAX_SEND do
             local itemName, itemID, icon, count = GetInboxItem(index, attachmentIndex)
@@ -338,7 +362,8 @@ local function CacheReturnedMailToAlt(index)
                     count,
                     _playerName,
                     mailSubject,
-                    true
+                    true,
+                    mailIndex
                 )
             end
         end
@@ -346,7 +371,7 @@ local function CacheReturnedMailToAlt(index)
 
     local inboxText = GetInboxText and GetInboxText(index) or nil
     if (mailMoney and mailMoney > 0) or (inboxText and inboxText ~= "") then
-        DS:SaveMailToCache(targetChar, mailMoney or 0, inboxText or "", mailSubject, _playerName, true)
+        DS:SaveMailToCache(targetChar, mailMoney or 0, inboxText or "", mailSubject, _playerName, true, mailIndex)
     end
 end
 

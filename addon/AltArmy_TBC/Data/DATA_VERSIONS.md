@@ -21,9 +21,10 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 ### guildMembership (v1)
 - **v1**: Guild name / membership fields on the character for guild-tab and sharing eligibility (written with character scans).
 
-### containers (v2)
+### containers (v3)
 - **v1**: Initial version. Stores bag/bank contents in `char.Containers[bagID]` with `links` and `items` tables. Also stores `bagInfo` and `bankInfo` summaries.
 - **v2**: Also stores equipped bag identity on inventory bags 1–4 and bank bags 5–11 as `bagLink` / `bagItemID` (backpack, keyring, and main bank container are not items).
+- **v3**: Also stores `numSlots` per container (the slot count at scan time; 0 for an empty equippable bag slot), so the Inventory tab can draw empty slots. v2 data has none: readers (`InventoryLayout.ResolveNumSlots`) fall back to the highest used slot, raised to the client's backpack / main bank size, until the character's next bag or bank scan.
 
 ### equipment (v1)
 - **v1**: Initial version. Stores equipped gear in `char.Inventory[slot]` (slots 1-19). Stores full link if enchanted, otherwise itemID.
@@ -38,8 +39,9 @@ Canonical table: `DATA_VERSIONS` in [`DataStore.lua`](DataStore/DataStore.lua).
 - **v1**: Initial version. Stored `char.Reputations[factionID]` using a broken `FACTION_STANDING_THRESHOLDS[standingID]` mix; cross-standing sort/order was wrong.
 - **v2**: Stores `{ s = standingID, e = earnedValue, b = bottomValue, t = topValue }` per faction from `GetFactionInfo` so labels, colors, bars, and sort match the game.
 
-### mail (v1)
+### mail (v2)
 - **v1**: Initial version. Stores mailbox contents in `char.Mails[]` with icon, itemID, count, sender, link, money, subject, lastCheck, daysLeft, returned.
+- **v2**: Each row also carries `mailIndex`, the message it belongs to: the inbox position at scan for `Mails`, and one index per send or return (counting down from -1, `DS:NextMailCacheIndex`) for the predicted `MailCache` rows, so the Inventory tab groups a message's attachments and gold on one row. v1 rows have none and render as one message each.
 
 ### auctions (v1)
 - **v1**: Initial version. Stores auction listings in `char.Auctions[]` and bids in `char.Bids[]` with itemID, count, bidAmount, buyoutAmount, timeLeft.

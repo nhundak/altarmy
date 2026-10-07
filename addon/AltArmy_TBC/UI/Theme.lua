@@ -21,6 +21,7 @@ Theme.FONTS = {
     muted = "GameFontDisable",              -- unavailable rows, graph axes, inline empty notes
     emptyState = "GameFontDisableLarge",    -- centered empty-state messages that replace a table/graph
     badge = "GameFontNormalSmall",          -- Gear upgrade glyphs on item icons (scaled x2)
+    count = "NumberFontNormal",             -- stack counts on item slots (ItemButtonTemplate's Count)
 }
 
 Theme.HOVER_TINT_BG = "Interface\\Tooltips\\UI-Tooltip-Background"
