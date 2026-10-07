@@ -49,22 +49,20 @@ export type Card<K extends string> = {
 }
 
 export const STEP_QUESTION: Readonly<Record<Step, string>> = {
-  aim: 'What are you after?',
+  aim: "What's your goal?",
   profession: 'Which profession?',
 }
 
 export const AIMS: readonly Card<Aim>[] = [
   {
-    key: 'gold',
-    title: 'Make gold',
-    blurb: 'The most profitable recipes your characters can craft.',
-  },
-  {
     key: 'skill',
     title: 'Skill up',
-    blurb: 'Raise a profession, or any, for as little gold as possible.',
-    details:
-      'Each recipe is counted as the crafts until it turns green for you, ranked by what an expected skill point costs: orange recipes always give one, yellow and green ones less often.',
+    blurb: 'Find the ideal sequence for leveling up your professions.',
+  },
+  {
+    key: 'gold',
+    title: 'Make gold',
+    blurb: 'Find the best ways to turn your professions into profits.',
   },
 ]
 

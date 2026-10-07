@@ -31,6 +31,7 @@ Missing-data `!` marks are **expected** after users upgrade to a new addon versi
 ## Exceptions (related but separate)
 
 - `GetTalentSpecMissingInfo` is for `GearUpgrade.GetCompareSpecWarning` (compare panel talent-only signal) — **not** for Summary UI.
+- `GetExportMissingDataInfo(char, realm)` is the `/altarmy export` dialog's export-scoped subset (GUID, professions and recipes, poisons, reputations, Legacy talents), built from the same `append*` helpers and instructions; `ProfitExport.MissingData`/`MissingDataText` word it above the string. A new condition about data the export writes belongs in both.
 - Gear/Reputation tabs use `AltArmy_TBC/UI/ScoreSortRow.lua` for gear-score `!` marks — unrelated to Summary tab design.
 
 ## Anti-patterns (do not reintroduce)

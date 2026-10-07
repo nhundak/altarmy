@@ -68,24 +68,24 @@ describe('ProfitPage', () => {
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
     expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
     // nothing is ranked until the setup is complete; skilling up is open without characters too (one is made up)
-    const aims = within(search).getByRole('group', { name: 'What are you after?' })
+    const aims = within(search).getByRole('group', { name: "What's your goal?" })
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeEnabled()
     // making gold asks nothing more: its own path, where the list shows both ways to sell
     await userEvent.click(within(aims).getByRole('button', { name: 'Make gold' }))
     expect(window.location.pathname).toBe('/profit/gold')
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
-    expect(screen.queryByRole('group', { name: 'What are you after?' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: "What's your goal?" })).not.toBeInTheDocument()
     expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('likely')
     expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({ aim: 'gold' })
 
     // the back button asks again, the answer given marked
     act(() => window.history.back())
-    const again = await screen.findByRole('group', { name: 'What are you after?' })
+    const again = await screen.findByRole('group', { name: "What's your goal?" })
     expect(within(again).getByRole('button', { name: 'Make gold' })).toHaveAttribute('aria-pressed', 'true')
 
     unmount()
     renderWithProviders(<ProfitPage />)
-    expect(await screen.findByRole('group', { name: 'What are you after?' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: "What's your goal?" })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
   })
@@ -122,7 +122,7 @@ describe('ProfitPage', () => {
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<ProfitPage />)
     await waitFor(() => expect(window.location.pathname).toBe('/profit'))
-    expect(await screen.findByRole('group', { name: 'What are you after?' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: "What's your goal?" })).toBeInTheDocument()
   })
 
   it('uploads pasted characters, then shows them above the search', async () => {
