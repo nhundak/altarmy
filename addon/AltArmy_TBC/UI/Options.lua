@@ -2274,7 +2274,7 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
-    if lower == "resetsize" then
+    if lower == "resetsize" and AltArmy.FeatureFlags and AltArmy.FeatureFlags.windowResize then
         if AltArmy.ResetWindowSize then
             AltArmy.ResetWindowSize()
         end

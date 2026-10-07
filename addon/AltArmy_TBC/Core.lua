@@ -14,6 +14,7 @@ AltArmy.CurrentTab = "Summary"
 -- Feature flags: unfinished features ship switched off until they are ready.
 AltArmy.FeatureFlags = {
     economySupplyChain = false, -- Economy tab's Supply Chain sub-view (alt-army.com page)
+    windowResize = false, -- the main window's resize grip and saved size (until the tabs reflow)
 }
 
 AltArmyTBC_Options = AltArmyTBC_Options or {}
@@ -140,27 +141,31 @@ local function SaveWindowSize()
     end
 end
 
-local sizeGrip = CreateFrame("Button", nil, main)
-sizeGrip:SetSize(16, 16)
-sizeGrip:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -4, 4)
-sizeGrip:SetFrameLevel(main:GetFrameLevel() + 200)
-sizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-sizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-sizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-sizeGrip:SetScript("OnMouseDown", function()
-    main:StartSizing("BOTTOMRIGHT")
-end)
-sizeGrip:SetScript("OnMouseUp", function()
-    main:StopMovingOrSizing()
-    SaveWindowSize()
-end)
-sizeGrip:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
-    GameTooltip:SetText("Drag to resize", 1, 1, 1)
-    GameTooltip:Show()
-end)
-sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
-main:HookScript("OnShow", ApplySavedWindowSize)
+-- Behind AltArmy.FeatureFlags.windowResize: only the Inventory tab reflows so far, so the grip stays
+-- hidden (and a saved size unused) until the other tabs do.
+if AltArmy.FeatureFlags.windowResize then
+    local sizeGrip = CreateFrame("Button", nil, main)
+    sizeGrip:SetSize(16, 16)
+    sizeGrip:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -4, 4)
+    sizeGrip:SetFrameLevel(main:GetFrameLevel() + 200)
+    sizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    sizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    sizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    sizeGrip:SetScript("OnMouseDown", function()
+        main:StartSizing("BOTTOMRIGHT")
+    end)
+    sizeGrip:SetScript("OnMouseUp", function()
+        main:StopMovingOrSizing()
+        SaveWindowSize()
+    end)
+    sizeGrip:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+        GameTooltip:SetText("Drag to resize", 1, 1, 1)
+        GameTooltip:Show()
+    end)
+    sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    main:HookScript("OnShow", ApplySavedWindowSize)
+end
 -- Tab content that sits in the window's bottom-right corner keeps clear of the grip.
 AltArmy.WINDOW_GRIP_INSET = 16
 AltArmy.ResetWindowSize = function()

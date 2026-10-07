@@ -30,7 +30,6 @@ Options opened on a particular control (for example from the Alt Army scan butto
 | `/altarmy` / `/alta` | Open main UI |
 | `/altarmy networth [all] [scale]` | Net worth (vendor + Auctionator); `all` = all realms; scale 0–1 (default 0.9) |
 | `/altarmy export` | Export for altarmy-profit (see below; there is no button for it) |
-| `/altarmy resetsize` | Put the main window back to its stock size (after resizing it from the bottom-right grip) |
 | `/altarmy scan` | Scan the open auction house (same as the **Alt Army scan** button): the kind the scan mode allows now (Options → General → Auction House) |
 | `/altarmy debug on` / `off` | Show/hide Debug options tab and enable/suppress debug logging |
 

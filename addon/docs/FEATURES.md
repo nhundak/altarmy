@@ -23,7 +23,7 @@ AltArmy TBC is an account-wide alt management addon for TBC Classic that:
 
 ## Main UI and access
 
-- The main frame is a native Blizzard window (portrait, title bar, close button, rock background), as tall as the character sheet. It can be moved, closed with Escape, and resized from the bottom-right grip (never smaller than its stock size; the size is remembered).
+- The main frame is a native Blizzard window (portrait, title bar, close button, rock background), as tall as the character sheet. It can be moved and closed with Escape.
 - Tabs are icon flyouts on the right edge; hovering one shows its name. The portrait icon and title show the active tab.
 - Open with `/altarmy` or `/alta`.
 - Minimap button (left-click toggle, drag to move).
