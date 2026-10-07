@@ -2555,12 +2555,35 @@ function Theme.CloseSingleSelectDropdowns(exceptPopup)
     end
 end
 
+--- A single-select dropdown's section header: a divider line over a muted label, not clickable.
+local function CreateDropdownHeaderRow(parent, idx, rowHeight, text)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -(idx - 1) * rowHeight)
+    row:SetPoint("RIGHT", parent, "RIGHT", 0, 0)
+    row:SetHeight(rowHeight - 2)
+    local line = row:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(1, 1, 1, 0.15)
+    line:SetHeight(1)
+    line:SetPoint("TOPLEFT", row, "TOPLEFT", 4, -1)
+    line:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    local label = row:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
+    label:SetPoint("LEFT", row, "LEFT", 4, -1)
+    label:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false)
+    label:SetTextColor(0.6, 0.6, 0.6)
+    label:SetText(text or "")
+    row.label = label
+    return row
+end
+
 --- Custom single-select dropdown (Gear / Reputation / Search settings style).
 --- opts.parent, opts.width, opts.rowHeight, opts.dropdownParent
 --- opts.maxVisibleRows — cap visible rows before scrolling (default Theme.DROPDOWN_MAX_VISIBLE_ROWS)
 --- opts.popupAlign — "right" aligns the popup's right edge with the button (default left)
 --- opts.point/relativeTo/relativePoint/x/y — anchor the trigger button
---- opts.entries or opts.getEntries() -> { { id, label }, ... }
+--- opts.entries or opts.getEntries() -> { { id, label }, ... }; an entry with header = true is a section
+---   header (a divider and its label), never selected
 --- opts.getSelectedId(), opts.onSelect(id, entry)
 --- opts.onEntryEnter(btn, entry), opts.onEntryLeave(btn, entry)
 function Theme.CreateSingleSelectDropdown(opts)
@@ -2646,7 +2669,7 @@ function Theme.CreateSingleSelectDropdown(opts)
 
     local function labelForId(id, entries)
         for i = 1, #entries do
-            if entries[i].id == id then
+            if not entries[i].header and entries[i].id == id then
                 return entries[i].label or tostring(id)
             end
         end
@@ -2702,7 +2725,8 @@ function Theme.CreateSingleSelectDropdown(opts)
         end
 
         for idx, entry in ipairs(entries) do
-            local b = Theme.CreateDropdownMenuItem(host, {
+            local b = entry.header and CreateDropdownHeaderRow(host, idx, rowHeight, entry.label)
+                or Theme.CreateDropdownMenuItem(host, {
                 index = idx,
                 rowHeight = rowHeight,
                 padTop = 0,

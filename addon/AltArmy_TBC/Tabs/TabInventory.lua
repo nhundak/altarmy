@@ -28,6 +28,7 @@ local UI = {
     LAYOUT_WIDTH = 150,
     TOOLBAR_GAP = 6,
     TOOLBAR_EDGE = -4, -- off the window's edge, as the Economy views' Filter button
+    MAIL_ICON_MARKUP = "|TInterface\\Icons\\INV_Letter_15:0|t", -- the Mail view tab's icon
 }
 
 local VIEW = {
@@ -52,8 +53,15 @@ frame.BagsView = panels.bags
 frame.BankView = panels.bank
 frame.MailView = panels.mail
 
---- The characters the picker offers, under the global realm filter, as dropdown entries that also
---- carry name and realm: { id = CharKey, label, name, realm }.
+--- Whether the Mail view would list at least one message for this character (scanned or predicted).
+local function HasMail(name, realm)
+    local IL = AltArmy.InventoryLayout
+    local char = IL and IL.MailMessages and DS:GetCharacter(name, realm)
+    return char ~= nil and #IL.MailMessages(char, time()) > 0
+end
+
+--- The characters the picker offers, under the global realm filter, by realm and name, as dropdown
+--- entries that also carry name and realm: { id = CharKey, label, name, realm }.
 local function CharacterEntries()
     local list = SD.GetCharacterList()
     local currentRealm = GetRealmName and GetRealmName() or ""
@@ -74,6 +82,29 @@ local function CharacterEntries()
         }
     end
     return out
+end
+
+--- The picker's rows. On the Mail view the characters with mail come first, each led by a letter icon
+--- (before the bank alt icon), then a "Characters with no mail:" header over the rest; elsewhere the
+--- characters as listed.
+local function PickerEntries()
+    local entries = CharacterEntries()
+    if state.activeView ~= "mail" then return entries end
+    local withMail, without = {}, {}
+    for _, e in ipairs(entries) do
+        if HasMail(e.name, e.realm) then
+            e.label = UI.MAIL_ICON_MARKUP .. " " .. e.label
+            withMail[#withMail + 1] = e
+        else
+            without[#without + 1] = e
+        end
+    end
+    if #withMail == 0 or #without == 0 then
+        return #withMail > 0 and withMail or without
+    end
+    withMail[#withMail + 1] = { header = true, label = "Characters with no mail:" }
+    for _, e in ipairs(without) do withMail[#withMail + 1] = e end
+    return withMail
 end
 
 --- The chosen character's entry: this opening's pick when it still names a listed character, else the
@@ -152,7 +183,7 @@ local picker = Theme.CreateSingleSelectDropdown({
     dropdownParent = frame,
     width = UI.PICKER_WIDTH,
     popupAlign = "right",
-    getEntries = CharacterEntries,
+    getEntries = PickerEntries,
     getSelectedId = function()
         local pick = ResolveSelection()
         return pick and pick.id or nil
@@ -202,6 +233,7 @@ local function SetActiveInventoryView(which)
         VIEW.tabs:SetSelected(which)
     end
     if layoutDropdown then layoutDropdown:Update() end
+    if picker then picker:Update() end -- the mail icons come and go with the Mail view
     RefreshActive()
 end
 frame.SetInventoryView = SetActiveInventoryView
@@ -235,6 +267,7 @@ end
 if DS.OnContainerDataChanged then
     DS:OnContainerDataChanged(function()
         if frame:IsVisible() then
+            if picker then picker:Update() end -- a mailbox scan can add or drop the mail icon
             ScheduleRefresh()
         end
     end)
