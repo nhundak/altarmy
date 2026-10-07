@@ -14,7 +14,6 @@ AltArmy.CurrentTab = "Summary"
 -- Feature flags: unfinished features ship switched off until they are ready.
 AltArmy.FeatureFlags = {
     economySupplyChain = false, -- Economy tab's Supply Chain sub-view (alt-army.com page)
-    windowResize = false, -- the main window's resize grip and saved size (until the tabs reflow)
 }
 
 AltArmyTBC_Options = AltArmyTBC_Options or {}
@@ -100,8 +99,8 @@ end)
 
 -- Resize from the bottom-right corner (the chat window's size grabber), never below the stock
 -- 670 x 484; the size is kept in AltArmyTBC_Options.window and applied when the window opens.
--- Tab content stretches with the window (the content area is anchored to its edges).
-main:SetResizable(true)
+-- Tab content stretches with the window (the content area is anchored to its edges). Off until every
+-- tab reflows: the Debug options' "Window resize" (/altarmy debug resize on|off) turns it on.
 if main.SetResizeBounds then
     main:SetResizeBounds(FRAME_WIDTH, FRAME_HEIGHT)
 elseif main.SetMinResize then
@@ -141,31 +140,42 @@ local function SaveWindowSize()
     end
 end
 
--- Behind AltArmy.FeatureFlags.windowResize: only the Inventory tab reflows so far, so the grip stays
--- hidden (and a saved size unused) until the other tabs do.
-if AltArmy.FeatureFlags.windowResize then
-    local sizeGrip = CreateFrame("Button", nil, main)
-    sizeGrip:SetSize(16, 16)
-    sizeGrip:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -4, 4)
-    sizeGrip:SetFrameLevel(main:GetFrameLevel() + 200)
-    sizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-    sizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-    sizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-    sizeGrip:SetScript("OnMouseDown", function()
-        main:StartSizing("BOTTOMRIGHT")
-    end)
-    sizeGrip:SetScript("OnMouseUp", function()
-        main:StopMovingOrSizing()
-        SaveWindowSize()
-    end)
-    sizeGrip:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
-        GameTooltip:SetText("Drag to resize", 1, 1, 1)
-        GameTooltip:Show()
-    end)
-    sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
-    main:HookScript("OnShow", ApplySavedWindowSize)
+local sizeGrip = CreateFrame("Button", nil, main)
+sizeGrip:SetSize(16, 16)
+sizeGrip:SetPoint("BOTTOMRIGHT", main, "BOTTOMRIGHT", -4, 4)
+sizeGrip:SetFrameLevel(main:GetFrameLevel() + 200)
+sizeGrip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+sizeGrip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+sizeGrip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+sizeGrip:SetScript("OnMouseDown", function()
+    main:StartSizing("BOTTOMRIGHT")
+end)
+sizeGrip:SetScript("OnMouseUp", function()
+    main:StopMovingOrSizing()
+    SaveWindowSize()
+end)
+sizeGrip:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOPLEFT")
+    GameTooltip:SetText("Drag to resize", 1, 1, 1)
+    GameTooltip:Show()
+end)
+sizeGrip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+sizeGrip:Hide()
+
+--- Shows the grip and the saved size when the debug option is on; otherwise hides the grip and puts
+--- the window back to its stock size, keeping the saved size for when it is turned on again.
+AltArmy.ApplyWindowResize = function()
+    local D = AltArmy.Debug
+    local on = D and D.IsWindowResizeEnabled and D.IsWindowResizeEnabled() or false
+    main:SetResizable(on)
+    sizeGrip:SetShown(on)
+    if on then
+        ApplySavedWindowSize()
+    else
+        main:SetSize(FRAME_WIDTH, FRAME_HEIGHT)
+    end
 end
+main:HookScript("OnShow", AltArmy.ApplyWindowResize)
 -- Tab content that sits in the window's bottom-right corner keeps clear of the grip.
 AltArmy.WINDOW_GRIP_INSET = 16
 AltArmy.ResetWindowSize = function()

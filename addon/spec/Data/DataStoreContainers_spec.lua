@@ -730,5 +730,15 @@ describe("DataStoreContainers", function()
       assert.is_nil(char.Containers[-1]) -- the keyring belongs to ScanBags
       assert.are.equal(54, char.bankInfo.totalSlots)
     end)
+
+    it("IterateEquippedBags skips a placeholder an older addon recorded in the built-in bank tab", function()
+      local char = { Containers = {
+        [6] = { items = {}, links = {}, bagItemID = 242709, bagLink = "|Hitem:242709:0|h[Character Bank Tab Bag (DNT)]|h" },
+        [7] = { items = {}, links = {}, bagItemID = 5571, bagLink = "|Hitem:5571:0|h[Small Black Pouch]|h" },
+      } }
+      local seen = {}
+      DS:IterateEquippedBags(char, function(bagID) seen[#seen + 1] = bagID end)
+      assert.are.same({ 7 }, seen)
+    end)
   end)
 end)

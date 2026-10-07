@@ -34,7 +34,7 @@ local VIEW = {
     tabs = nil,
     defs = {
         { name = "bags", label = "Bags", icon = "Interface\\Icons\\INV_Misc_Bag_08" },
-        { name = "bank", label = "Bank", icon = "Interface\\Icons\\INV_Crate_01" },
+        { name = "bank", label = "Bank", icon = "Interface\\Icons\\INV_Misc_OrnateBox" },
         { name = "mail", label = "Mail", icon = "Interface\\Icons\\INV_Letter_15" },
     },
 }
@@ -69,6 +69,7 @@ local function CharacterEntries()
             id = CharKey(e.name, e.realm),
             label = RF.formatColoredCharacterNameRealm(e.name, e.realm, showRealm, e.classFile),
             name = e.name,
+            coloredName = RF.formatColoredCharacterNameRealm(e.name, e.realm, false, e.classFile, false),
             realm = e.realm,
         }
     end
@@ -93,6 +94,20 @@ local function ResolveSelection()
         state.selectedChar = pick and pick.id or nil
     end
     return pick
+end
+
+--- `name` in its class colour when it is one of our characters (on `realm`, or the realm after a "-"),
+--- else as given: mail comes from other players and NPCs too, whose class we don't know.
+function frame.ColorCharacterName(name, realm)
+    if type(name) ~= "string" or name == "" then return name end
+    local base, otherRealm = name:match("^(.-)%-(.+)$")
+    local char = DS._FindCharacterByName and DS._FindCharacterByName(otherRealm or realm, base or name)
+    local classFile = char and char.classFile
+    local CC = AltArmy.ClassColor
+    if classFile and classFile ~= "" and CC and CC.formatName then
+        return CC.formatName(name, classFile)
+    end
+    return name
 end
 
 --- The selected character's DataStore record and its picker entry (nil when no character is stored).

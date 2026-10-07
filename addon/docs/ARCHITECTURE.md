@@ -27,7 +27,7 @@ Visual language: [`UI/Theme.lua`](../AltArmy_TBC/UI/Theme.lua) — see [UI_DESIG
 ## Main window
 
 - Native Blizzard window: `PortraitFrameTemplate`, 670 × 484 (the height of Forever's CharacterFrame). It has a close button, and it can be dragged by the title bar and closed with Escape.
-- **Resizing is built but off** behind `AltArmy.FeatureFlags.windowResize` (`Core.lua`, `false` until every tab reflows): with it on, a bottom-right grip resizes the window (the stock size is the minimum; `AltArmyTBC_Options.window` keeps a larger one, clamped to the screen when applied; `/altarmy resetsize` restores the stock size). The content area is anchored to the window's edges: the Inventory views already reflow their grids and the Mail columns to the width, the other tabs keep their fixed layouts. Content in the bottom-right corner keeps `AltArmy.WINDOW_GRIP_INSET` clear of the grip. With the flag off there is no grip, a saved size is not applied, and `resetsize` is not a command.
+- **Resizing is built but off** until every tab reflows: the Debug options' **Window resize** (`AltArmyTBC_Options.debug.windowResize`, also `/altarmy debug resize on|off`; `AltArmy.ApplyWindowResize` in `Core.lua`) turns it on, and then a bottom-right grip resizes the window (the stock size is the minimum; `AltArmyTBC_Options.window` keeps a larger one, clamped to the screen when applied; `/altarmy resetsize` restores the stock size). The content area is anchored to the window's edges: the Inventory views already reflow their grids and the Mail columns to the width, the other tabs keep their fixed layouts. Content in the bottom-right corner keeps `AltArmy.WINDOW_GRIP_INSET` clear of the grip. With it off there is no grip, the window is at its stock size (the saved size is kept, not applied), and `resetsize` is not a command.
 - The portrait circle and title (`Alt Army - <Tab>`) follow the active tab.
 - Open with `/altarmy` or `/alta`, or the minimap button.
 - **Toolbar row** under the title bar: a search slot and the active tab's settings button. The slot holds the global item/recipe search box (`SearchBoxTemplate`) on Summary (`MainTabs` `headerSearch`) and in Search mode. Reputation (faction filter) and Guild (character/profession search) put their own box in the same slot via `AltArmy.PlaceInToolbarSearchSlot`; Inventory puts its character picker and layout dropdown at the slot's right end via `AltArmy.PlaceInToolbarRight`. Gear, Cooldowns and Graphs show no search. A native **Filter** dropdown (`Theme.CreateFilterDropdown`, entries from `Data/Search/SearchFilterMenu.lua`) appears left of the global search box once it has text; the box has a fixed width.
@@ -71,7 +71,7 @@ Declared in `AltArmy_TBC.toc`:
 | Variable | Role |
 |----------|------|
 | `AltArmyTBC_Data` | Account-wide character / domain data |
-| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, Economy view and sort, Inventory layouts and mail sort (`inventory`), window size (`window`, behind `windowResize`), debug, etc.) |
+| `AltArmyTBC_Options` | Global options (realm filter, bank alts, cooldowns, automatic auction house scan, Economy view and sort, Inventory layouts and mail sort (`inventory`), window size (`window`, used only with the Debug options' Window resize), debug, etc.) |
 | `AltArmyTBC_GearSettings` | Gear tab settings |
 | `AltArmyTBC_ReputationSettings` | Reputation tab settings |
 | `AltArmyTBC_SummarySettings` | Summary tab settings |

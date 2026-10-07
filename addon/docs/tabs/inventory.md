@@ -24,7 +24,7 @@ Empty slots are drawn as empty slot art. A slot's tooltip is the item's, plus wh
 
 The bank shows "Bank not recorded yet" until the character has opened its bank once. Characters scanned before slot counts were recorded (containers v2) get their bag sizes estimated from the items seen (a `~` before the count, explained in the header tooltip) until their next bag or bank scan.
 
-On WoW Forever the bank is its tabs (each a bag slot), there is no separate main bank grid, the keyring is container -1 and bag 5 is the carried reagent bag; DataStore's bag roles (`DS:GetBagRoles()`) sort that out for the tab and for Search's locations. The first bank tab's slot holds a hidden placeholder item ("Character Bank Tab Bag (DNT)", Blizzard's do-not-translate marker); DataStore never records it as a bag, so that tab is headed "Bank Bag" with the bank icon and no item tooltip (later tabs without a real bag are "Bank Tab N").
+On WoW Forever the bank is its tabs (each a bag slot), there is no separate main bank grid, the keyring is container -1 and bag 5 is the carried reagent bag; DataStore's bag roles (`DS:GetBagRoles()`) sort that out for the tab and for Search's locations. The first bank tab's slot holds a hidden placeholder item ("Character Bank Tab Bag (DNT)", Blizzard's do-not-translate marker); DataStore never records it as a bag (and a placeholder an older addon recorded is ignored, in this tab and in Search), so that tab is headed "Bank Bag" with the bank icon and no item tooltip (later tabs without a real bag are "Bank Tab N").
 
 ## Mail
 

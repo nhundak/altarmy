@@ -186,6 +186,19 @@ describe("InventoryLayout", function()
             assert.are.equal(48, bank[1].numSlots)
         end)
 
+        it("ignores the placeholder item an older addon recorded in the built-in bank tab", function()
+            local bank = IL.BankBlocks(char, {
+                ids = FOREVER,
+                resolveBag = function(block)
+                    if block.bagItemID then return "Character Bank Tab Bag (DNT)" end
+                    return nil
+                end,
+            })
+            assert.is_nil(bank[1].bagItemID)
+            assert.is_nil(bank[1].bagLink)
+            assert.are.equal("Bank Bag", bank[1].name)
+        end)
+
         it("KindOf follows the roles table and agrees with DS:GetBagRole", function()
             assert.are.equal("bank", IL.KindOf(-1))
             assert.are.equal("keyring", IL.KindOf(-1, FOREVER))

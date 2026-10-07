@@ -34,11 +34,11 @@ local UI = {
     FALLBACK_WIDTH = 600, -- before the viewport has a size
     EMPTY_NOTE_HEIGHT = 16,
     BACKPACK_ICON = "Interface\\Buttons\\Button-Backpack-Up",
-    BANK_ICON = "Interface\\Icons\\INV_Crate_01", -- a crate (also the Economy tab's Waylaid Crates icon)
+    BANK_ICON = "Interface\\Icons\\INV_Misc_OrnateBox", -- a strongbox; in both clients' icon sets
     KEYRING_ICON = "Interface\\Icons\\INV_Misc_Key_03",
     REAGENT_ICON = "Interface\\Icons\\INV_Misc_Bag_10",
     STATUS_ICON = 14,
-    ESTIMATE_NOTE = "Slot count estimated from the items seen; exact after the next scan on this character.",
+    ESTIMATE_NOTE = "Exact number of slots has not been scanned yet.",
 }
 
 local views = {} -- kind -> view
@@ -207,7 +207,7 @@ local function FillHeader(h, block, x, y, width, parent)
         h.icon:Hide()
     end
     h.name:SetText(block.name or "")
-    h.count:SetText(string.format("%s%d / %d", block.sizeIsEstimate and "~" or "", block.used, block.numSlots))
+    h.count:SetText(string.format("%d / %s%d", block.used, block.sizeIsEstimate and "~" or "", block.numSlots))
 end
 
 --- "blocks": each bag as its own block, flowing left to right then down.
@@ -229,7 +229,7 @@ local function LayoutBlocks(view, blocks, width)
         if block.numSlots > 0 then
             height = DrawGrid(view, block, x, gridTop, columns)
         else
-            h.note:SetText("Size unknown until the next scan.")
+            h.note:SetText("Not yet scanned")
             h.note:Show()
             height = UI.EMPTY_NOTE_HEIGHT
         end
@@ -341,7 +341,7 @@ local function CreateContainerView(panel, kind)
         local blocks = kind == "bags" and IL.BagsBlocks(char, opts) or IL.BankBlocks(char, opts)
         if not blocks then
             ShowEmptyState(view, string.format("Bank not recorded yet.\n\nVisit the bank on %s once.",
-                pick and pick.name or "this character"))
+                pick and pick.coloredName or "this character"))
             return
         end
         local width = view.viewport.scroll:GetWidth()

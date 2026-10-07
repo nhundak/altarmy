@@ -2525,6 +2525,9 @@ function Theme.CreateDropdownMenuItem(parent, opts)
 
     local label = btn:CreateFontString(nil, "OVERLAY", Theme.FONTS.body)
     label:SetPoint("LEFT", btn, "LEFT", labelLeft, 0)
+    label:SetPoint("RIGHT", btn, "RIGHT", -4, 0)
+    label:SetJustifyH("LEFT")
+    label:SetWordWrap(false) -- a label too long for the popup ends in "..."
     label:SetText(opts.text or "")
     btn.label = label
 
@@ -2595,6 +2598,7 @@ function Theme.CreateSingleSelectDropdown(opts)
     btnText:SetPoint("LEFT", btn, "LEFT", 6, 0)
     btnText:SetPoint("RIGHT", btn, "RIGHT", btn.altArmyDropdownArrow and -Theme.DROPDOWN_ARROW_GUTTER or -6, 0)
     btnText:SetJustifyH("LEFT")
+    btnText:SetWordWrap(false) -- a label too long for the button ends in "..."
 
     local popup = CreateFrame("Frame", nil, dropdownParent, "BackdropTemplate")
     if opts.popupAlign == "right" then

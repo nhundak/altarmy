@@ -184,7 +184,7 @@ end
 
 --- The lines a message adds under an attachment's tooltip, and the row tooltip's body.
 local function MessageLines(tooltip, msg)
-    local from = msg.sender and msg.sender ~= "" and ("From " .. msg.sender) or nil
+    local from = msg.sender and msg.sender ~= "" and ("From " .. (msg.senderLabel or msg.sender)) or nil
     local mark = IL.MessageMark(msg)
     if mark == "returned" then
         from = (from and from .. ", " or "") .. (msg.predicted and "returned, not seen in the mailbox yet"
@@ -307,7 +307,7 @@ local function LayoutRows(messages, width)
             subject = subject .. " |cff9d9d9d(" .. mark .. ")|r"
         end
         row.cells.subject:SetText(subject)
-        row.cells.sender:SetText(msg.sender or "")
+        row.cells.sender:SetText(msg.senderLabel or msg.sender or "")
         row.cells.money:SetText(Money(msg.money))
         local text, level = IL.FormatDaysLeft(msg.daysLeft)
         local c = ExpiresColor(level)
@@ -368,7 +368,10 @@ Refresh = function()
         return
     end
     local messages = IL.MailMessages(char, time())
-    local name = pick and pick.name or "this character"
+    for _, msg in ipairs(messages) do
+        msg.senderLabel = frame.ColorCharacterName(msg.sender, pick and pick.realm)
+    end
+    local name = pick and pick.coloredName or "this character"
     if #messages == 0 then
         headerRow:Hide()
         local seen = LastChecked(char)

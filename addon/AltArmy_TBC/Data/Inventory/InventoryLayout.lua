@@ -128,14 +128,17 @@ function IL.BuildBlocks(char, bagIDs, opts)
             present = bag ~= nil and (bag.bagItemID ~= nil or numSlots > 0)
         end
         if present then
+            -- Forever's built-in first bank tab holds a placeholder item, "Character Bank Tab Bag (DNT)":
+            -- DataStore no longer records it, but a bank scanned by an older addon may still carry it.
+            local builtIn = kind == "bankbag" and ids.firstBankBagName ~= nil and indexOf(ids.bankBags, bagID) == 1
             local block = {
                 bagID = bagID,
                 kind = kind,
                 numSlots = numSlots,
                 sizeIsEstimate = estimate,
                 used = 0,
-                bagItemID = bag and bag.bagItemID or nil,
-                bagLink = bag and bag.bagLink or nil,
+                bagItemID = not builtIn and bag and bag.bagItemID or nil,
+                bagLink = not builtIn and bag and bag.bagLink or nil,
                 slots = {},
             }
             for slot = 1, numSlots do

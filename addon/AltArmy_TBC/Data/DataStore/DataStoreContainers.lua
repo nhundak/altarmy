@@ -472,7 +472,8 @@ function DS:IterateEquippedBags(char, callback)
     if not char or not char.Containers or not callback then return end
     for bagID, bag in pairs(char.Containers) do
         bagID = tonumber(bagID)
-        if bagID and IsEquippableBagSlot(bagID) and bag and bag.bagItemID then
+        -- Forever's built-in bank tab: a placeholder an older addon may have recorded as a bag.
+        if bagID and IsEquippableBagSlot(bagID) and not IsBuiltInBankTab(bagID) and bag and bag.bagItemID then
             if callback(bagID, bag.bagItemID, bag.bagLink) then
                 return
             end
