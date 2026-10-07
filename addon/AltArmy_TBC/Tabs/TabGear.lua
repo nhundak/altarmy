@@ -3455,6 +3455,7 @@ end
 -- Tabs hang from the panel top up into the main window's toolbar row (same spot as Cooldowns).
 -- Parented to the tab frame so they hide with it.
 VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    mainTab = "Gear",
     onSelect = function(id)
         if id == GearTab.GetActiveViewName() then
             GearTab.SyncViewTabs()
@@ -3466,6 +3467,17 @@ VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
     end,
 })
 VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+frame.ViewTabs = VIEW.tabs -- `/alta <tab> <view>` opens only the views that have a tab (Core.lua)
+
+--- `/alta gear grid|upgrade` (Core.lua's OpenMainTabView): as clicking that sub-view tab.
+function frame.SetGearView(view)
+    if view == "upgrade" then
+        GearTab.ShowUpgradeCheckView()
+    else
+        GearTab.ShowGridView()
+    end
+end
+
 GearTab.SyncViewTabs()
 
 function frame:FocusItem(link)

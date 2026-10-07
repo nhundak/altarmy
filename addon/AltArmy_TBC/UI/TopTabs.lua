@@ -19,6 +19,10 @@ local function resolveCaps(opts)
     return NativeUI and NativeUI.GetCaps() or {}
 end
 
+local function hookTooltip(btn, def)
+    AltArmy.TabTooltip.Hook(btn, def.label, def.command, "ANCHOR_TOP")
+end
+
 local function createTabSystem(parent, defs, obj, onSelect, useIcons)
     local sys = CreateFrame("Frame", nil, parent, "TabSystemTemplate")
     -- TabSystemMixin:OnLoad pooled the default (bottom) template; rebuild for top tabs.
@@ -42,6 +46,7 @@ local function createTabSystem(parent, defs, obj, onSelect, useIcons)
         if btn and btn.SetTooltipText then
             btn:SetTooltipText(def.label)
         end
+        if btn then hookTooltip(btn, def) end
         obj.idByName[def.name] = id
         obj.nameById[id] = def.name
         obj.buttons[def.name] = btn
@@ -80,6 +85,7 @@ local function createClassicTopTabs(parent, defs, obj, onSelect)
         btn:SetScript("OnClick", function()
             onSelect(def.name)
         end)
+        hookTooltip(btn, def)
         obj.buttons[def.name] = btn
         prev = btn
     end
@@ -113,6 +119,7 @@ local function createFallbackButtons(parent, defs, obj, onSelect)
         btn:SetScript("OnClick", function()
             onSelect(def.name)
         end)
+        hookTooltip(btn, def)
         obj.buttons[def.name] = btn
     end
     obj.frame = container
@@ -126,9 +133,21 @@ local function createFallbackButtons(parent, defs, obj, onSelect)
 end
 
 --- defs: array of { name, label, icon }. opts.onSelect(name) fires on user clicks only.
---- opts.caps overrides NativeUI caps (tests).
+--- opts.mainTab: the main window tab these views belong to; each tab's tooltip then shows the slash command
+--- opening its view (MainTabs.SlashCommand). opts.caps overrides NativeUI caps (tests).
 function TopTabs.Create(parent, defs, opts)
     opts = opts or {}
+    local MainTabs = AltArmy.MainTabs
+    if opts.mainTab and MainTabs then
+        local withCommands = {}
+        for i, def in ipairs(defs) do
+            withCommands[i] = {
+                name = def.name, label = def.label, icon = def.icon,
+                command = MainTabs.SlashCommand(opts.mainTab, def.name),
+            }
+        end
+        defs = withCommands
+    end
     local caps = resolveCaps(opts)
     local onSelect = opts.onSelect or function() end
     local obj = { buttons = {}, idByName = {}, nameById = {} }

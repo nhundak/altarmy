@@ -568,6 +568,30 @@ end
 AltArmy.UpdateGuildTabVisibility = updateGuildTabVisibility
 updateGuildTabVisibility()
 
+--- Whether a side tab is there to open (Economy is hidden off WoW Forever, Guild without guild sharing).
+function AltArmy.IsMainTabAvailable(tabName)
+    if not (AltArmy.TabFrames and AltArmy.TabFrames[tabName] and sideTabs.tabs[tabName]) then return false end
+    if tabName == "Guild" then
+        updateGuildTabVisibility() -- otherwise only evaluated when the window opens
+    end
+    return not sideTabs.hidden[tabName]
+end
+
+--- `/alta <tab> [view]` (UI/Options.lua): open the window on a tab, and on one of its sub-views when named.
+--- A tab or view that isn't there does nothing.
+function AltArmy.OpenMainTabView(tabName, viewName)
+    if not AltArmy.IsMainTabAvailable(tabName) then return end
+    local frame = AltArmy.TabFrames[tabName]
+    local def = MainTabs.Get(tabName)
+    local setView = viewName and def and def.setView and frame[def.setView]
+    if viewName and not (setView and frame.ViewTabs and frame.ViewTabs.buttons[viewName]) then return end
+    -- Opening a closed window shows the tab on its remembered view first; the named one replaces it.
+    AltArmy.ShowMainTab(tabName)
+    if setView then
+        setView(viewName)
+    end
+end
+
 -- Content area: one frame per tab, below the toolbar row.
 local contentArea = CreateFrame("Frame", nil, main)
 contentArea:SetPoint("TOPLEFT", main, "TOPLEFT", CONTENT_INSET, LAYOUT.contentTop)

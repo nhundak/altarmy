@@ -3199,6 +3199,7 @@ frame.SetCooldownsView = SetActiveCooldownsView
 -- Tabs hang from the panel top up into the main window's toolbar row (left of the search box).
 -- Parented to the tab frame so they hide with it (other tabs, Search mode).
 VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    mainTab = "Cooldowns",
     onSelect = function(id)
         if VIEW.active ~= id then
             SetActiveCooldownsView(id)
@@ -3206,6 +3207,7 @@ VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
     end,
 })
 VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+frame.ViewTabs = VIEW.tabs -- `/alta <tab> <view>` opens only the views that have a tab (Core.lua)
 
 frame:HookScript("OnHide", function()
     recipePicker:Close()

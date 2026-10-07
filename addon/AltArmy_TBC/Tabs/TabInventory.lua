@@ -1,5 +1,6 @@
 -- AltArmy TBC — Inventory tab: one character's bags, bank and mail, drawn like the stock windows.
--- This shell owns the toolbar controls (the character picker and the layout dropdown), the Bags / Bank /
+-- This shell owns the item search in the toolbar's search slot, the controls row at the top left of the
+-- body (the character picker and the layout dropdown, above the views' scrolling lists), the Bags / Bank /
 -- Mail sub-view tabs with their panels, and the refresh wiring. Tabs/TabInventoryBags.lua fills
 -- frame.BagsView and frame.BankView; Tabs/TabInventoryMail.lua fills frame.MailView. Saved state:
 -- Data/Inventory/InventoryOptions.lua; layout model: Data/Inventory/InventoryLayout.lua.
@@ -26,8 +27,7 @@ local state = { selectedChar = nil, activeView = IO.DEFAULT_VIEW }
 local UI = {
     PICKER_WIDTH = 190,
     LAYOUT_WIDTH = 150,
-    TOOLBAR_GAP = 6,
-    TOOLBAR_EDGE = -4, -- off the window's edge, as the Economy views' Filter button
+    CONTROLS_GAP = 6,
     MAIL_ICON_MARKUP = "|TInterface\\Icons\\INV_Letter_15:0|t", -- the Mail view tab's icon
 }
 
@@ -177,12 +177,47 @@ local function ScheduleRefresh()
 end
 frame.ScheduleRefresh = ScheduleRefresh
 
--- Toolbar: the character picker at the right end of the search slot, the layout dropdown left of it.
+-- The item search: the lowercased, trimmed text of the toolbar's search box ("" when empty).
+local searchEdit = Theme.CreateSearchBox(frame, {
+    name = "AltArmyTBC_InventorySearchEdit",
+    placeholder = "Search items",
+})
+if AltArmy.PlaceInToolbarSearchSlot then
+    AltArmy.PlaceInToolbarSearchSlot(searchEdit, frame)
+end
+
+function frame.GetSearchQuery()
+    local text = searchEdit and searchEdit:GetText() or ""
+    return (text:match("^%s*(.-)%s*$") or ""):lower()
+end
+
+--- Redraw the open view's slots for the search (no relayout).
+function frame.ApplySearch()
+    local which = state.activeView
+    local apply = (which == "bags" and frame.ApplySearchBags) or (which == "bank" and frame.ApplySearchBank)
+        or (which == "mail" and frame.ApplySearchMail)
+    if apply then apply(frame.GetSearchQuery()) end
+end
+
+-- HookScript keeps SearchBoxTemplate's own handlers (clear button, Instructions placeholder).
+searchEdit:HookScript("OnTextChanged", function(box)
+    Theme.UpdateEditBoxPlaceholderVisibility(box)
+    frame.ApplySearch()
+end)
+searchEdit:HookScript("OnEnterPressed", function(box)
+    box:ClearFocus()
+end)
+searchEdit:HookScript("OnEscapePressed", function(box)
+    Theme.ClearEditBoxText(box)
+end)
+
+-- Controls row: the character picker at the top left of the body, the layout dropdown right of it. On the
+-- tab frame above the panels (which share their anchors and padding), so they stay put while a view scrolls.
+local CONTENT_INSET = Theme.TAB_SECTION_INSET + Theme.TAB_CONTENT_PADDING
 local picker = Theme.CreateSingleSelectDropdown({
     parent = frame,
     dropdownParent = frame,
     width = UI.PICKER_WIDTH,
-    popupAlign = "right",
     getEntries = PickerEntries,
     getSelectedId = function()
         local pick = ResolveSelection()
@@ -193,15 +228,16 @@ local picker = Theme.CreateSingleSelectDropdown({
         RefreshActive()
     end,
 })
-if picker and AltArmy.PlaceInToolbarRight then
-    AltArmy.PlaceInToolbarRight(picker.button, frame, UI.TOOLBAR_EDGE)
+if picker then
+    picker.button:SetFrameLevel(frame:GetFrameLevel() + 50)
+    picker.button:ClearAllPoints()
+    picker.button:SetPoint("TOPLEFT", frame, "TOPLEFT", CONTENT_INSET, -CONTENT_INSET)
 end
 
 local layoutDropdown = Theme.CreateSingleSelectDropdown({
     parent = frame,
     dropdownParent = frame,
     width = UI.LAYOUT_WIDTH,
-    popupAlign = "right",
     getEntries = function() return IO.LayoutEntries(state.activeView) end,
     getSelectedId = function() return IO.GetLayout(IO.EnsureOptions(), state.activeView) end,
     onSelect = function(id)
@@ -211,11 +247,12 @@ local layoutDropdown = Theme.CreateSingleSelectDropdown({
     end,
 })
 if layoutDropdown and picker then
-    layoutDropdown.button:SetParent(frame)
     layoutDropdown.button:SetFrameLevel(frame:GetFrameLevel() + 50)
     layoutDropdown.button:ClearAllPoints()
-    layoutDropdown.button:SetPoint("RIGHT", picker.button, "LEFT", -UI.TOOLBAR_GAP, 0)
+    layoutDropdown.button:SetPoint("LEFT", picker.button, "RIGHT", UI.CONTROLS_GAP, 0)
 end
+-- How far the views start their content below the panel's top: the controls row and a gap.
+frame.CONTROLS_OFFSET = (picker and picker.button:GetHeight() or 20) + Theme.SECTION_GAP
 frame:HookScript("OnHide", function()
     if picker then picker:Close() end
     if layoutDropdown then layoutDropdown:Close() end
@@ -240,6 +277,7 @@ frame.SetInventoryView = SetActiveInventoryView
 
 -- Sub-view tabs hang from the panel top into the main window's toolbar row (as on Economy and Gear).
 VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    mainTab = "Inventory",
     onSelect = function(id)
         if state.activeView ~= id then
             SetActiveInventoryView(id)
@@ -247,18 +285,20 @@ VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
     end,
 })
 VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+frame.ViewTabs = VIEW.tabs -- `/alta <tab> <view>` opens only the views that have a tab (Core.lua)
 
 frame:SetScript("OnShow", function()
     if picker then picker:Update() end
     SetActiveInventoryView(state.activeView)
 end)
 
--- Closing the main window forgets the pick and the view: the next opening starts on the character
--- playing and Bags.
+-- Closing the main window forgets the pick, the view and the search: the next opening starts on the
+-- character playing and Bags.
 if AltArmy.MainFrame and AltArmy.MainFrame.HookScript then
     AltArmy.MainFrame:HookScript("OnHide", function()
         state.selectedChar = nil
         state.activeView = IO.DEFAULT_VIEW
+        if searchEdit then Theme.ClearEditBoxText(searchEdit) end
     end)
 end
 

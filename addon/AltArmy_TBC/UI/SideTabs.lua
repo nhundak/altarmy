@@ -47,6 +47,8 @@ local function createNativeTab(container, def, onSelect)
             end
         end)
     end
+    -- The template's own tooltip names the tab; the command goes under it.
+    AltArmy.TabTooltip.Hook(tab, def.label, def.command)
     return tab
 end
 
@@ -80,8 +82,7 @@ local function createClassicTab(container, def, onSelect, isSelected)
         onSelect(def.name)
     end)
     tab:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(self.tooltipText)
+        AltArmy.TabTooltip.Show(self, self.tooltipText, def.command)
     end)
     tab:SetScript("OnLeave", function()
         GameTooltip:Hide()
@@ -90,7 +91,8 @@ local function createClassicTab(container, def, onSelect, isSelected)
 end
 
 --- Build the tab stack on the right edge of `parent`.
---- defs: array of { name, label, icon }. opts.onSelect(name); opts.native (default: NativeUI caps).
+--- defs: array of { name, label, icon, command (optional: shown under the tooltip) }.
+--- opts.onSelect(name); opts.native (default: NativeUI caps).
 function SideTabs.Create(parent, defs, opts)
     opts = opts or {}
     local native = opts.native

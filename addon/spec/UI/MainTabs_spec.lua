@@ -114,6 +114,75 @@ describe("MainTabs", function()
     end)
   end)
 
+  describe("slash commands", function()
+    it("names every side tab's command, spelled /alta, and fills it in on the def", function()
+      assert.are.equal("/alta summary", MainTabs.SlashCommand("Summary"))
+      assert.are.equal("/alta graphs", MainTabs.SlashCommand("Graph"))
+      assert.are.equal("/alta guild", MainTabs.Get("Guild").command)
+      for _, name in ipairs(MainTabs.ORDER) do
+        assert.is_string(MainTabs.Get(name).command, name)
+      end
+    end)
+
+    it("names sub-view commands by their words, not their view names", function()
+      assert.are.equal("/alta economy crates", MainTabs.SlashCommand("Economy", "waylaid"))
+      assert.are.equal("/alta cooldowns dungeons", MainTabs.SlashCommand("Cooldowns", "raids"))
+      assert.are.equal("/alta inventory mail", MainTabs.SlashCommand("Inventory", "mail"))
+      assert.are.equal("/alta gear upgrade", MainTabs.SlashCommand("Gear", "upgrade"))
+    end)
+
+    it("has no command for Search, unknown tabs or views, or the Guild tab's professions", function()
+      assert.is_nil(MainTabs.SlashCommand("Search"))
+      assert.is_nil(MainTabs.SlashCommand("Nope"))
+      assert.is_nil(MainTabs.SlashCommand("Economy", "nope"))
+      assert.is_nil(MainTabs.SlashCommand("Guild", "alchemy"))
+    end)
+
+    it("names a frame setter for every tab with views", function()
+      for _, name in ipairs(MainTabs.ORDER) do
+        local def = MainTabs.Get(name)
+        assert.are.equal(def.views ~= nil, def.setView ~= nil, name)
+      end
+    end)
+
+    describe("ParseSlash", function()
+      local function parse(msg) return { MainTabs.ParseSlash(msg) } end
+
+      it("reads a tab alone", function()
+        assert.are.same({ "Economy", nil, true }, parse("economy"))
+        assert.are.same({ "Graph", nil, true }, parse("graphs"))
+      end)
+
+      it("reads a tab and view in any case and spacing", function()
+        assert.are.same({ "Economy", "waylaid", true }, parse("ECONOMY  Crates"))
+        assert.are.same({ "Cooldowns", "raids", true }, parse("cooldowns dungeons"))
+      end)
+
+      it("takes a plural word without its s", function()
+        assert.are.same({ "Graph", nil, true }, parse("graph"))
+        assert.are.same({ "Cooldowns", "raids", true }, parse("cooldown dungeon"))
+        assert.are.same({ "Economy", "waylaid", true }, parse("economy crate"))
+        assert.are.same({ "Economy", "writs", true }, parse("economy writ"))
+        assert.are.same({ "Inventory", "bags", true }, parse("inventory bag"))
+      end)
+
+      it("marks an unknown view or extra words invalid", function()
+        assert.are.same({ "Economy", nil, false }, parse("economy foo"))
+        assert.are.same({ "Economy", nil, false }, parse("economy crates now"))
+        assert.are.same({ "Summary", nil, false }, parse("summary grid"))
+        assert.are.same({ "Guild", nil, false }, parse("guild alchemy"))
+      end)
+
+      it("leaves other commands alone", function()
+        assert.is_nil(MainTabs.ParseSlash(""))
+        assert.is_nil(MainTabs.ParseSlash(nil))
+        assert.is_nil(MainTabs.ParseSlash("scan"))
+        assert.is_nil(MainTabs.ParseSlash("debug on"))
+        assert.is_nil(MainTabs.ParseSlash("search"))
+      end)
+    end)
+  end)
+
   describe("settings", function()
     it("describes toggle-panel settings by frame method names", function()
       local s = MainTabs.Get("Gear").settings

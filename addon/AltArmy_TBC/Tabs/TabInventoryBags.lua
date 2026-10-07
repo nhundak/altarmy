@@ -295,8 +295,9 @@ local function CreateContainerView(panel, kind)
     view.money:SetJustifyH("RIGHT")
     view.status:SetPoint("RIGHT", view.money, "LEFT", -Theme.SECTION_GAP, 0)
 
+    -- Below the tab's controls row (the character picker and layout dropdown), which doesn't scroll.
     local listViewport = CreateFrame("Frame", nil, inner)
-    listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
+    listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -(frame.CONTROLS_OFFSET or 0))
     listViewport:SetPoint("BOTTOM", view.status, "TOP", 0, Theme.SECTION_GAP)
     listViewport:SetPoint("RIGHT", panel, "RIGHT", -Theme.VerticalScrollBarGutter(), 0)
     view.listViewport = listViewport
@@ -322,6 +323,13 @@ local function CreateContainerView(panel, kind)
     view.empty:SetJustifyH("CENTER")
     view.empty:SetWordWrap(true)
     view.empty:Hide()
+
+    --- Ring the slots whose item matches the tab's search and dim the rest (not the bag bar: the bags).
+    function view.ApplySearch(queryLower)
+        for _, btn in ipairs(view.slots.active) do
+            ISB.ApplySearch(btn, queryLower)
+        end
+    end
 
     function view.Refresh()
         pendingIcons.Clear()
@@ -354,6 +362,7 @@ local function CreateContainerView(panel, kind)
         end
         view.child:SetHeight(math.max(height, 1))
         view.viewport.UpdateRange()
+        view.ApplySearch(frame.GetSearchQuery and frame.GetSearchQuery() or "")
 
         if kind == "bags" then
             local estimate = false
@@ -374,6 +383,8 @@ local bags = CreateContainerView(frame.BagsView, "bags")
 local bank = CreateContainerView(frame.BankView, "bank")
 frame.RefreshBags = bags.Refresh
 frame.RefreshBank = bank.Refresh
+frame.ApplySearchBags = bags.ApplySearch
+frame.ApplySearchBank = bank.ApplySearch
 
 -- The grid reflows when the window's size settles (the viewport has no width before the first show).
 for _, view in pairs(views) do

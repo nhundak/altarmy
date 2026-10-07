@@ -2,7 +2,8 @@
 -- both clients draw the same): the UI-Quickslot2 slot art, the empty-slot well, the icon, the stack count
 -- in the outlined number font and the quality border. Hovering shows the item tooltip; Shift-click links
 -- it to chat and Ctrl-click previews it, through UI/ItemActions.lua like the Gear and Search tabs.
--- Used by the Inventory tab for bags, bank and mail attachments.
+-- Used by the Inventory tab for bags, bank and mail attachments; ApplySearch draws its item search (a ring
+-- on a match, the rest dimmed).
 -- luacheck: globals GameTooltip ITEM_QUALITY_COLORS
 
 AltArmy = AltArmy or {}
@@ -20,6 +21,10 @@ ISB.EMPTY_ATLAS = "bags-item-slot64" -- retail / Forever ContainerFrame (NativeU
 ISB.EMPTY_TEXTURE = "Interface\\PaperDoll\\UI-Backpack-EmptySlot" -- the classic well
 ISB.UNKNOWN_ICON = "Interface\\Icons\\INV_Misc_QuestionMark"
 ISB.MIN_BORDER_QUALITY = 2 -- uncommon and better, as the stock bags
+ISB.SEARCH_GLOW_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border" -- the action bar's glow ring
+ISB.SEARCH_GLOW_SCALE = 1.8 -- the ring's art is drawn inside a larger square
+ISB.SEARCH_GLOW_COLOR = { 1, 0.82, 0 } -- gold
+ISB.DIMMED_ALPHA = 0.3 -- a slot the search leaves out
 
 -- Fallbacks for ITEM_QUALITY_COLORS (uncommon, rare, epic, legendary).
 local QUALITY_RGB = { [2] = { 0, 1, 0 }, [3] = { 0, 0.44, 0.87 }, [4] = { 0.64, 0.21, 0.93 }, [5] = { 1, 0.5, 0 } }
@@ -153,6 +158,16 @@ function ISB.Create(parent, opts)
     border:Hide()
     btn.border = border
 
+    -- The ring around a slot the Inventory search matches.
+    local glow = btn:CreateTexture(nil, "OVERLAY")
+    glow:SetTexture(ISB.SEARCH_GLOW_TEXTURE)
+    if glow.SetBlendMode then glow:SetBlendMode("ADD") end
+    glow:SetVertexColor(ISB.SEARCH_GLOW_COLOR[1], ISB.SEARCH_GLOW_COLOR[2], ISB.SEARCH_GLOW_COLOR[3])
+    glow:SetSize(size * ISB.SEARCH_GLOW_SCALE, size * ISB.SEARCH_GLOW_SCALE)
+    glow:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    glow:Hide()
+    btn.searchGlow = glow
+
     local count = btn:CreateFontString(nil, "OVERLAY", countFont())
     count:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -5 * scale, 2 * scale)
     count:SetJustifyH("RIGHT")
@@ -179,9 +194,38 @@ function ISB.Create(parent, opts)
     return btn
 end
 
+--- Whether an item called `name` matches the lowercased search `queryLower`: a plain, case-insensitive
+--- substring; everything matches an empty query, and nothing a nil name (not cached yet).
+function ISB.NameMatches(name, queryLower)
+    if not queryLower or queryLower == "" then return true end
+    if type(name) ~= "string" then return false end
+    return name:lower():find(queryLower, 1, true) ~= nil
+end
+
+local function setSearchLook(btn, glow, dimmed)
+    if glow then btn.searchGlow:Show() else btn.searchGlow:Hide() end
+    if btn.SetAlpha then btn:SetAlpha(dimmed and ISB.DIMMED_ALPHA or 1) end
+    if btn.icon.SetDesaturated then btn.icon:SetDesaturated(dimmed) end
+end
+
+--- Draw the slot for the lowercased search `queryLower`: an item whose name matches gets the ring, every
+--- other slot (empty ones too) is dimmed and greyed; an empty query draws the slot plainly.
+function ISB.ApplySearch(btn, queryLower)
+    if not queryLower or queryLower == "" then
+        setSearchLook(btn, false, false)
+        return
+    end
+    local entry = btn.entry
+    local isItem = entry ~= nil and (entry.itemID ~= nil or entry.link ~= nil)
+    local match = isItem and ISB.NameMatches(btn.itemName, queryLower)
+    setSearchLook(btn, match, not match)
+end
+
 --- Show nothing in the slot.
 function ISB.SetEmpty(btn)
     btn.entry = nil
+    btn.itemName = nil
+    setSearchLook(btn, false, false)
     btn.icon:Hide()
     btn.border:Hide()
     btn.count:Hide()
@@ -198,11 +242,11 @@ function ISB.SetItem(btn, entry)
         return nil
     end
     btn.entry = entry
-    local quality, texture
+    local name, quality, texture
     if entry.itemID or entry.link then
-        local _
-        _, quality, texture = itemInfo(entry.link or entry.itemID)
+        name, quality, texture = itemInfo(entry.link or entry.itemID)
     end
+    btn.itemName = name or entry.name
     local icon = entry.icon or texture or itemIcon(entry.itemID)
     local pending = nil
     if not icon then

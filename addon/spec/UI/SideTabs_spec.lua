@@ -28,6 +28,13 @@ describe("SideTabs", function()
     function f:Hide() self.shown = false end
     function f:IsShown() return self.shown end
     function f:SetScript(k, fn) self.scripts[k] = fn end
+    function f:HookScript(k, fn)
+      local prev = self.scripts[k]
+      self.scripts[k] = function(...)
+        if prev then prev(...) end
+        fn(...)
+      end
+    end
     function f:CreateTexture() return stubRegion() end
     function f:SetNormalTexture(t) self.normal = t end
     function f:SetHighlightTexture(t) self.highlight = t end
@@ -39,6 +46,10 @@ describe("SideTabs", function()
       f.Icon = stubRegion()
       function f:SetFillToInterior(on) self.fill = on end
       function f:SetCustomOnMouseUpHandler(fn) self.mouseUp = fn end
+      f.scripts.OnEnter = function(self) -- the template's own tooltip
+        GameTooltip:SetOwner(self)
+        GameTooltip:SetText(self.tooltipText)
+      end
     end
     return f
   end
@@ -46,6 +57,7 @@ describe("SideTabs", function()
   setup(function()
     _G.AltArmy = _G.AltArmy or {}
     package.path = package.path .. ";AltArmy_TBC/UI/?.lua"
+    require("TabTooltip")
     require("SideTabs")
     SideTabs = AltArmy.SideTabs
   end)
@@ -54,9 +66,13 @@ describe("SideTabs", function()
     savedCreateFrame, savedTooltip = _G.CreateFrame, _G.GameTooltip
     _G.CreateFrame = function(kind, _, _, template) return stubFrame(kind, template) end
     _G.GameTooltip = {
-      SetOwner = function(self, owner) self.owner = owner end,
+      lines = {},
+      SetOwner = function(self, owner) self.owner, self.lines, self.hidden = owner, {}, false end,
+      IsOwned = function(self, owner) return self.owner == owner end,
       SetText = function(self, t) self.text = t end,
-      Hide = function(self) self.hidden = true end,
+      AddLine = function(self, t, r, g, b) table.insert(self.lines, { t, r, g, b }) end,
+      Show = function() end,
+      Hide = function(self) self.owner, self.hidden = nil, true end,
     }
   end)
 
@@ -77,7 +93,7 @@ describe("SideTabs", function()
 
   local defs = {
     { name = "Summary", label = "Summary", icon = "Interface\\Icons\\a" },
-    { name = "Gear", label = "Gear", icon = "Interface\\Icons\\b" },
+    { name = "Gear", label = "Gear", icon = "Interface\\Icons\\b", command = "/alta gear" },
     { name = "Guild", label = "Guild", icon = "Interface\\Icons\\c" },
   }
 
@@ -97,6 +113,20 @@ describe("SideTabs", function()
       assert.are.equal("Interface\\Icons\\b", t.Icon.texture)
       assert.are.equal("Gear", t.tooltipText)
       assert.is_true(t.fill)
+    end)
+
+    it("adds the command in gray under the template's tooltip", function()
+      local t = tabs.tabs.Gear
+      t.scripts.OnEnter(t)
+      assert.are.equal("Gear", GameTooltip.text)
+      assert.are.same({ { "/alta gear", 0.5, 0.5, 0.5 } }, GameTooltip.lines)
+      t.scripts.OnLeave(t)
+      assert.is_true(GameTooltip.hidden)
+    end)
+
+    it("leaves a tab without a command to its template's tooltip", function()
+      tabs.tabs.Summary.scripts.OnEnter(tabs.tabs.Summary)
+      assert.are.same({}, GameTooltip.lines)
     end)
 
     it("stacks tabs flush using the template height", function()
@@ -199,6 +229,12 @@ describe("SideTabs", function()
       tabs:SetSelected("Summary")
       assert.is_true(tabs.tabs.Summary.checked)
       assert.is_false(tabs.tabs.Gear.checked)
+    end)
+
+    it("shows the command under the label", function()
+      tabs.tabs.Gear.scripts.OnEnter(tabs.tabs.Gear)
+      assert.are.equal("Gear", GameTooltip.text)
+      assert.are.equal("/alta gear", GameTooltip.lines[1][1])
     end)
 
     it("shows the tab label as a tooltip", function()

@@ -751,6 +751,7 @@ frame.SetEconomyView = SetActiveEconomyView
 
 -- Sub-view tabs hang from the panel top into the main window's toolbar row (as on Gear and Cooldowns).
 VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
+    mainTab = "Economy",
     onSelect = function(id)
         if VIEW.active ~= id then
             SetActiveEconomyView(id)
@@ -758,6 +759,7 @@ VIEW.tabs = AltArmy.TopTabs.Create(frame, VIEW.defs, {
     end,
 })
 VIEW.tabs.frame:SetPoint("BOTTOMLEFT", frame, "TOPLEFT", AltArmy.MainToolbarInsetX or 54, 0)
+frame.ViewTabs = VIEW.tabs -- `/alta <tab> <view>` opens only the views that have a tab (Core.lua)
 
 frame:SetScript("OnShow", function()
     SetActiveEconomyView(W.EnsureOptions().activeView)

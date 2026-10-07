@@ -6,7 +6,7 @@
 describe("TopTabs", function()
   local TopTabs
   local saved
-  local GLOBALS = { "CreateFrame", "CreateFramePool" }
+  local GLOBALS = { "CreateFrame", "CreateFramePool", "GameTooltip" }
   local created
 
   local function stubFrame(kind, template)
@@ -15,6 +15,13 @@ describe("TopTabs", function()
     function f:ClearAllPoints() self.points = {} end
     function f:SetSize(w, h) self.w, self.h = w, h end
     function f:SetScript(k, fn) self.scripts[k] = fn end
+    function f:HookScript(k, fn)
+      local prev = self.scripts[k]
+      self.scripts[k] = function(...)
+        if prev then prev(...) end
+        fn(...)
+      end
+    end
     function f:SetText(t) self.text = t end
     function f:Show() self.shown = true end
     function f:Hide() self.shown = false end
@@ -29,6 +36,10 @@ describe("TopTabs", function()
       local btn = stubFrame("Button", self.tabTemplate)
       btn.tabText, btn.tabIcon = text, icon
       function btn:SetTooltipText(t) self.tooltipText = t end
+      btn.scripts.OnEnter = function(self) -- TabSystemTopButtonTemplate's own tooltip
+        GameTooltip:SetOwner(self)
+        GameTooltip:SetText(self.tooltipText)
+      end
       table.insert(self.tabs, btn)
       return #self.tabs
     end
@@ -47,6 +58,8 @@ describe("TopTabs", function()
   setup(function()
     _G.AltArmy = _G.AltArmy or {}
     package.path = package.path .. ";AltArmy_TBC/UI/?.lua"
+    require("MainTabs")
+    require("TabTooltip")
     require("TopTabs")
     TopTabs = AltArmy.TopTabs
   end)
@@ -61,6 +74,15 @@ describe("TopTabs", function()
       return f
     end
     _G.CreateFramePool = function(_, _, template) return { template = template } end
+    _G.GameTooltip = {
+      lines = {},
+      SetOwner = function(self, owner) self.owner, self.lines = owner, {} end,
+      IsOwned = function(self, owner) return self.owner == owner end,
+      SetText = function(self, t) self.text = t end,
+      AddLine = function(self, t, r, g, b) table.insert(self.lines, { t, r, g, b }) end,
+      Show = function(self) self.shown = true end,
+      Hide = function(self) self.owner, self.shown = nil, false end,
+    }
   end)
 
   after_each(function()
@@ -150,6 +172,46 @@ describe("TopTabs", function()
       })
       tabs.buttons.raids.scripts.OnClick()
       assert.are.equal("raids", picked)
+    end)
+  end)
+
+  describe("slash commands in tooltips", function()
+    local opts = { mainTab = "Cooldowns" }
+
+    local function hover(btn)
+      btn.scripts.OnEnter(btn)
+      return GameTooltip
+    end
+
+    it("adds the view's command in gray under the TabSystem tab's own tooltip", function()
+      opts.caps = { topTabs = true, iconTabs = true }
+      local tabs = TopTabs.Create({}, defs, opts)
+      local tip = hover(tabs.frame.tabs[2])
+      assert.are.equal("Dungeons", tip.text)
+      assert.are.same({ { "/alta cooldowns dungeons", 0.5, 0.5, 0.5 } }, tip.lines)
+      assert.is_true(tip.shown)
+    end)
+
+    it("gives the classic text top tabs a tooltip with the label and command", function()
+      opts.caps = { panelTopTabs = true }
+      local tabs = TopTabs.Create({}, defs, opts)
+      local tip = hover(tabs.buttons.raids)
+      assert.are.equal(tabs.buttons.raids, tip.owner)
+      assert.are.equal("Dungeons", tip.text)
+      assert.are.equal("/alta cooldowns dungeons", tip.lines[1][1])
+      tabs.buttons.raids.scripts.OnLeave(tabs.buttons.raids)
+      assert.is_false(tip.shown)
+    end)
+
+    it("gives the fallback buttons the same tooltip", function()
+      opts.caps = {}
+      local tabs = TopTabs.Create({}, defs, opts)
+      assert.are.equal("/alta cooldowns crafting", hover(tabs.buttons.crafting).lines[1][1])
+    end)
+
+    it("adds no tooltip without a main tab", function()
+      local tabs = TopTabs.Create({}, defs, { caps = { panelTopTabs = true } })
+      assert.is_nil(tabs.buttons.raids.scripts.OnEnter)
     end)
   end)
 

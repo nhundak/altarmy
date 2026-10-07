@@ -98,10 +98,13 @@ local function UpdateHeaderSortIndicators(headerRow)
     end
 end
 
+-- Below the tab's controls row (the character picker and layout dropdown), which doesn't scroll.
+local CONTROLS_OFFSET = frame.CONTROLS_OFFSET or 0
+
 -- Column headers (rows layout only): Subject, From, Money and Expires sort the rows (as on Summary).
 local headerRow = CreateFrame("Frame", nil, inner)
 headerRow:SetHeight(UI.HEADER_HEIGHT)
-headerRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, 0)
+headerRow:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -CONTROLS_OFFSET)
 headerRow.cells = {}
 for _, key in ipairs(UI.colKeys) do
     if UI.sortable[key] then
@@ -132,7 +135,7 @@ PlaceCells(headerRow, headerRow.cells)
 UpdateHeaderSortIndicators(headerRow)
 
 local listViewport = CreateFrame("Frame", nil, inner)
-listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -(UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP))
+listViewport:SetPoint("TOPLEFT", inner, "TOPLEFT", 0, -(CONTROLS_OFFSET + UI.HEADER_HEIGHT + UI.HEADER_ROW_GAP))
 listViewport:SetPoint("BOTTOM", status, "TOP", 0, Theme.SECTION_GAP)
 listViewport:SetPoint("RIGHT", panel, "RIGHT", -Theme.VerticalScrollBarGutter(), 0)
 
@@ -344,6 +347,19 @@ local function LayoutGrid(messages, width)
     return top + UI.SLOT, #slots
 end
 
+--- Ring the attachments whose item matches the tab's search and dim the rest (the grid's gold slot aside).
+local function ApplySearch(queryLower)
+    for _, row in ipairs(state.rows) do
+        for _, btn in ipairs(row.icons) do
+            if btn:IsShown() then ISB.ApplySearch(btn, queryLower) end
+        end
+    end
+    for _, btn in ipairs(gridSlots.active) do
+        if btn.entry and (btn.entry.itemID or btn.entry.link) then ISB.ApplySearch(btn, queryLower) end
+    end
+end
+frame.ApplySearchMail = ApplySearch
+
 local function LastChecked(char)
     local at = DS.GetMailboxLastVisit and DS:GetMailboxLastVisit(char) or 0
     if not at or at <= 0 then return "" end
@@ -393,6 +409,7 @@ Refresh = function()
     end
     child:SetHeight(math.max(height, 1))
     viewport.UpdateRange()
+    ApplySearch(frame.GetSearchQuery and frame.GetSearchQuery() or "")
     local summary = string.format("%d message%s, %d item%s", #messages, #messages == 1 and "" or "s",
         attachments, attachments == 1 and "" or "s")
     local seen = LastChecked(char)

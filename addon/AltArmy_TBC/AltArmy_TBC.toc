@@ -14,6 +14,7 @@ UI\Text.lua
 UI\ScrollRows.xml
 UI\SlideTransition.lua
 UI\MainTabs.lua
+UI\TabTooltip.lua
 UI\SideTabs.lua
 UI\GuildCrest.lua
 UI\TopTabs.lua

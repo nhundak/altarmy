@@ -19,6 +19,9 @@ describe("ItemSlotButton", function()
     function t:SetTexture(path) self.texture = path end
     function t:SetAtlas(name) self.atlas = name end
     function t:SetVertexColor(r, g, b) self.color = { r, g, b } end
+    function t:SetBlendMode(mode) self.blend = mode end
+    function t:SetDesaturated(on) self.desaturated = on end
+    function t:SetAlpha(a) self.alpha = a end
     function t:SetJustifyH(j) self.justify = j end
     function t:SetText(s) self.text = s end
     function t:GetText() return self.text end
@@ -262,6 +265,65 @@ describe("ItemSlotButton", function()
       actions.previewed = nil
       btn.scripts.OnClick(btn, "LeftButton")
       assert.is_nil(actions.previewed)
+    end)
+  end)
+
+  describe("NameMatches", function()
+    it("matches a case-insensitive substring, everything on an empty query", function()
+      assert.is_true(ISB.NameMatches("Bolt of Linen Cloth", "linen"))
+      assert.is_true(ISB.NameMatches("Bolt of Linen Cloth", ""))
+      assert.is_true(ISB.NameMatches(nil, ""))
+      assert.is_false(ISB.NameMatches("Bolt of Linen Cloth", "wool"))
+      assert.is_false(ISB.NameMatches(nil, "linen"))
+    end)
+
+    it("reads pattern characters literally", function()
+      assert.is_true(ISB.NameMatches("100% [Rare]", "% [r"))
+      assert.is_false(ISB.NameMatches("Linen", "l.n"))
+    end)
+  end)
+
+  describe("ApplySearch", function()
+    it("rings a matching item, dims the rest, and resets on an empty query", function()
+      local btn = ISB.Create({}, { caps = {} })
+      ISB.SetItem(btn, { itemID = 100, count = 1 })
+      assert.are.equal("Sword", btn.itemName)
+      assert.is_false(btn.searchGlow.shown)
+
+      ISB.ApplySearch(btn, "swo")
+      assert.is_true(btn.searchGlow.shown)
+      assert.are.equal(1, btn.alpha)
+      assert.is_false(btn.icon.desaturated)
+
+      ISB.ApplySearch(btn, "cloth")
+      assert.is_false(btn.searchGlow.shown)
+      assert.are.equal(ISB.DIMMED_ALPHA, btn.alpha)
+      assert.is_true(btn.icon.desaturated)
+
+      ISB.ApplySearch(btn, "")
+      assert.is_false(btn.searchGlow.shown)
+      assert.are.equal(1, btn.alpha)
+      assert.is_false(btn.icon.desaturated)
+    end)
+
+    it("dims empty slots and items whose name is not cached under a query", function()
+      local btn = ISB.Create({}, { caps = {} })
+      ISB.ApplySearch(btn, "sword")
+      assert.are.equal(ISB.DIMMED_ALPHA, btn.alpha)
+      ISB.SetItem(btn, { itemID = 999, count = 1 })
+      ISB.ApplySearch(btn, "sword")
+      assert.are.equal(ISB.DIMMED_ALPHA, btn.alpha)
+      assert.is_false(btn.searchGlow.shown)
+    end)
+
+    it("SetEmpty clears the search look", function()
+      local btn = ISB.Create({}, { caps = {} })
+      ISB.SetItem(btn, { itemID = 100, count = 1 })
+      ISB.ApplySearch(btn, "sword")
+      ISB.SetEmpty(btn)
+      assert.is_nil(btn.itemName)
+      assert.is_false(btn.searchGlow.shown)
+      assert.are.equal(1, btn.alpha)
     end)
   end)
 

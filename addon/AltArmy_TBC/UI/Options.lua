@@ -2597,7 +2597,7 @@ SlashCmdList.ALTARMY = function(msg)
             end
             local cdFrame = AltArmy.TabFrames and AltArmy.TabFrames.Cooldowns
             if cdFrame and cdFrame.SetCooldownsView then
-                cdFrame:SetCooldownsView("crafting")
+                cdFrame.SetCooldownsView("crafting")
             end
             if cdFrame and cdFrame.StartSendAllStockpile then
                 cdFrame:StartSendAllStockpile(n)
@@ -2608,6 +2608,18 @@ SlashCmdList.ALTARMY = function(msg)
             end
             return
         end
+    end
+    -- `/alta economy crates`: a tab, and maybe one of its views (UI/MainTabs.lua); one not there does nothing.
+    local MainTabs = AltArmy.MainTabs
+    local tabName, viewName, valid
+    if MainTabs and MainTabs.ParseSlash then
+        tabName, viewName, valid = MainTabs.ParseSlash(trimmed)
+    end
+    if tabName then
+        if valid and AltArmy.OpenMainTabView then
+            AltArmy.OpenMainTabView(tabName, viewName)
+        end
+        return
     end
     if AltArmy and AltArmy.MainFrame then
         AltArmy.MainFrame:Show()
