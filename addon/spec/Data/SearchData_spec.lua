@@ -378,6 +378,19 @@ describe("SearchData", function()
     it("returns keyring for -2", function()
       assert.are.equal(SD._LocationFromBagID(-2), "keyring")
     end)
+    it("follows DataStore's bag roles when it has them (WoW Forever: keyring -1, reagent bag 5, tabs 6+)", function()
+      local DS = AltArmy.DataStore
+      local saved = DS.GetBagRole
+      DS.GetBagRole = function(_, bagID)
+        local roles = { [0] = "backpack", [1] = "bag", [5] = "reagentbag", [-1] = "keyring", [6] = "bankbag" }
+        return roles[bagID]
+      end
+      assert.are.equal("keyring", SD._LocationFromBagID(-1))
+      assert.are.equal("bag", SD._LocationFromBagID(5))
+      assert.are.equal("bank", SD._LocationFromBagID(6))
+      assert.are.equal("bag", SD._LocationFromBagID(-2))
+      DS.GetBagRole = saved
+    end)
   end)
 
   describe("_GetNameMatchScore", function()

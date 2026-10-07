@@ -534,4 +534,201 @@ describe("DataStoreContainers", function()
       assert.are.equal(0, DS:GetContainerItemCount(char, 21841))
     end)
   end)
+
+  describe("slot counts (containers v3)", function()
+    local function stubBags(sizes)
+      _G.UnitName = function() return "Slots" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.C_Container = nil
+      _G.ContainerIDToInventoryID = nil
+      _G.GetInventoryItemLink = function() return nil end
+      _G.GetInventoryItemID = function() return nil end
+      _G.GetContainerNumSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.GetContainerItemLink = function() return nil end
+      _G.GetContainerItemInfo = function() return nil end
+      _G.GetContainerNumFreeSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.time = function() return 1 end
+      DS.IsBankOpen = function() return true end
+    end
+
+    it("ScanBags records numSlots for the backpack, each bag and the keyring", function()
+      stubBags({ [0] = 16, [1] = 18, [-2] = 12 })
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {}
+      DS:ScanBags()
+      assert.are.equal(16, char.Containers[0].numSlots)
+      assert.are.equal(18, char.Containers[1].numSlots)
+      assert.are.equal(12, char.Containers[-2].numSlots)
+      assert.are.equal(16, DS:GetContainerNumSlots(char, 0))
+      assert.are.equal(3, char.dataVersions.containers)
+    end)
+
+    it("records 0 for an equippable bag slot that holds no bag", function()
+      stubBags({ [0] = 16 })
+      local char = DS:GetCurrentCharacter()
+      char.Containers = { [2] = { items = { [1] = { itemID = 5, count = 1 } }, links = {}, numSlots = 8 } }
+      DS:ScanBags()
+      assert.are.equal(0, char.Containers[2].numSlots)
+      assert.are.equal(0, DS:GetContainerNumSlots(char, 2))
+    end)
+
+    it("ScanBank records the main bank and bank bag sizes", function()
+      stubBags({ [-1] = 24, [5] = 16 })
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {}
+      DS:ScanBank()
+      assert.are.equal(24, char.Containers[-1].numSlots)
+      assert.are.equal(16, char.Containers[5].numSlots)
+    end)
+
+    it("GetContainerNumSlots is nil for v2 data and unknown bags", function()
+      local char = { Containers = { [0] = { items = {}, links = {} } } }
+      assert.is_nil(DS:GetContainerNumSlots(char, 0))
+      assert.is_nil(DS:GetContainerNumSlots(char, 3))
+      assert.is_nil(DS:GetContainerNumSlots(nil, 0))
+    end)
+  end)
+
+  describe("OnContainerDataChanged", function()
+    it("runs listeners after a bag scan", function()
+      _G.UnitName = function() return "Listener" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.C_Container = nil
+      _G.GetContainerNumSlots = function(bagID) return bagID == 0 and 16 or 0 end
+      _G.GetContainerItemLink = function() return nil end
+      _G.GetContainerItemInfo = function() return nil end
+      _G.GetInventoryItemLink = function() return nil end
+      _G.GetInventoryItemID = function() return nil end
+      local fired = 0
+      DS:OnContainerDataChanged(function() fired = fired + 1 end)
+      DS:OnContainerDataChanged("not a function")
+      DS:GetCurrentCharacter().Containers = {}
+      DS:ScanBags()
+      assert.are.equal(1, fired)
+    end)
+
+    it("keeps running the other listeners when one errors", function()
+      local fired = false
+      DS:OnContainerDataChanged(function() error("boom") end)
+      DS:OnContainerDataChanged(function() fired = true end)
+      DS:FireContainerDataChanged()
+      assert.is_true(fired)
+    end)
+  end)
+
+  describe("bag roles", function()
+    it("uses the Classic ids on a client without retail-style BagIndex", function()
+      local r = DS._BuildBagRoles(nil)
+      assert.is_false(r.retail)
+      assert.are.same({ 1, 2, 3, 4 }, r.bags)
+      assert.are.same({ -2, -1 }, { r.keyring, r.bank })
+      assert.are.same({ 5, 6, 7, 8, 9, 10, 11 }, r.bankBags)
+      assert.are.equal("Bank Bag %d", r.bankBagName)
+      assert.is_nil(r.reagentBag)
+      -- TBC Anniversary's enum still names a Bank container: Classic ids.
+      assert.is_false(DS._BuildBagRoles({ Bank = -1, Keyring = -2, Backpack = 0, BankBag_1 = 6 }).retail)
+    end)
+
+    it("follows WoW Forever's BagIndex: keyring -1, reagent bag carried, bank tabs 6-14, no bank container", function()
+      local r = DS._BuildBagRoles({
+        Keyring = -1, Characterbanktab = -2, Backpack = 0, Bag_1 = 1, Bag_2 = 2, Bag_3 = 3, Bag_4 = 4,
+        ReagentBag = 5, CharacterBankTab_1 = 6, CharacterBankTab_2 = 7, CharacterBankTab_3 = 8,
+        CharacterBankTab_4 = 9, CharacterBankTab_5 = 10, CharacterBankTab_6 = 11, CharacterBankTab_7 = 12,
+        CharacterBankTab_8 = 13, CharacterBankTab_9 = 14,
+      })
+      assert.is_true(r.retail)
+      assert.are.same({ 1, 2, 3, 4, 5 }, r.bags)
+      assert.are.equal(5, r.reagentBag)
+      assert.are.equal(-1, r.keyring)
+      assert.is_nil(r.bank)
+      assert.are.same({ 6, 7, 8, 9, 10, 11, 12, 13, 14 }, r.bankBags)
+      assert.are.equal("Bank Tab %d", r.bankBagName)
+      assert.are.equal("Bank Bag", r.firstBankBagName)
+      assert.is_true(r.bagSet[5])
+      assert.is_true(r.bankBagSet[14])
+    end)
+
+    it("GetBagRole names each id on this (Classic) client", function()
+      assert.are.equal("backpack", DS:GetBagRole(0))
+      assert.are.equal("bag", DS:GetBagRole(3))
+      assert.are.equal("keyring", DS:GetBagRole(-2))
+      assert.are.equal("bank", DS:GetBagRole(-1))
+      assert.are.equal("bankbag", DS:GetBagRole(11))
+      assert.is_nil(DS:GetBagRole(12))
+      assert.is_nil(DS:GetBagRole("x"))
+      assert.are.same({ 4, -1, -2, 5, 11 },
+        { DS.NUM_BAG_SLOTS, DS.BANK_CONTAINER, DS.KEYRING_CONTAINER, DS.MIN_BANK_BAG_ID, DS.MAX_BANK_BAG_ID })
+    end)
+  end)
+
+  describe("scans under WoW Forever's roles", function()
+    local FOREVER = {
+      Keyring = -1, Characterbanktab = -2, Backpack = 0, Bag_1 = 1, Bag_2 = 2, Bag_3 = 3, Bag_4 = 4,
+      ReagentBag = 5, CharacterBankTab_1 = 6, CharacterBankTab_2 = 7, CharacterBankTab_3 = 8,
+    }
+    local sizes
+
+    before_each(function()
+      DS.RebuildBagRoles(FOREVER)
+      _G.UnitName = function() return "Forever" end
+      _G.GetRealmName = function() return "TestRealm" end
+      _G.C_Container = nil
+      _G.ContainerIDToInventoryID = function(bagID) return 60 + bagID end
+      _G.GetInventoryItemLink = function(_, invSlot)
+        if invSlot == 66 then return "|Hitem:242709:0|h[Character Bank Tab Bag (DNT)]|h" end
+        if invSlot == 67 then return "|Hitem:5571:0|h[Small Black Pouch]|h" end
+        if invSlot == 65 then return "|Hitem:277114:0|h[Reagent Pouch]|h" end
+        return nil
+      end
+      _G.GetInventoryItemID = function() return nil end
+      _G.GetContainerNumSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.GetContainerItemLink = function() return nil end
+      _G.GetContainerItemInfo = function() return nil end
+      _G.GetContainerNumFreeSlots = function(bagID) return sizes[bagID] or 0 end
+      _G.time = function() return 1 end
+      DS.IsBankOpen = function() return true end
+    end)
+
+    after_each(function()
+      DS.RebuildBagRoles(nil)
+    end)
+
+    it("exports the roles and the Classic names from them", function()
+      assert.are.same({ 5, nil, -1, 6, 8 },
+        { DS.NUM_BAG_SLOTS, DS.BANK_CONTAINER, DS.KEYRING_CONTAINER, DS.MIN_BANK_BAG_ID, DS.MAX_BANK_BAG_ID })
+      assert.are.equal("keyring", DS:GetBagRole(-1))
+      assert.are.equal("reagentbag", DS:GetBagRole(5))
+      assert.are.equal("bankbag", DS:GetBagRole(6))
+      assert.is_nil(DS:GetBagRole(-2))
+      assert.is_true(DS._IsPlayerCarriedBagID(5))
+      assert.is_true(DS._IsPlayerCarriedBagID(-1))
+    end)
+
+    it("ScanBags scans the backpack, bags 1-5 (reagent bag with its identity) and the keyring at -1", function()
+      sizes = { [0] = 20, [1] = 6, [5] = 1, [-1] = 12 }
+      local char = DS:GetCurrentCharacter()
+      char.Containers = {}
+      DS:ScanBags()
+      assert.are.equal(20, char.Containers[0].numSlots)
+      assert.are.equal(6, char.Containers[1].numSlots)
+      assert.are.equal(1, char.Containers[5].numSlots)
+      assert.are.equal(277114, char.Containers[5].bagItemID)
+      assert.are.equal(12, char.Containers[-1].numSlots)
+      assert.is_nil(char.Containers[-2])
+      assert.are.equal(27, char.bagInfo.totalSlots)
+    end)
+
+    it("ScanBank scans the tabs, never records the built-in first tab's placeholder item, and skips -1", function()
+      sizes = { [-1] = 12, [6] = 48, [7] = 6 }
+      local char = DS:GetCurrentCharacter()
+      char.Containers = { [6] = { items = {}, links = {}, bagItemID = 242709, bagLink = "old" } }
+      DS:ScanBank()
+      assert.are.equal(48, char.Containers[6].numSlots)
+      assert.is_nil(char.Containers[6].bagItemID)
+      assert.is_nil(char.Containers[6].bagLink)
+      assert.are.equal(5571, char.Containers[7].bagItemID)
+      assert.is_nil(char.Containers[-1]) -- the keyring belongs to ScanBags
+      assert.are.equal(54, char.bankInfo.totalSlots)
+    end)
+  end)
 end)

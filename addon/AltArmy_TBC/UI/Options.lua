@@ -2274,6 +2274,12 @@ SlashCmdList.ALTARMY = function(msg)
         end
         return
     end
+    if lower == "resetsize" then
+        if AltArmy.ResetWindowSize then
+            AltArmy.ResetWindowSize()
+        end
+        return
+    end
     if lower == "scan" then
         local scan = AltArmy.AuctionScan
         local ok, reason = false, "missing"

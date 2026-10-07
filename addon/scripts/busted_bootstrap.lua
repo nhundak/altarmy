@@ -16,6 +16,7 @@ local dataRoots = {
   "AltArmy_TBC/Data/Recipes",
   "AltArmy_TBC/Data/Auctions",
   "AltArmy_TBC/Data/Economy",
+  "AltArmy_TBC/Data/Inventory",
 }
 for _, root in ipairs(dataRoots) do
   package.path = package.path .. ";" .. root .. "/?.lua"

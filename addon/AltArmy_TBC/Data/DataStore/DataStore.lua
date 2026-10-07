@@ -27,12 +27,12 @@ DS.IsWowForever = (GetBuildInfo and select(4, GetBuildInfo()) == 16001) or false
 local DATA_VERSIONS = {
     character = 3,
     guildMembership = 1,
-    containers = 2,
+    containers = 3,
     equipment = 1,
     gearScores = 1,
     professions = 1,
     reputations = 2,
-    mail = 1,
+    mail = 2,
     auctions = 1,
     currencies = 1,
     currencyList = 1,
@@ -335,6 +335,18 @@ function DS:GetAllDataVersions(char)
         out[k] = v
     end
     return out
+end
+
+-- Listeners (the Inventory tab) run after each bag, bank, mailbox or equipment scan, and after a mail
+-- prediction is cached; the scan modules call FireContainerDataChanged from their notify helpers.
+local containerListeners = {}
+function DS:OnContainerDataChanged(fn)
+    if type(fn) == "function" then
+        containerListeners[#containerListeners + 1] = fn
+    end
+end
+function DS:FireContainerDataChanged()
+    for _, fn in ipairs(containerListeners) do pcall(fn) end
 end
 
 function DS:DeleteCharacter(name, realm)
@@ -901,19 +913,12 @@ frame:SetScript("OnEvent", function(_, event, ...)
             DS:ScanMailbox()
         end
         local bagID = a1
-        local numBagSlots = DS.NUM_BAG_SLOTS or 4
-        local bankContainer = DS.BANK_CONTAINER or -1
-        local keyringContainer = DS.KEYRING_CONTAINER or -2
-        local minBankBagId = DS.MIN_BANK_BAG_ID or 5
-        local maxBankBagId = DS.MAX_BANK_BAG_ID or 11
+        local role = DS.GetBagRole and DS:GetBagRole(bagID)
         if type(bagID) == "number" then
-            if bagID >= 0 and bagID <= numBagSlots then
+            if role == "backpack" or role == "bag" or role == "reagentbag" or role == "keyring" then
                 if DS.ScanContainer then DS:ScanContainer(char, bagID) end
                 if DS.ScanBags then DS:ScanBags() end
-            elseif bagID == keyringContainer then
-                if DS.ScanContainer then DS:ScanContainer(char, bagID) end
-                if DS.ScanBags then DS:ScanBags() end
-            elseif isBankOpen and (bagID == bankContainer or (bagID >= minBankBagId and bagID <= maxBankBagId)) then
+            elseif isBankOpen and (role == "bank" or role == "bankbag") then
                 if DS.ScanContainer then DS:ScanContainer(char, bagID) end
                 if DS.ScanBank then DS:ScanBank() end
             end

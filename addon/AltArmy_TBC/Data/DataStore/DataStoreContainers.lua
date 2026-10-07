@@ -12,25 +12,96 @@ local function notifyContainerDataChanged()
     if SD and SD.NotifyContainerDataChanged then
         SD.NotifyContainerDataChanged()
     end
+    if DS.FireContainerDataChanged then
+        DS:FireContainerDataChanged()
+    end
 end
 
-local NUM_BAG_SLOTS = NUM_BAG_SLOTS or 4
-local MIN_BANK_BAG_ID = 5
-local MAX_BANK_BAG_ID = 11
-local BANK_CONTAINER = -1
-local KEYRING_CONTAINER = -2
 local BACKPACK_FALLBACK_SLOTS = 16
 
-DS.NUM_BAG_SLOTS = NUM_BAG_SLOTS
-DS.BANK_CONTAINER = BANK_CONTAINER
-DS.KEYRING_CONTAINER = KEYRING_CONTAINER
-DS.MIN_BANK_BAG_ID = MIN_BANK_BAG_ID
-DS.MAX_BANK_BAG_ID = MAX_BANK_BAG_ID
+--- Which container id plays which role on this client. TBC Anniversary numbers them the Classic way:
+--- backpack 0, bags 1-4, keyring -2, the bank -1 and bank bags 5-11. WoW Forever's Enum.BagIndex is
+--- retail's: the keyring is -1, bag 5 is a carried (reagent) bag, there is no bank container, and the
+--- bank is tabs CharacterBankTab_1..9 (6-14), each a bag slot (checked against Alts Forever's scanner).
+--- Everything else here (scans, counts, Search's locations, the Inventory tab) reads these roles.
+--- `bagIndex` is Enum.BagIndex (nil on a client without it).
+function DS._BuildBagRoles(bagIndex)
+    local roles = {
+        backpack = 0,
+        bags = {}, -- carried bag slots, in order (the reagent bag included, where the client has one)
+        reagentBag = nil, -- Forever's bag 5; counted apart from the other bags
+        keyring = nil,
+        bank = nil, -- the generic bank container, where the client has one
+        bankBags = {}, -- bank bag slots (Forever: bank tabs), in order
+        bankBagName = "Bank Bag %d",
+        retail = false, -- retail-style ids (WoW Forever)
+    }
+    if type(bagIndex) == "table" and bagIndex.CharacterBankTab_1 ~= nil and bagIndex.Bank == nil then
+        roles.retail = true
+        for i = 1, 4 do roles.bags[#roles.bags + 1] = bagIndex["Bag_" .. i] or i end
+        if bagIndex.ReagentBag ~= nil then
+            roles.bags[#roles.bags + 1] = bagIndex.ReagentBag
+            roles.reagentBag = bagIndex.ReagentBag
+        end
+        roles.keyring = bagIndex.Keyring
+        for i = 1, 9 do
+            local id = bagIndex["CharacterBankTab_" .. i]
+            if id ~= nil then roles.bankBags[#roles.bankBags + 1] = id end
+        end
+        roles.bankBagName = "Bank Tab %d"
+        roles.firstBankBagName = "Bank Bag" -- the first tab is the built-in bank (a placeholder bag item)
+    else
+        roles.bags = { 1, 2, 3, 4 }
+        roles.keyring = -2
+        roles.bank = -1
+        roles.bankBags = { 5, 6, 7, 8, 9, 10, 11 }
+    end
+    roles.bagSet, roles.bankBagSet = {}, {}
+    for _, id in ipairs(roles.bags) do roles.bagSet[id] = true end
+    for _, id in ipairs(roles.bankBags) do roles.bankBagSet[id] = true end
+    return roles
+end
+
+-- The Classic names other modules read (contiguous on both clients); set with the roles.
+local NUM_BAG_SLOTS, BANK_CONTAINER, KEYRING_CONTAINER, MIN_BANK_BAG_ID, MAX_BANK_BAG_ID
+local ROLES = {}
+DS.BagRoles = ROLES
+function DS:GetBagRoles() return ROLES end
+
+--- Build the roles for `bagIndex` (Enum.BagIndex) into the shared table. Done once at load; tests
+--- call it to switch clients.
+function DS.RebuildBagRoles(bagIndex)
+    local roles = DS._BuildBagRoles(bagIndex)
+    for k in pairs(ROLES) do ROLES[k] = nil end
+    for k, v in pairs(roles) do ROLES[k] = v end
+    NUM_BAG_SLOTS = #ROLES.bags
+    BANK_CONTAINER = ROLES.bank
+    KEYRING_CONTAINER = ROLES.keyring
+    MIN_BANK_BAG_ID = ROLES.bankBags[1]
+    MAX_BANK_BAG_ID = ROLES.bankBags[#ROLES.bankBags]
+    DS.NUM_BAG_SLOTS = NUM_BAG_SLOTS
+    DS.BANK_CONTAINER = BANK_CONTAINER
+    DS.KEYRING_CONTAINER = KEYRING_CONTAINER
+    DS.MIN_BANK_BAG_ID = MIN_BANK_BAG_ID
+    DS.MAX_BANK_BAG_ID = MAX_BANK_BAG_ID
+end
+DS.RebuildBagRoles(_G.Enum and _G.Enum.BagIndex)
+
+--- "backpack", "bag", "reagentbag", "keyring", "bank", "bankbag", or nil for an id this client does not use.
+function DS:GetBagRole(bagID)
+    if type(bagID) ~= "number" then return nil end
+    if bagID == ROLES.backpack then return "backpack" end
+    if ROLES.reagentBag ~= nil and bagID == ROLES.reagentBag then return "reagentbag" end
+    if ROLES.bagSet[bagID] then return "bag" end
+    if ROLES.keyring ~= nil and bagID == ROLES.keyring then return "keyring" end
+    if ROLES.bank ~= nil and bagID == ROLES.bank then return "bank" end
+    if ROLES.bankBagSet[bagID] then return "bankbag" end
+    return nil
+end
 
 local function IsPlayerCarriedBagID(bagID)
-    if type(bagID) ~= "number" then return false end
-    if bagID == KEYRING_CONTAINER then return true end
-    return bagID >= 0 and bagID <= NUM_BAG_SLOTS
+    local role = DS:GetBagRole(bagID)
+    return role == "backpack" or role == "bag" or role == "reagentbag" or role == "keyring"
 end
 DS._IsPlayerCarriedBagID = IsPlayerCarriedBagID
 
@@ -61,10 +132,8 @@ local function GetItemInfoForSlot(bagID, slot)
 end
 
 local function IsEquippableBagSlot(bagID)
-    if type(bagID) ~= "number" then return false end
-    if bagID >= 1 and bagID <= NUM_BAG_SLOTS then return true end
-    if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then return true end
-    return false
+    local role = DS:GetBagRole(bagID)
+    return role == "bag" or role == "reagentbag" or role == "bankbag"
 end
 
 local function GetContainer(char, bagID)
@@ -104,7 +173,7 @@ local function GetBagInventorySlot(bagID)
             return invSlot
         end
     end
-    if bagID >= 1 and bagID <= NUM_BAG_SLOTS then
+    if ROLES.bagSet[bagID] then
         local name = INV_BAG_SLOT_NAMES[bagID]
         if name and GetInventorySlotInfo then
             local slot = GetInventorySlotInfo(name)
@@ -117,7 +186,7 @@ local function GetBagInventorySlot(bagID)
         end
         return TBC_FIRST_BAG_INV_SLOT + (bagID - 1)
     end
-    if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then
+    if ROLES.bankBagSet[bagID] then
         if BankButtonIDToInvSlotID then
             local ok, invSlot = pcall(BankButtonIDToInvSlotID, bagID - NUM_BAG_SLOTS, 1)
             if ok and type(invSlot) == "number" then
@@ -129,9 +198,19 @@ local function GetBagInventorySlot(bagID)
     return nil
 end
 
+--- WoW Forever's first bank tab is the built-in bank: its slot holds a placeholder item, "Character
+--- Bank Tab Bag (DNT)" (Blizzard's do-not-translate marker), not a bag anyone owns.
+local function IsBuiltInBankTab(bagID)
+    return ROLES.retail and bagID == ROLES.bankBags[1]
+end
+
 local function ScanBagIdentity(char, bagID, preserveIfUnknown)
     if not char or not IsEquippableBagSlot(bagID) then return end
     local bag = GetContainer(char, bagID)
+    if IsBuiltInBankTab(bagID) then
+        ClearBagIdentity(bag) -- never recorded, so no reader shows the placeholder as a bag
+        return
+    end
     local invSlot = GetBagInventorySlot(bagID)
     if not invSlot then
         if not preserveIfUnknown then
@@ -158,6 +237,7 @@ local function ScanContainer(char, bagID, sizeOverride)
         if IsEquippableBagSlot(bagID) and char and char.Containers and char.Containers[bagID] then
             local bag = char.Containers[bagID]
             ClearContainerContents(bag)
+            bag.numSlots = 0
             ScanBagIdentity(char, bagID, false)
             char.lastUpdate = time()
         end
@@ -166,6 +246,7 @@ local function ScanContainer(char, bagID, sizeOverride)
     if not GetItemLink then return end
     local bag = GetContainer(char, bagID)
     ClearContainerContents(bag)
+    bag.numSlots = numSlots -- containers v3: lets the Inventory tab draw empty slots
     for slot = 1, numSlots do
         local link = GetItemLink(bagID, slot)
         if link then
@@ -184,29 +265,28 @@ end
 function DS:ScanBags()
     local char = GetCurrentCharTable()
     if not char then return end
-    for bagID = 0, NUM_BAG_SLOTS do
-        local numSlots = GetNumSlots(bagID)
-        if bagID == 0 and (not numSlots or numSlots <= 0) then
-            numSlots = BACKPACK_FALLBACK_SLOTS
-        end
-        if bagID == 0 then
-            if numSlots and numSlots > 0 then
-                ScanContainer(char, bagID, numSlots)
-            end
-        else
-            -- Equippable slots: always scan (clears identity/contents when empty).
-            ScanContainer(char, bagID, numSlots)
+    local backpackSlots = GetNumSlots(ROLES.backpack)
+    if not backpackSlots or backpackSlots <= 0 then
+        backpackSlots = BACKPACK_FALLBACK_SLOTS
+    end
+    ScanContainer(char, ROLES.backpack, backpackSlots)
+    for _, bagID in ipairs(ROLES.bags) do
+        -- Equippable slots: always scan (clears identity/contents when empty).
+        ScanContainer(char, bagID, GetNumSlots(bagID))
+    end
+    if KEYRING_CONTAINER ~= nil then
+        local keyringSlots = GetNumSlots(KEYRING_CONTAINER)
+        if keyringSlots and keyringSlots > 0 then
+            ScanContainer(char, KEYRING_CONTAINER, keyringSlots)
         end
     end
-    local keyringSlots = GetNumSlots(KEYRING_CONTAINER)
-    if keyringSlots and keyringSlots > 0 then
-        ScanContainer(char, KEYRING_CONTAINER, keyringSlots)
-    end
-    local totalSlots, freeSlots = 0, 0
+    local totalSlots, freeSlots = backpackSlots, 0
     local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
-    for bagID = 0, NUM_BAG_SLOTS do
-        local n = GetNumSlots(bagID) or (bagID == 0 and BACKPACK_FALLBACK_SLOTS) or 0
-        totalSlots = totalSlots + n
+    if getFree and getFree(ROLES.backpack) then
+        freeSlots = freeSlots + getFree(ROLES.backpack)
+    end
+    for _, bagID in ipairs(ROLES.bags) do
+        totalSlots = totalSlots + (GetNumSlots(bagID) or 0)
         if getFree and getFree(bagID) then
             freeSlots = freeSlots + getFree(bagID)
         end
@@ -224,22 +304,22 @@ function DS:ScanBank()
     end
     local char = GetCurrentCharTable()
     if not char then return end
-    if GetNumSlots(BANK_CONTAINER) and GetNumSlots(BANK_CONTAINER) > 0 then
+    if BANK_CONTAINER ~= nil and GetNumSlots(BANK_CONTAINER) and GetNumSlots(BANK_CONTAINER) > 0 then
         ScanContainer(char, BANK_CONTAINER)
     end
-    for bagID = MIN_BANK_BAG_ID, MAX_BANK_BAG_ID do
+    for _, bagID in ipairs(ROLES.bankBags) do
         -- Always scan equippable bank bag slots so empty slots clear stale identity/contents.
         ScanContainer(char, bagID)
     end
     local totalSlots, freeSlots = 0, 0
     local getFree = (C_Container and C_Container.GetContainerNumFreeSlots) or GetContainerNumFreeSlots
-    if GetNumSlots(BANK_CONTAINER) then
+    if BANK_CONTAINER ~= nil and GetNumSlots(BANK_CONTAINER) then
         totalSlots = totalSlots + GetNumSlots(BANK_CONTAINER)
         if getFree and getFree(BANK_CONTAINER) then
             freeSlots = freeSlots + getFree(BANK_CONTAINER)
         end
     end
-    for bagID = MIN_BANK_BAG_ID, MAX_BANK_BAG_ID do
+    for _, bagID in ipairs(ROLES.bankBags) do
         local n = GetNumSlots(bagID) or 0
         totalSlots = totalSlots + n
         if getFree and getFree(bagID) then
@@ -264,6 +344,16 @@ end
 function DS:GetContainer(char, bagID)
     if not char or not char.Containers then return nil end
     return char.Containers[bagID]
+end
+
+--- Slot count recorded at the last scan (containers v3), or nil for older data.
+function DS:GetContainerNumSlots(char, bagID)
+    local bag = self:GetContainer(char, bagID)
+    local n = bag and bag.numSlots
+    if type(n) == "number" and n >= 0 then
+        return n
+    end
+    return nil
 end
 
 function DS:GetContainerItemCount(char, itemID)
@@ -358,12 +448,10 @@ end
 
 function DS:IterateBankSlots(char, callback)
     if not char or not char.Containers or not callback then return end
-    local bankContainer = self.BANK_CONTAINER or BANK_CONTAINER
-    local minBank = self.MIN_BANK_BAG_ID or MIN_BANK_BAG_ID
-    local maxBank = self.MAX_BANK_BAG_ID or MAX_BANK_BAG_ID
     for bagID, bag in pairs(char.Containers) do
         bagID = tonumber(bagID)
-        if bagID and (bagID == bankContainer or (bagID >= minBank and bagID <= maxBank)) then
+        local role = DS:GetBagRole(bagID)
+        if role == "bank" or role == "bankbag" then
             if bag and bag.items then
                 for slot, slotData in pairs(bag.items) do
                     if slotData and slotData.itemID then

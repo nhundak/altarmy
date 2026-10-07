@@ -108,11 +108,23 @@ function Prof.queryLabel(query)
     return tostring(query)
 end
 
+-- DataStore knows which ids are which on this client (WoW Forever numbers them differently).
+local function BagRole(bagID)
+    if DS and DS.GetBagRole then
+        return DS:GetBagRole(bagID)
+    end
+    if bagID == KEYRING_CONTAINER then return "keyring" end
+    if bagID == BANK_CONTAINER then return "bank" end
+    if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then return "bankbag" end
+    return "bag"
+end
+
 local function LocationFromBagID(bagID)
-    if bagID == KEYRING_CONTAINER then
+    local role = BagRole(bagID)
+    if role == "keyring" then
         return "keyring"
     end
-    if bagID == BANK_CONTAINER or (bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID) then
+    if role == "bank" or role == "bankbag" then
         return "bank"
     end
     return "bag"
@@ -226,7 +238,7 @@ local function BuildAllContainerSlots()
             end
             DS:IterateEquippedBags(charData, function(bagID, itemID, link)
                 local location = "equipped"
-                if bagID >= MIN_BANK_BAG_ID and bagID <= MAX_BANK_BAG_ID then
+                if BagRole(bagID) == "bankbag" then
                     location = "equipped-bank"
                 end
                 table.insert(list, {

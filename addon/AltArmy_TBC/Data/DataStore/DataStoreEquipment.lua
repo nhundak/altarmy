@@ -12,6 +12,9 @@ local function notifyContainerDataChanged()
     if SD and SD.NotifyContainerDataChanged then
         SD.NotifyContainerDataChanged()
     end
+    if DS.FireContainerDataChanged then
+        DS:FireContainerDataChanged()
+    end
 end
 
 local NUM_EQUIPMENT_SLOTS = 19

@@ -133,6 +133,13 @@ describe("NativeUI", function()
       assert.is_false(NativeUI.DetectCaps().sideTabs)
     end)
 
+    it("reports the retail empty bag slot atlas only where the client has it", function()
+      stubClient({}, { ["bags-item-slot64"] = { width = 64, height = 64 } })
+      assert.is_true(NativeUI.DetectCaps().bagSlotAtlas)
+      stubClient({}, {})
+      assert.is_false(NativeUI.DetectCaps().bagSlotAtlas)
+    end)
+
     it("requires ScrollUtil binding for minimal scroll bars", function()
       stubClient({ MinimalScrollBar = true })
       assert.is_false(NativeUI.DetectCaps().minimalScrollBar)

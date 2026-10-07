@@ -231,4 +231,55 @@ describe("DataStoreMail", function()
       assert.is_nil(char.Mails[1].text)
     end)
   end)
+
+  describe("MailRowDaysLeft", function()
+    it("subtracts the time since the scan, nil without an expiry", function()
+      assert.are.equal(8, DS.MailRowDaysLeft({ daysLeft = 10, lastCheck = 1000 }, 1000 + 2 * 86400))
+      assert.are.equal(10, DS.MailRowDaysLeft({ daysLeft = 10 }, 0))
+      assert.is_nil(DS.MailRowDaysLeft({ itemID = 1 }, 0))
+      assert.is_nil(DS.MailRowDaysLeft(nil, 0))
+    end)
+  end)
+
+  describe("message index (mail v2)", function()
+    it("ScanMailbox stamps every row of a message with its inbox position", function()
+      local char = { Mails = {}, MailCache = {} }
+      DS._GetCurrentCharTable = function() return char end
+      _G.GetInboxNumItems = function() return 2 end
+      _G.CheckInbox = function() end
+      _G.GetInboxHeaderInfo = function(i)
+        if i == 1 then return nil, "icon", "Alice", "Mats", 1500, 0, 30, 2, nil, false end
+        return nil, "icon", "Bob", "Gold", 2500, 0, 20, nil, nil, false
+      end
+      _G.GetInboxItem = function(mailIndex, attachIndex)
+        if mailIndex == 1 and attachIndex <= 2 then return "Item", 100 + attachIndex, "ic", 1 end
+        return nil
+      end
+      _G.GetInboxItemLink = function() return nil end
+      _G.GetInboxText = function() error("GetInboxText should not be called") end
+      local old = _G.time
+      _G.time = function() return 1000 end
+      DS:ScanMailbox()
+      _G.time = old
+      assert.are.equal(4, #char.Mails)
+      assert.are.same({ 1, 1, 1, 2 }, {
+        char.Mails[1].mailIndex, char.Mails[2].mailIndex, char.Mails[3].mailIndex, char.Mails[4].mailIndex,
+      })
+      assert.are.equal(1500, char.Mails[3].money)
+      assert.are.equal(2, char.dataVersions.mail)
+    end)
+
+    it("NextMailCacheIndex counts down from -1 below the lowest cached index", function()
+      local char = { MailCache = {} }
+      assert.are.equal(-1, DS:NextMailCacheIndex(char))
+      DS:SaveMailAttachmentToCache(char, "ic", 100, "link", 1, "Me", "Subj", false, -1)
+      DS:SaveMailToCache(char, 500, "", "Subj", "Me", false, -1)
+      assert.are.equal(-1, char.MailCache[1].mailIndex)
+      assert.are.equal(-1, char.MailCache[2].mailIndex)
+      assert.are.equal(-2, DS:NextMailCacheIndex(char))
+      char.MailCache[3] = { itemID = 1, count = 1 } -- a v1 row without an index
+      assert.are.equal(-2, DS:NextMailCacheIndex(char))
+      assert.are.equal(-1, DS:NextMailCacheIndex(nil))
+    end)
+  end)
 end)
