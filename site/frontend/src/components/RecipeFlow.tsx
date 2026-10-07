@@ -2,22 +2,14 @@ import { createContext, useContext, useMemo } from 'react'
 import { useComputedColorScheme } from '@mantine/core'
 import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
 import type { ItemMap, RankResult } from '../api/client'
-import { SELL_PATH } from '../lib/choices'
+import { ChooseContext, SELL_PATH, type PlanEditing } from '../lib/choices'
 import { buildFlow, type ItemFlowNode, type SellFlowNode } from '../lib/flow'
 import { bonusNote, discountNote } from '../lib/talents'
 import { CharacterName } from './CharacterName'
-import {
-  BUY_FROM,
-  ChoiceMenu,
-  ChooseContext,
-  Earned,
-  SELL_TEXT,
-  sellChoices,
-  sourceChoices,
-  type PlanEditing,
-} from './ChoiceMenu'
+import { ChoiceMenu } from './ChoiceMenu'
 import { DisenchantHover, ItemLink } from './ItemTooltip'
-import { Money } from './Money'
+import { Earned, Money } from './Money'
+import { BUY_FROM, SELL_TEXT, sellChoices, sourceChoices } from './planChoices'
 import classes from './RecipeFlow.module.css'
 
 const MAX_HEIGHT = 480
@@ -112,7 +104,7 @@ function SellNode({ data: { exit, revenue, profit, bonus, seller, options } }: N
         <ChoiceMenu label="Change how it is sold" paths={[SELL_PATH]} choices={sellChoices(options, exit)} />
       </div>
       <div className={classes.detail}>
-        Gross <Earned copper={revenue} /> · Net <Earned copper={profit} />
+        Gross <Earned copper={revenue} minus /> · Net <Earned copper={profit} minus />
       </div>
       {bonus > 0 && <div className={classes.detail}>{bonusNote(bonus)}</div>}
       {exit === 'disenchant' && seller && (

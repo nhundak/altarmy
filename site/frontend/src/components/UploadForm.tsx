@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Alert, Button, Code, FileInput, Group, List, Stack } from '@mantine/core'
 import { useUpload, type UploadKind } from '../api/queries'
-import { GAME_FLAVOR, GAME_VERSION_LABEL } from '../lib/gameVersion'
+import { GAME_VERSION_LABEL } from '../lib/gameVersion'
 import { IconUpload } from './icons'
 import { Summary } from './PasteForm'
 
@@ -36,10 +36,6 @@ function uploadedTitle(realms: readonly { quarantined: boolean }[]): string {
   if (realms.some((r) => r.quarantined)) return 'Uploaded, but some prices were not used: they differ widely from recent scans'
   return 'Uploaded'
 }
-
-/** Where WoW keeps a SavedVariables file. */
-export const savedVariablesPath = (name: string) =>
-  `World of Warcraft\\${GAME_FLAVOR}\\WTF\\Account\\<account>\\SavedVariables\\${name}`
 
 /** Pick an addon file and upload it, then say what it brought in (or why it was refused). */
 export function UploadForm({ kind, name }: { kind: UploadKind; name: string }) {

@@ -1,7 +1,8 @@
 import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderWithProviders } from '../test/utils'
-import { CharacterClasses, CharacterName } from './CharacterName'
+import { CharacterClasses } from '../lib/characterClasses'
+import { CharacterName } from './CharacterName'
 
 describe('CharacterName', () => {
   it('tags the name with its class from context, or an explicit class', () => {

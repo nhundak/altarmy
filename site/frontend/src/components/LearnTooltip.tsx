@@ -9,14 +9,14 @@ import { ZoneMap } from './ZoneMap'
 type Place = Learn['items'][number]['places'][number]
 
 /** A drop chance in percent, to two significant figures (0.012%, 1.9%, 35%). */
-export function formatChance(percent: number): string {
+function formatChance(percent: number): string {
   return `${Number(percent.toPrecision(2))}%`
 }
 
 const at = (zone: string): string => (zone ? `, ${zone}` : '')
 
 /** One place a recipe item comes from, as a line. */
-export function placeLine(p: Place): string {
+function placeLine(p: Place): string {
   switch (p.kind) {
     case 'vendor':
       return `Sold by ${p.name}${at(p.zone)}${p.limited ? ' (limited stock)' : ''}`
@@ -41,7 +41,7 @@ function unplaced(source: Learn['source']): string {
 }
 
 /** The one vendor selling a recipe's items, if there is exactly one (whichever item it sells); none otherwise. */
-export function onlyVendor(learn: Learn): Place | undefined {
+function onlyVendor(learn: Learn): Place | undefined {
   const vendors = new Map<string, Place>()
   for (const item of learn.items)
     for (const p of item.places) if (p.kind === 'vendor') vendors.set(`${p.name}|${p.zone}`, p)

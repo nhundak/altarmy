@@ -11,10 +11,10 @@ import { AnimatePresence, MotionConfig, motion } from 'motion/react'
 import classes from './App.module.css'
 import { AccountControls } from './components/Account'
 import { IconMoon, IconSun } from './components/icons'
-import { carriesCard, Landing } from './components/Landing'
+import { Landing } from './components/Landing'
 import { AddonPage, AdminPage, ManagePage } from './components/Pages'
 import { ProfitPage } from './components/Profit'
-import { linkProps, previousRoute, useRoute, type Route } from './lib/router'
+import { carriesCard, linkProps, previousRoute, useRoute, type Route } from './lib/router'
 import { useSession } from './lib/session'
 
 function NavLink({ to, label }: { to: Route; label: string }) {

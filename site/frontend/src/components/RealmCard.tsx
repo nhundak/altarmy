@@ -1,12 +1,15 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Anchor, Code, Group, Stack, Text } from '@mantine/core'
 import { AnimatePresence, LayoutGroup, motion } from 'motion/react'
-import { AUTO_IMPORT_CARD, AutoImportBody } from './AutoImport'
+import { savedVariablesPath } from '../lib/gameVersion'
+import { LAYOUT } from '../lib/motion'
+import { AutoImportBody } from './AutoImport'
+import { AUTO_IMPORT_CARD } from './autoImportCard'
 import cards from './Cards.module.css'
 import { IconCompass, IconUpload } from './icons'
 import { PriceFreshness } from './PriceFreshness'
-import { type CardSpec, LAYOUT, OpenCardBody, OpenCardHeader, StartCard } from './StartCard'
-import { ScanSteps, savedVariablesPath, UploadForm, UploadScanButton } from './UploadForm'
+import { type CardSpec, OpenCardBody, OpenCardHeader, StartCard } from './StartCard'
+import { ScanSteps, UploadForm, UploadScanButton } from './UploadForm'
 
 const FILE = 'AltArmy_TBC.lua'
 

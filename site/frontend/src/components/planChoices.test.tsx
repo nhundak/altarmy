@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sellChoices } from './ChoiceMenu'
+import { sellChoices } from './planChoices'
 
 describe('sellChoices', () => {
   it('leaves keeping it out when there is another way to sell', () => {

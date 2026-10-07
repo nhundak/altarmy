@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { Characters, Learn, PriceConfidence, RankResult } from '../api/client'
@@ -1101,7 +1101,9 @@ describe('ResultsTable: a gold list', () => {
     expect(sections[1]!.compareDocumentPosition(sections[2]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     // the closed header says what selling counts on
     expect(shown(sections[0]!)).toMatch(/^Market Counting on 9 50 for 1 of 10 · break-even /)
-    expect(within(screen.getByRole('region', { name: 'Flowchart' })).getByRole('button', { name: 'Change source of Coarse Thread' })).toBeVisible()
+    // React Flow hides its nodes until it has measured them, a tick after mounting
+    const flow = screen.getByRole('region', { name: 'Flowchart' })
+    await waitFor(() => expect(within(flow).getByRole('button', { name: 'Change source of Coarse Thread' })).toBeVisible())
     await userEvent.click(sections[2]!)
     expect(within(screen.getByRole('region', { name: 'Steps' })).getByRole('checkbox', { name: 'Detailed view' })).toBeVisible()
     await userEvent.click(sections[0]!)

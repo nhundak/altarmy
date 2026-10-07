@@ -15,8 +15,8 @@ import {
   useStatus,
   useTrack,
 } from '../api/queries'
-import { choose as chooseAt, type Choices } from '../lib/choices'
-import { MarketFocus } from '../lib/marketFocus'
+import { choose as chooseAt, type Choices, type PlanEditing } from '../lib/choices'
+import { MarketFocus, useMarket } from '../lib/marketFocus'
 import { layoutTop, scrollTarget } from '../lib/scroll'
 import { useStoredState } from '../lib/storage'
 import type { Holder } from '../lib/setup'
@@ -26,16 +26,15 @@ import {
   craftsToReach,
   DEFAULT_REACH_TARGET,
   ranksToTrain, runLead, runText, scaleRun, stepsText } from '../lib/skill'
-import type { PlanEditing } from './ChoiceMenu'
-import { CharacterClasses } from './CharacterName'
+import { CharacterClasses } from '../lib/characterClasses'
 import { IconSwap } from './icons'
 import { ItemLink } from './ItemTooltip'
 import { LearnStep, LearnTooltip } from './LearnTooltip'
-import { MarketSection, MarketSummary, useMarket } from './MarketSection'
-import { Money } from './Money'
+import { MarketSection, MarketSummary } from './MarketSection'
+import { Earned, Money } from './Money'
 import { RecipeFlow } from './RecipeFlow'
 import { PlanViewSwitch, type PlanView } from './SessionDetails'
-import { Earned, StepList } from './StepList'
+import { StepList } from './StepList'
 import classes from './SkillWorkspace.module.css'
 
 /** Options laid out side by side (the API's `SKILL_OPTIONS`): all the overview asks for. */

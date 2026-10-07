@@ -1,4 +1,5 @@
 import { Fragment } from 'react'
+import { Text } from '@mantine/core'
 import { splitMoney } from '../lib/wow'
 import classes from './Money.module.css'
 
@@ -34,3 +35,10 @@ export function Money({
     </span>
   )
 }
+
+/** Money made, green or (a loss) red, without a sign unless `minus` marks a loss with one. */
+export const Earned = ({ copper, minus = false }: { copper: number; minus?: boolean }) => (
+  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
+    <Money copper={minus ? copper : Math.abs(copper)} />
+  </Text>
+)

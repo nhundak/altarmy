@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Button, Group, Progress, SegmentedControl, Stack, Tabs, Text, Tooltip } from '@mantine/core'
 import { z } from 'zod'
 import type { ItemInfo, ItemMap, RankResult } from '../api/client'
@@ -6,9 +6,7 @@ import { useAhCut } from '../api/queries'
 import { EXIT_SHORT } from '../lib/exits'
 import {
   cue,
-  defaultItem,
   headerSummary,
-  marketItems,
   moveFromUsual,
   NOTABLE_MOVE,
   priceNow,
@@ -19,7 +17,7 @@ import {
   type MarketGroup,
   type MarketItem,
 } from '../lib/market'
-import type { MarketFocusValue } from '../lib/marketFocus'
+import type { MarketMode } from '../lib/marketFocus'
 import { breakEven, countedOn, expectedUnits, fallback, floodCheck, floor } from '../lib/selling'
 import { useStoredState } from '../lib/storage'
 import { IconChevron } from './icons'
@@ -27,11 +25,7 @@ import { Icon } from './ItemTooltip'
 import tooltipClasses from './ItemTooltip.module.css'
 import { DepthChart, LadderTable, ProfitChart, type Rule } from './MarketCharts'
 import classes from './MarketSection.module.css'
-import { Money } from './Money'
-import { Earned } from './StepList'
-
-/** Who the section is for: a gold row (what is sold decides it) or a skill run (what is bought does). */
-export type MarketMode = 'gold' | 'skill'
+import { Earned, Money } from './Money'
 
 /** Tiles the strip shows before "+N more". */
 const TILES_SHOWN = 8
@@ -43,44 +37,6 @@ const CAPTIONS: Record<MarketGroup, string> = {
   make: 'You make',
   sell: 'You sell',
   disenchant: 'If disenchanted',
-}
-
-/**
- * The Market section's state, shared by its header, its body and the plan around it: the plan's items, the one
- * selected (the default while the user picked none, or the one picked has left the plan), and the `focus` that item
- * names in the plan's steps and flow chart use to select an item (`open` opens the section; it is then scrolled into
- * view through `ref`). Without a result (a plan still on its way) there is nothing to show.
- */
-export function useMarket(result: RankResult | undefined, mode: MarketMode, open: () => void) {
-  const list = useMemo(() => (result ? marketItems(result) : []), [result])
-  const [picked, setPicked] = useState<number | null>(null)
-  const selected =
-    picked !== null && list.some((m) => m.itemId === picked)
-      ? picked
-      : result
-        ? defaultItem(list, result, mode)
-        : null
-  const ref = useRef<HTMLDivElement>(null)
-  const openRef = useRef(open)
-  openRef.current = open
-  const [scrolls, setScrolls] = useState(0)
-  useEffect(() => {
-    if (!scrolls) return
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
-  }, [scrolls])
-  const focus = useMemo<MarketFocusValue>(() => {
-    const ids = new Set(list.map((m) => m.itemId))
-    return {
-      has: (id) => ids.has(id),
-      select: (id) => {
-        setPicked(id)
-        openRef.current()
-        setScrolls((n) => n + 1)
-      },
-    }
-  }, [list])
-  return { list, selected, select: setPicked, focus, ref }
 }
 
 /** A cue as the strip and the header show it: a word or two, coloured by whether it hurts the plan. */

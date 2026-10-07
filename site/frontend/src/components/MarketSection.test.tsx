@@ -5,7 +5,8 @@ import type { ItemMap, RankResult } from '../api/client'
 import { linen, robe, thread } from '../test/items'
 import { robeResult } from '../test/results'
 import { mockApi, renderWithProviders } from '../test/utils'
-import { MarketSection, useMarket } from './MarketSection'
+import { useMarket } from '../lib/marketFocus'
+import { MarketSection } from './MarketSection'
 
 const level = (price: number, quantity: number, counted = true) => ({
   price,

@@ -6,7 +6,7 @@ import type { ItemMap, RankResult } from '../api/client'
 import { linen, robe, thread } from '../test/items'
 import { robeResult } from '../test/results'
 import { renderWithProviders } from '../test/utils'
-import type { PlanEditing } from './ChoiceMenu'
+import type { PlanEditing } from '../lib/choices'
 import { RecipeFlow } from './RecipeFlow'
 
 const editing: PlanEditing = { onChoose: vi.fn(), modified: false, onReset: vi.fn(), pending: false, error: null }

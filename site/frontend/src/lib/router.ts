@@ -82,3 +82,8 @@ export function linkProps(to: string) {
     },
   }
 }
+
+/** Whether a move between these pages carries a showcase card over: the main page's card and the Profit page's banner. */
+export function carriesCard(from: Route | null, to: Route): boolean {
+  return (from === '/' && to === '/profit') || (from === '/profit' && to === '/')
+}

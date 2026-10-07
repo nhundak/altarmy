@@ -1,13 +1,11 @@
 import type { ReactNode } from 'react'
 import { Badge, CloseButton, Group, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { motion } from 'motion/react'
+import { LAYOUT } from '../lib/motion'
 import cards from './Cards.module.css'
 
 /** How a row of start cards is laid out: side by side, one open on the left with the rest beside it, or folded away. */
 export type Phase = 'choose' | 'expanded' | 'collapsed'
-
-export const EASE = [0.25, 0.8, 0.25, 1] as const
-export const LAYOUT = { layout: { duration: 0.35, ease: EASE } }
 
 export type CardSpec<K extends string = string> = {
   key: K

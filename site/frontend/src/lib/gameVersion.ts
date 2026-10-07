@@ -5,3 +5,7 @@ export const GAME_VERSION: GameVersion = 'forever'
 export const GAME_VERSION_LABEL = 'WoW: Forever'
 /** The WoW install's folder holding this game's SavedVariables. */
 export const GAME_FLAVOR = '_classic_beta_'
+
+/** Where WoW keeps a SavedVariables file. */
+export const savedVariablesPath = (name: string) =>
+  `World of Warcraft\\${GAME_FLAVOR}\\WTF\\Account\\<account>\\SavedVariables\\${name}`

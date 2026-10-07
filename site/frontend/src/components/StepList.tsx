@@ -2,29 +2,23 @@ import { Fragment, type ReactNode } from 'react'
 import { List, Text } from '@mantine/core'
 import type { ItemMap, RankResult, Step } from '../api/client'
 import { useAhCut } from '../api/queries'
-import { SELL_PATH } from '../lib/choices'
+import { ChooseContext, SELL_PATH, type PlanEditing } from '../lib/choices'
 import { breakEven, countedOn, expectedUnits, floor, materialSales } from '../lib/selling'
 import { stepSource } from '../lib/steps'
 import { bonusNote, discountLabel } from '../lib/talents'
 import { formatCoords } from '../lib/time'
 import { CharacterName } from './CharacterName'
 import { DiscountTooltip } from './DiscountTooltip'
-import { ChoiceMenu, ChooseContext, sellChoices, sourceChoices, type PlanEditing } from './ChoiceMenu'
+import { ChoiceMenu } from './ChoiceMenu'
 import { DisenchantHover, Hover, ItemLink } from './ItemTooltip'
-import { Money } from './Money'
+import { Earned, Money } from './Money'
+import { sellChoices, sourceChoices } from './planChoices'
 import classes from './ResultsTable.module.css'
 import { ZoneMap } from './ZoneMap'
 
 /** A step's amount: spending is a cost (red, unsigned), income is a signed gain. */
 const StepMoney = ({ value }: { value: number }) =>
   value < 0 ? <Money copper={-value} cost /> : <Money copper={value} signed />
-
-/** Money made, green or (a loss) red, without a sign unless `minus` marks a loss with one. */
-export const Earned = ({ copper, minus = false }: { copper: number; minus?: boolean }) => (
-  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
-    <Money copper={minus ? copper : Math.abs(copper)} />
-  </Text>
-)
 
 /** A sale's gross and the recipe's net profit. */
 const Sale = ({ gross, net }: { gross: number; net: number }) => (

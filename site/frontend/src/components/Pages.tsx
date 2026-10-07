@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react'
 import { Alert, Anchor, Button, Code, Group, List, Modal, SimpleGrid, Stack, Text, Title } from '@mantine/core'
 import type { UploadResult } from '../api/client'
+import { savedVariablesPath } from '../lib/gameVersion'
 import { linkProps } from '../lib/router'
 import { useSession } from '../lib/session'
 import { motion } from 'motion/react'
@@ -10,7 +11,7 @@ import cards from './Cards.module.css'
 import { IconDownload, IconExternal, IconUpload } from './icons'
 import { ManageTab } from './ManageTab'
 import { PasteForm, Summary } from './PasteForm'
-import { savedVariablesPath, UploadForm, UploadScanButton } from './UploadForm'
+import { UploadForm, UploadScanButton } from './UploadForm'
 
 function Page({ title, lead, children }: { title: string; lead?: ReactNode; children: ReactNode }) {
   return (

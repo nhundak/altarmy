@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { Stack, Text, Title } from '@mantine/core'
 import { motion } from 'motion/react'
+import { EASE } from '../lib/motion'
 import { linkProps, previousRoute, type Route } from '../lib/router'
 import { Carousel, type Slide } from './Carousel'
 import classes from './Landing.module.css'
 
-const EASE = [0.25, 0.8, 0.25, 1] as const
 
-export type Showcase = {
+type Showcase = {
   key: string
   to: Route
   eyebrow: string
@@ -23,7 +23,7 @@ export type Showcase = {
   reverse?: boolean
 }
 
-export const ADDON_SHOWCASE: Showcase = {
+const ADDON_SHOWCASE: Showcase = {
   key: 'addon',
   to: '/addon',
   eyebrow: 'The addon',
@@ -45,7 +45,7 @@ export const ADDON_SHOWCASE: Showcase = {
   ],
 }
 
-export const PROFIT_SHOWCASE: Showcase = {
+const PROFIT_SHOWCASE: Showcase = {
   key: 'profit',
   to: '/profit',
   eyebrow: 'Crafting profits for WoW: Forever',
@@ -65,12 +65,6 @@ export const PROFIT_SHOWCASE: Showcase = {
 }
 
 const SHOWCASES: readonly Showcase[] = [ADDON_SHOWCASE, PROFIT_SHOWCASE]
-
-/** Whether a move between these pages carries a showcase card over: the main page's card and the Profit page's banner. */
-export function carriesCard(from: Route | null, to: Route): boolean {
-  const page = PROFIT_SHOWCASE.to
-  return (from === '/' && to === page) || (from === page && to === '/')
-}
 
 /**
  * One full-width card on the main page: copy on one side, screenshots on the other. Its title is the link,
