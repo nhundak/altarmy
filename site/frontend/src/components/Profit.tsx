@@ -8,6 +8,7 @@ import type { CharacterGroup, Characters, UploadResult } from '../api/client'
 import { useCharacters, useTrack } from '../api/queries'
 import { CharacterList } from './CharacterList'
 import { age, parseUtc } from '../lib/age'
+import { MAKE_GOLD } from '../lib/features'
 import { realmLabel } from '../lib/realms'
 import { parseProfitPath, profitPath } from '../lib/profitRoute'
 import { EASE, LAYOUT } from '../lib/motion'
@@ -32,6 +33,8 @@ const landingSchema = z.object({ browsed: z.boolean() })
 const NOT_BROWSED = { browsed: false }
 const NO_GROUPS: readonly CharacterGroup[] = []
 const storedSetup = setupSchema.nullable()
+/** The aims switched off by a feature flag, each with what its card says. */
+const unavailableAims = (): Partial<Record<Aim, string>> => (MAKE_GOLD ? {} : { gold: 'Coming soon' })
 /** Alt Army Sync counts as set up while it has uploaded anything within this many days. */
 const AUTO_IMPORT_DAYS = 30
 
@@ -218,7 +221,10 @@ export function ProfitPage() {
 
   const groups = characters.data?.groups ?? NO_GROUPS
   // Past the start (a path under /profit), the visitor has started whatever they did before.
-  const atStart = view?.kind === 'start'
+  // A path under /profit that means nothing is the start, as is making gold while it is switched off: shown as the
+  // start at once, so nothing under it mounts (and asks for a ranking) before the redirect below.
+  const unknown = view === null || (view.kind === 'gold' && !MAKE_GOLD)
+  const atStart = view?.kind === 'start' || unknown
   const started = !atStart || groups.length > 0 || landing.browsed
   const phase: Phase = open ? 'expanded' : started ? 'collapsed' : 'choose'
   const ready = characters.data !== undefined
@@ -227,8 +233,6 @@ export function ProfitPage() {
   const [carried] = useState(() => previousRoute() === '/')
   const showHero = atStart && ((ready && !started) || (carried && !ready))
 
-  // A path under /profit that means nothing is the start.
-  const unknown = view === null
   useEffect(() => {
     if (unknown) navigate(profitPath({ kind: 'start' }), { replace: true })
   }, [unknown])
@@ -352,7 +356,7 @@ export function ProfitPage() {
                 style={{ scrollMarginTop: 16 }}
               >
                 {atStart ? (
-                  <AimQuestion current={lastSetup} onPick={pickAim} />
+                  <AimQuestion current={lastSetup} unavailable={unavailableAims()} onPick={pickAim} />
                 ) : (
                   <SearchTab
                     characters={charactersArea}

@@ -6,6 +6,8 @@ import { characters, status } from './test/status'
 import { ingestion } from './components/AdminTab.test'
 import { ADMIN, GUEST, LINKED, mockApi, renderWithProviders } from './test/utils'
 
+vi.mock('./lib/features', () => ({ MAKE_GOLD: true }))
+
 function renderApp() {
   return renderWithProviders(
     <>

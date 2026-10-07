@@ -440,6 +440,11 @@ local function AddCostLine(label, cost)
     end
 end
 
+--- A fulfil line with no way to fulfil that way: label and "n/a" both grey, as a dearer way's line is.
+local function AddUnavailableLine(label)
+    GameTooltip:AddDoubleLine(label, "n/a", UI.DIM, UI.DIM, UI.DIM, UI.DIM, UI.DIM, UI.DIM)
+end
+
 --- A step's tooltip line: its text, and its cost (nil for a craft: it costs nothing more). Counts read "3x"
 --- (a craft's is its casts).
 local function StepText(step)
@@ -516,14 +521,14 @@ local function ShowRowTooltip(row)
             GameTooltip:AddDoubleLine("Fulfill via AH", MoneyMarked(rd.buy, rd.buyApprox), buyC, buyC, buyC,
                 buyC, buyC, buyC)
         else
-            AddCostLine("Fulfill via AH", nil)
+            AddUnavailableLine("Fulfill via AH")
         end
         if rd.craft then
             local who = craftC < 1 and rd.who or CharName(rd.who)
             GameTooltip:AddDoubleLine("Fulfill via craft on " .. who,
                 MoneyMarked(rd.craft, rd.craftApprox, rd.craftShort), craftC, craftC, craftC, craftC, craftC, craftC)
         else
-            AddCostLine("Fulfill via craft", nil)
+            AddUnavailableLine("Fulfill via craft")
         end
         if rd.total then
             GameTooltip:AddDoubleLine("Total cost", Money(rd.total), 1, 0.82, 0, 1, 1, 1)

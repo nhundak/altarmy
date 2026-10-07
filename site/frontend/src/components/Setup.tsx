@@ -2,6 +2,7 @@ import { Fragment, useState, type ReactNode } from 'react'
 import { Button, Group, List, NumberInput, Radio, Stack, Text, Title, UnstyledButton } from '@mantine/core'
 import { motion } from 'motion/react'
 import { useMaxSkill } from '../api/queries'
+import { MAKE_GOLD } from '../lib/features'
 import {
   AIMS,
   aimSchema,
@@ -261,7 +262,8 @@ function StepCards({
   if (!options.length) {
     return (
       <Text size="sm" c="dimmed">
-        None of your characters on this realm has a profession yet. Pick another realm, or make gold instead.
+        None of your characters on this realm has a profession yet. Pick another realm
+        {MAKE_GOLD ? ', or make gold instead.' : '.'}
       </Text>
     )
   }

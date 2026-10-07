@@ -1,13 +1,24 @@
 import { Notifications } from '@mantine/notifications'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UploadResult } from '../api/client'
 import { characters, status } from '../test/status'
 import { GUEST, mockApi, renderWithProviders } from '../test/utils'
 import { navigate } from '../lib/router'
 import { SYNC_DOWNLOAD } from './SyncCard'
 import { ProfitPage } from './Profit'
+
+// Making gold switched on, as these tests walk it, except where a test switches it off.
+const features = vi.hoisted(() => ({ makeGold: true }))
+vi.mock('../lib/features', () => ({
+  get MAKE_GOLD() {
+    return features.makeGold
+  },
+}))
+afterEach(() => {
+  features.makeGold = true
+})
 
 const noResults = { results: [], total: 0, items: {}, classes: {} }
 const nobody = { groups: [], selection: { realm: 'Classic Beta PvE', faction: '' } }
@@ -88,6 +99,20 @@ describe('ProfitPage', () => {
     expect(await screen.findByRole('group', { name: "What's your goal?" })).toBeInTheDocument()
     expect(cards()).not.toBeInTheDocument()
     expect(hero()).not.toBeInTheDocument()
+  })
+
+  it('with making gold switched off, its card says coming soon and its path goes back to the start', async () => {
+    features.makeGold = false
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<ProfitPage />)
+    const aims = await screen.findByRole('group', { name: "What's your goal?" })
+    expect(within(aims).getByRole('button', { name: 'Make gold' })).toBeDisabled()
+    expect(within(aims).getByText('Coming soon')).toBeInTheDocument()
+    expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeEnabled()
+
+    act(() => navigate('/profit/gold'))
+    await waitFor(() => expect(window.location.pathname).toBe('/profit'))
+    expect(paths(fetch, '/api/rank')).toEqual([])
   })
 
   it('skilling up goes on to which profession, at its own path', async () => {
