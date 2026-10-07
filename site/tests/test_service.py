@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 from sqlalchemy import Connection
 
-from altarmy_profit import altarmy, book, db, engine, ingest, prices, service, store, talents, timing, users
-from altarmy_profit.altarmy import Character, Profession
-from altarmy_profit.engine import ALL_EXITS, Filters
-from altarmy_profit.service import Selection
+from altarmy_site import altarmy, book, db, engine, ingest, prices, service, store, talents, timing, users
+from altarmy_site.altarmy import Character, Profession
+from altarmy_site.engine import ALL_EXITS, Filters
+from altarmy_site.service import Selection
 
 from .conftest import FOREVER, ME, scanned, set_prices
 from .test_altarmy import ALTARMY_SV

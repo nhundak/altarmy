@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import vmangos
+from altarmy_site import vmangos
 
 WORLD_SCHEMA = """
 CREATE TABLE creature (guid INTEGER, id INTEGER, id2 INTEGER, id3 INTEGER, id4 INTEGER, id5 INTEGER);

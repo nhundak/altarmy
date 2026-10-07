@@ -47,7 +47,7 @@ def main() -> None:
         if target.exists() and not args.force:
             print(f"{area} {name}: kept")
             continue
-        request = urllib.request.Request(URL.format(area=area), headers={"User-Agent": "altarmy-profit"})
+        request = urllib.request.Request(URL.format(area=area), headers={"User-Agent": "altarmy-site"})
         with urllib.request.urlopen(request, timeout=30) as response:
             data = response.read()
         if not data.startswith(b"\xff\xd8"):

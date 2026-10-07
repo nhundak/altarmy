@@ -29,7 +29,7 @@ Compared against:
 | Data freshness indicators | **Partial** | Missing-data `!` and Last Online; no per-domain scan age |
 | Guild data sharing | **Shipped** | [tabs/guild.md](tabs/guild.md) |
 | Guild recipes from profession links | **Shipped** (WoW Forever; in-game checks pending) | [GUILD_PROFESSION_LINKS_IDEA.md](GUILD_PROFESSION_LINKS_IDEA.md) |
-| Export for altarmy-profit | **Shipped** | [tabs/options.md](tabs/options.md#export-for-altarmy-profit); characters only (no auction prices) |
+| Export for the Alt Army website | **Shipped** | [tabs/options.md](tabs/options.md#export-for-the-alt-army-website); characters only (no auction prices) |
 
 ---
 

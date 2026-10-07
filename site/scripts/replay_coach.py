@@ -5,8 +5,8 @@ Usage: python scripts/replay_coach.py [--game-version forever|tbc] [--batch 1 5 
 For each named auction house with an accepted scan (`prices.coverage`), browsing without characters (every
 recipe, for one crafter), at each batch size: the coach's pick (`service.coach_pick`) or why there is none,
 then the top N by likely profit and by profit if all sell, each with its sale verdict and reasons. The
-database is DATABASE_URL, else data/altarmy-profit.sqlite; it is never migrated or written, so it must be
-migrated already (`altarmy-profit migrate`).
+database is DATABASE_URL, else data/altarmy.sqlite; it is never migrated or written, so it must be
+migrated already (`altarmy-site migrate`).
 """
 
 import argparse
@@ -14,9 +14,9 @@ import sys
 
 from sqlalchemy.exc import DBAPIError
 
-from altarmy_profit import db, prices, service, store, timing, versions
-from altarmy_profit.engine import Filters, Result, TimeModel, format_money
-from altarmy_profit.versions import GameVersion
+from altarmy_site import db, prices, service, store, timing, versions
+from altarmy_site.engine import Filters, Result, TimeModel, format_money
+from altarmy_site.versions import GameVersion
 
 
 def line(r: Result, priced: store.Priced, v: GameVersion) -> str:
@@ -83,7 +83,7 @@ def main() -> None:
                 )
                 replay(priced, h, v, args.batch, args.top)
         except DBAPIError as e:
-            sys.exit(f"The database is behind the code (run `altarmy-profit migrate` first): {e.orig}")
+            sys.exit(f"The database is behind the code (run `altarmy-site migrate` first): {e.orig}")
 
 
 if __name__ == "__main__":

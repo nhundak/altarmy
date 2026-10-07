@@ -4,7 +4,7 @@ Usage: python scripts/bench_rank.py [--game-version forever|tbc] [--uid UID] [--
 [--repeat N]
 Characters come from --altarmy if given, else from the database (user --uid's). Prices are that user's
 selected realm's auction house's (without a user, the freshest one). The database is DATABASE_URL, else
-data/altarmy-profit.sqlite. Prints the best of N runs per step. "timed" ranks with unlearned recipes in
+data/altarmy.sqlite. Prints the best of N runs per step. "timed" ranks with unlearned recipes in
 the version's first faction city (or anywhere) at 50 gold per hour of play; "by rate" then sorts those
 results by profit per hour (timing each). "best city" ranks them again left to pick each recipe's city: one
 ranking per group of the faction's cities whose vendors charge the characters differently (their
@@ -18,8 +18,8 @@ from functools import partial
 from pathlib import Path
 from typing import TypeVar
 
-from altarmy_profit import altarmy, db, prices, service, store, timing, versions
-from altarmy_profit.engine import Filters, TimeModel
+from altarmy_site import altarmy, db, prices, service, store, timing, versions
+from altarmy_site.engine import Filters, TimeModel
 
 T = TypeVar("T")
 

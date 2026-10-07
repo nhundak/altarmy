@@ -13,8 +13,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, text
 
-from altarmy_profit import auth, book, db, prices, schema, users
-from altarmy_profit.versions import VERSIONS, GameVersion
+from altarmy_site import auth, book, db, prices, schema, users
+from altarmy_site.versions import VERSIONS, GameVersion
 
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables

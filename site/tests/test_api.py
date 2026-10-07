@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, insert, select, update
 
-from altarmy_profit import (
+from altarmy_site import (
     altarmy,
     api,
     auth,
@@ -27,10 +27,10 @@ from altarmy_profit import (
     store,
     uploads,
 )
-from altarmy_profit.altarmy import Character, Profession
-from altarmy_profit.api import create_app
-from altarmy_profit.auctionator import DayStats, ItemPrice
-from altarmy_profit.versions import GameVersion
+from altarmy_site.altarmy import Character, Profession
+from altarmy_site.api import create_app
+from altarmy_site.auctionator import DayStats, ItemPrice
+from altarmy_site.versions import GameVersion
 
 from .addon_fixtures import PROFIT_EXPORT
 from .conftest import FOREVER, ME, book_scan, saved_book, scanned, set_prices, write_csv
@@ -1068,9 +1068,9 @@ def test_serves_built_frontend(
 ) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
-    (dist / "index.html").write_text("<html>altarmy-profit</html>")
+    (dist / "index.html").write_text("<html>altarmy-site</html>")
     client = make_client(database, game_versions, dist)
-    assert "altarmy-profit" in client.get("/").text
+    assert "altarmy-site" in client.get("/").text
     assert client.get("/api/status", params={"game_version": "tbc"}).json()["recipes"] == 0
 
 
@@ -1601,7 +1601,7 @@ def test_api_responses_are_never_cached(client: TestClient) -> None:
 def test_the_default_database_is_never_migrated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, game_versions: dict[str, GameVersion]
 ) -> None:
-    """Each deploy migrates, once; `altarmy-profit serve` passes a database that migrates."""
+    """Each deploy migrates, once; `altarmy-site serve` passes a database that migrates."""
     monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "site.sqlite"))
     app = create_app(game_versions, verifier=FakeVerifier(), firebase=FIREBASE)
     assert not app.state.auth.database.migrates
@@ -2095,10 +2095,10 @@ def test_skill_up_counts_the_pattern_and_says_what_comes_next(client: TestClient
 def test_events_are_logged_without_who_sent_them(
     client: TestClient, caplog: pytest.LogCaptureFixture
 ) -> None:
-    with caplog.at_level("INFO", logger="altarmy_profit.events"):
+    with caplog.at_level("INFO", logger="altarmy_site.events"):
         got = client.post("/api/events", json={"name": "next_up_shown", "props": {"profession": "Tailoring"}})
     assert got.status_code == 204
-    (record,) = [r for r in caplog.records if r.name == "altarmy_profit.events"]
+    (record,) = [r for r in caplog.records if r.name == "altarmy_site.events"]
     line = json.loads(record.getMessage())
     assert line == {"event": "next_up_shown", "game_version": "forever", "profession": "Tailoring"}  # no user
     assert client.post("/api/events", json={"name": "anything"}).status_code == 422

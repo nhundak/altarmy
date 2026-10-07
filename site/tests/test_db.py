@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, inspect, select
 
-from altarmy_profit import db, schema
+from altarmy_site import db, schema
 
 from .conftest import FOREVER, ME
 
@@ -61,7 +61,7 @@ def test_timestamps() -> None:
 
 def test_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    assert db.default_url() == "sqlite:///data/altarmy-profit.sqlite"
+    assert db.default_url() == "sqlite:///data/altarmy.sqlite"
     assert db.default_url(tmp_path / "x.sqlite") == f"sqlite:///{(tmp_path / 'x.sqlite').as_posix()}"
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://me:secret@db.example/prices")
     assert db.default_url() == "postgresql+psycopg://me:secret@db.example/prices"
@@ -74,7 +74,7 @@ def test_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_a_database_that_does_not_migrate_leaves_the_schema_alone(tmp_path: Path) -> None:
-    """Hosted instances don't migrate: the per-deploy migrate job does (`altarmy-profit migrate`)."""
+    """Hosted instances don't migrate: the per-deploy migrate job does (`altarmy-site migrate`)."""
     database = db.Database(db.sqlite_url(tmp_path / "x.sqlite"), migrate=False)
     with database.begin() as conn:
         assert inspect(conn).get_table_names() == []

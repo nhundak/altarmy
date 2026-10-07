@@ -635,7 +635,7 @@ export function SkillWorkspace({
   // The run's plan as its steps (first) or a flow chart.
   const [view, setView] = useState<PlanView>('steps')
   // The steps with where to go in between: one setting with the gold list's
-  const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
+  const [detailed, setDetailed] = useStoredState('altarmy.steps.detailed', z.boolean(), false)
   // The chain under the run crafted now is new to it (another run was picked): it fades in.
   const [freshChain, setFreshChain] = useState(false)
   // The chain shown before another run was picked, fading out where it was.

@@ -1479,7 +1479,7 @@ def evaluate(state: State, user: CurrentUser, body: EvaluateRequest) -> Evaluate
     return EvaluateResponse(result=out, items=_item_infos(state, s, [r]), watched_hours=s.watched)
 
 
-EVENTS = logging.getLogger("altarmy_profit.events")
+EVENTS = logging.getLogger("altarmy_site.events")
 # What the front end may say happened: whether Next up, the skill checklist and gathering get used decides
 # what is built next. Nothing about who: no user, realm or character.
 EventName = Literal[
@@ -2427,9 +2427,9 @@ def create_app(
     launcher: launch.Launcher | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
-    `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network, so tests and the
+    `DATABASE_URL`, else data/altarmy.sqlite). Touches no database or network, so tests and the
     OpenAPI export can call it freely. It never migrates its default database: each deploy does, once
-    (`altarmy-profit migrate`), and `altarmy-profit serve` passes a database that migrates.
+    (`altarmy-site migrate`), and `altarmy-site serve` passes a database that migrates.
 
     The Firebase project comes from the environment (`auth.FirebaseConfig.from_env`, ValueError without
     `FIREBASE_PROJECT_ID`) unless `firebase` is given. Tokens are verified with firebase-admin unless a
@@ -2449,7 +2449,7 @@ def create_app(
     launcher = launcher or launch.from_env(database)
     per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
     per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
-    app = FastAPI(title="altarmy-profit", version="0.1.0")
+    app = FastAPI(title="Alt Army website", version="0.1.0")
     app.state.auth = AuthState(database, verifier, firebase, per_ip, per_uid, accounts)
 
     @app.middleware("http")

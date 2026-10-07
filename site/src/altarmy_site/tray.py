@@ -3,7 +3,7 @@
 
 It watches both games' Alt Army and Auctionator SavedVariables and uploads the ones WoW rewrites, signed in
 to the user's site account (`signin`): on first run a dialog signs in with an email and password, or creates
-an account; only Firebase's refresh token is kept, in `~/.altarmy-profit/sync.json`. Its menu shows who is
+an account; only Firebase's refresh token is kept, in `~/.altarmy/sync.json`. Its menu shows who is
 signed in and the latest upload, and offers Upload now, Open site, Sign in / Sign out, Start with Windows
 (the HKCU Run key), the log and Quit. The packaged exe checks GitHub for a newer release every few hours,
 then notifies once and adds Update available to the menu (it does not update itself). It uploads to the
@@ -330,8 +330,9 @@ def _single_instance(target: Target) -> bool:
 
 def main() -> None:
     if sys.platform != "win32":
-        sys.exit("Alt Army Sync is for Windows; elsewhere run `altarmy-profit watch`.")
+        sys.exit("Alt Army Sync is for Windows; elsewhere run `altarmy-site watch`.")
     target = tray_core.parse_args(sys.argv[1:])
+    signin.move_old_settings()
     if not _single_instance(target):
         return
     Tray(target).run()

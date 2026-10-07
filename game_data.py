@@ -65,8 +65,8 @@ def load(name: str, path: Path) -> ModuleType:
     return module
 
 
-gamedata = load("gamedata", SITE / "src" / "altarmy_profit" / "gamedata.py")
-versions = load("versions", SITE / "src" / "altarmy_profit" / "versions.py")
+gamedata = load("gamedata", SITE / "src" / "altarmy_site" / "gamedata.py")
+versions = load("versions", SITE / "src" / "altarmy_site" / "versions.py")
 
 
 def run(*cmd: str | Path, cwd: Path = ROOT, env: dict[str, str] | None = None) -> None:
@@ -217,7 +217,7 @@ def cmd_update(args: argparse.Namespace) -> None:
     run(
         py,
         "-m",
-        "altarmy_profit.cli",
+        "altarmy_site.cli",
         "--db",
         db,
         "--game-version",

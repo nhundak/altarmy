@@ -5,7 +5,7 @@ import fnmatch
 import re
 from pathlib import Path
 
-from altarmy_profit import gamedata, ingest, versions
+from altarmy_site import gamedata, ingest, versions
 
 SITE = Path(__file__).resolve().parents[1]
 

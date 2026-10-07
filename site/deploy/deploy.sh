@@ -28,8 +28,8 @@ FIREBASE_VARS="$(firebase_env)" # its own Firebase project: prod's from hosted.e
 
 # What a job's work depends on, relative to site/ (git pathspecs). INGEST_INPUTS mirrors `ingest.fingerprint`
 # and the pinned builds (tests/test_deploy.py keeps it in step).
-MIGRATIONS=(src/altarmy_profit/migrations)
-INGEST_INPUTS=(src/altarmy_profit/ingest.py src/altarmy_profit/itemstats.py src/altarmy_profit/spelltext.py
+MIGRATIONS=(src/altarmy_site/migrations)
+INGEST_INPUTS=(src/altarmy_site/ingest.py src/altarmy_site/itemstats.py src/altarmy_site/spelltext.py
   data/game-data.json 'data/*/*.csv')
 
 # The commit the environment's service runs now, if this checkout has it; else nothing.
@@ -52,7 +52,7 @@ job() { # job NAME ARGS...: the CLI with ARGS, as a Cloud Run job
   shift
   local args
   args="$(IFS=,; echo "$*")"
-  gcloud run jobs deploy "$name" "${COMMON[@]}" --command altarmy-profit --args="$args" \
+  gcloud run jobs deploy "$name" "${COMMON[@]}" --command altarmy-site --args="$args" \
     --memory 2Gi --cpu 1 --max-retries 1 --task-timeout 30m     --set-env-vars "$FIREBASE_VARS,DB_POOL_SIZE=1,DB_MAX_OVERFLOW=0" \
     "${GCLOUD_FLAGS[@]}"
 }

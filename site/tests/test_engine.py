@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import book, engine, timing
-from altarmy_profit.engine import (
+from altarmy_site import book, engine, timing
+from altarmy_site.engine import (
     ALL_EXITS,
     ALL_SOURCES,
     KEEP_EXIT,

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, func, select
 
-from altarmy_profit import (
+from altarmy_site import (
     auth,
     cli,
     db,
@@ -21,8 +21,8 @@ from altarmy_profit import (
     versions,
     wowfiles,
 )
-from altarmy_profit.auctionator import DayStats, ItemPrice
-from altarmy_profit.prices import Observation
+from altarmy_site.auctionator import DayStats, ItemPrice
+from altarmy_site.prices import Observation
 
 from .conftest import FOREVER, SV_DIR, book_scan, set_prices
 from .test_auth import FakeRoster
@@ -398,8 +398,8 @@ def test_serve_runs_the_api_with_uvicorn(
     assert (host, port) == ("127.0.0.1", 9123)
     assert app.state.auth.database.migrates  # a dev server migrates its own database
     out = capsys.readouterr().out
-    assert "No WoW: Forever game data yet: run `altarmy-profit ingest`." in out
-    assert "No TBC Anniversary game data yet: run `altarmy-profit --game-version tbc ingest`." in out
+    assert "No WoW: Forever game data yet: run `altarmy-site ingest`." in out
+    assert "No TBC Anniversary game data yet: run `altarmy-site --game-version tbc ingest`." in out
 
 
 def test_serve_reload_hands_uvicorn_a_factory_on_the_migrated_database(
@@ -419,7 +419,7 @@ def test_serve_reload_hands_uvicorn_a_factory_on_the_migrated_database(
     path = tmp_path / "x.sqlite"
     cli.main(["--db", str(path), "serve", "--reload"])
     ((app, kwargs),) = calls
-    assert app == "altarmy_profit.cli:serve_app"
+    assert app == "altarmy_site.cli:serve_app"
     assert kwargs["factory"] is True and kwargs["reload"] is True
     assert kwargs["reload_dirs"] == [str(Path(cli.__file__).resolve().parent)]
     assert path.is_file()  # migrated before the workers start

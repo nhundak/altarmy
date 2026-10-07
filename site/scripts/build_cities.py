@@ -17,7 +17,7 @@ import sqlite3
 from dataclasses import replace
 from pathlib import Path
 
-from altarmy_profit import cities, gamedata, ingest, versions, vmangos
+from altarmy_site import cities, gamedata, ingest, versions, vmangos
 
 ROOT = Path(__file__).resolve().parents[1]
 

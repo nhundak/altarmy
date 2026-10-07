@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import db, jobs, schema
+from altarmy_site import db, jobs, schema
 
 from .conftest import FOREVER
 

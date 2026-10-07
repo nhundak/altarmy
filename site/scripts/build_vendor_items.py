@@ -5,14 +5,14 @@ Forever (vanilla-based) reads vmangos' database, TBC reads cmangos' tbc-db: by d
 data/game-data.json, from the repo's .cache/ (`gamedata.world_db`), and the zone maps of the pinned build.
 Usage: python scripts/build_vendor_items.py [--game-version forever|tbc] [--build B] [--world-db SQLITE]
 The monorepo's game_data.py runs this with the builds and releases it moves the pins to. Then run that
-version's game data update (or `altarmy-profit --game-version <v> ingest`) to load it.
+version's game data update (or `altarmy-site --game-version <v> ingest`) to load it.
 """
 
 import argparse
 import sqlite3
 from pathlib import Path
 
-from altarmy_profit import cmangos, gamedata, ingest, versions, vmangos
+from altarmy_site import cmangos, gamedata, ingest, versions, vmangos
 
 ROOT = Path(__file__).resolve().parents[1]
 

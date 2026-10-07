@@ -1,5 +1,5 @@
 -- AltArmy TBC — Export dialog: shows ProfitExport's string, selected, to copy with Ctrl+C and paste on the
--- altarmy-profit site's Upload tab. Opened only by `/altarmy export` (no button in the UI). Above the string,
+-- the Alt Army website's Upload tab. Opened only by `/altarmy export` (no button in the UI). Above the string,
 -- a note lists characters still lacking data the export carries (SummaryData.GetExportMissingDataInfo).
 -- luacheck: globals UISpecialFrames UIParent
 

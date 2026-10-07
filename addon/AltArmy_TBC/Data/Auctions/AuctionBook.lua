@@ -1,8 +1,8 @@
--- AltArmy TBC — the auction house's order book, as altarmy-profit reads it.
+-- AltArmy TBC — the auction house's order book, as the website reads it.
 -- Pure (no events, no client calls): AuctionScan.lua feeds it every listing of a full scan.
 --
 -- AltArmyTBC_AuctionBook = { version = 1, lastRequest = <t>, scans = { <scan>, ... } } oldest first, its own
--- SavedVariable so altarmy-profit's uploader need not parse AltArmyTBC_Data. A scan:
+-- SavedVariable so the website's uploader need not parse AltArmyTBC_Data. A scan:
 --   { t, realm, faction, complete, listings, bidOnly, source, items }
 --   t         GetServerTime() when the listings arrived
 --   realm     GetRealmName(); faction: UnitFactionGroup("player") — whose auction house it is
@@ -18,7 +18,7 @@
 -- `summaries` (beside `scans`) holds summary scans: the client's browse results, one row per item with its
 -- cheapest unit price and units listed. One per realm and faction, newest only, pruned by MAX_AGE:
 --   { t, realm, faction, summary = true, listings, items }   `listings`: items read; `items` as above, one
---   level per item ("<cheapest unit price>*<units>*1"). Kept apart so altarmy-profit, which reads `scans`
+--   level per item ("<cheapest unit price>*<units>*1"). Kept apart so the website, which reads `scans`
 --   only, never sees one and a summary never displaces a full scan.
 -- The site's book.py parses this; spec/fixtures/auction_book_v1.lua is the golden file both test against.
 -- luacheck: globals AltArmyTBC_AuctionBook

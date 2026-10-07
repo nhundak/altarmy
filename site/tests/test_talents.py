@@ -1,7 +1,7 @@
 import pytest
 
-from altarmy_profit import talents
-from altarmy_profit.talents import BARTERING, MASTER_CHEF, WORKING_OVERTIME
+from altarmy_site import talents
+from altarmy_site.talents import BARTERING, MASTER_CHEF, WORKING_OVERTIME
 
 
 def test_master_chef_gives_cooking_a_chance_of_an_extra_result_per_rank() -> None:

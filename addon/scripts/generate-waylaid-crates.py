@@ -1,8 +1,8 @@
 """Regenerate AltArmy_TBC/Data/Economy/WaylaidCrates.lua: WoW Forever's Waylaid Crates and their bundles.
 
-Usage: python scripts/generate-waylaid-crates.py [--db <altarmy-profit sqlite>] [--out <lua file>] [--check]
+Usage: python scripts/generate-waylaid-crates.py [--db <website sqlite>] [--out <lua file>] [--check]
 
-Reads the game data altarmy-profit imports from the client's DB2 tables (the `items` table,
+Reads the game data the website imports from the client's DB2 tables (the `items` table,
 game_version 'forever'). Each shipment crate's Use text lists the bundles that fill it, any one of
 them ("Fill the crate with any bundle from the following list: - 20 Peacebloom - 20 Silverleaf ...");
 bundle names are resolved to item ids here so the addon needs no item lookups. The reagent trees under the
@@ -25,7 +25,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
-DEFAULT_DB = os.path.join(ROOT, "..", "site", "data", "altarmy-profit.sqlite")
+DEFAULT_DB = os.path.join(ROOT, "..", "site", "data", "altarmy.sqlite")
 DEFAULT_OUT = os.path.join(ROOT, "AltArmy_TBC", "Data", "Economy", "WaylaidCrates.lua")
 
 GENERIC = 248549  # "Waylaid Crate": read its label to learn which shipment it is
@@ -69,7 +69,7 @@ def lua_str(s):
 
 
 def build(db_path):
-    """The Lua module's text, from the altarmy-profit database at `db_path`."""
+    """The Lua module's text, from the website's database at `db_path`."""
     db = sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True)
     rows = db.execute(
         "SELECT id, name, quality, effects FROM items WHERE game_version='forever'"
@@ -169,13 +169,13 @@ def main():
     ap.add_argument("--check", action="store_true", help="exit 1 if --out is out of date; write nothing")
     args = ap.parse_args()
     if args.check and not os.path.isfile(args.db):
-        print(f"Waylaid Crates check skipped: no altarmy-profit database at {os.path.abspath(args.db)}")
+        print(f"Waylaid Crates check skipped: no Alt Army website database at {os.path.abspath(args.db)}")
         return
     text, count = build(args.db)
     if args.check:
         if read_normalized(args.out) != text:
             sys.exit(
-                f"{os.path.relpath(args.out)} is out of date with altarmy-profit's game data.\n"
+                f"{os.path.relpath(args.out)} is out of date with the website's game data.\n"
                 "Run `python scripts/generate-waylaid-crates.py` and commit the change."
             )
         return

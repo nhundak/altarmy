@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import cmangos
+from altarmy_site import cmangos
 
 WORLD_SCHEMA = """
 CREATE TABLE creature (guid INTEGER, id INTEGER);

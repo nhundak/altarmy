@@ -9,7 +9,7 @@ from alembic.migration import MigrationContext
 from sqlalchemy import Connection, MetaData, func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
-from altarmy_profit import db, schema
+from altarmy_site import db, schema
 
 from .conftest import ME
 

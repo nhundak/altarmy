@@ -1,6 +1,6 @@
 -- AltArmy TBC — records when Auctionator stores auction house prices, and on which faction.
 -- Auctionator keys a modern auction house's prices (WoW: Forever) by realm alone, so its SavedVariables
--- cannot say which faction's auction house they came from. altarmy-profit's uploader reads this log
+-- cannot say which faction's auction house they came from. The website's uploader reads this log
 -- (AltArmyTBC_AuctionScans, its own SavedVariable so it is cheap to read) to name the faction.
 -- luacheck: globals Auctionator AltArmyTBC_AuctionScans GetRealmName UnitFactionGroup time
 

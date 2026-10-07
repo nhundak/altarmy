@@ -1,6 +1,6 @@
 # Hosted transition plan
 
-How `altarmy-profit` becomes a hosted, multi-user web app covering both **TBC Anniversary** and
+How the Alt Army website becomes a hosted, multi-user web app covering both **TBC Anniversary** and
 **WoW: Forever**, while the single-user local mode described in [README.md](../README.md) keeps working.
 Feature ideas that do not depend on hosting live in [ROADMAP_IDEAS.md](ROADMAP_IDEAS.md). Written
 2026-09-24; each phase below is meant to be picked up on its own.
@@ -46,13 +46,13 @@ the existing file watcher (`service.sync`) turned on.
 
 ## 3. Game versions
 
-Done in Phase 1 (`src/altarmy_profit/versions.py`); Phase 2 made `game_version` a column in the one
+Done in Phase 1 (`src/altarmy_site/versions.py`); Phase 2 made `game_version` a column in the one
 schema local and hosted mode share.
 
 - `game_version` (`tbc` | `forever`) is a parameter on every per-game API route and a column on every
   game-data table and on local state (settings, characters, `ah_blocked`); price tables carry it through
-  their auction house. Local mode keeps both versions in `data/altarmy-profit.sqlite`; `legacy.py`
-  imports Phase 1's per-version files (`data/altarmy-profit-<version>.db`) into it once.
+  their auction house. Local mode keeps both versions in `data/altarmy.sqlite`; `legacy.py`
+  imports Phase 1's per-version files (`data/altarmy-<version>.db`) into it once.
 - Ingest takes the wago.tools product: `tbc` -> `wow_anniversary` (2.5.6, Interface 20506),
   `forever` -> `wow_classic_beta` (1.60.x, Interface 16001). The pinned build is per version; the DB2
   table list is the same for both.
@@ -189,7 +189,7 @@ with a connection per request. `scripts/check.py` keeps regenerating `frontend/o
 1. **Browser upload.** Drop `AltArmy_TBC.lua` and `Auctionator.lua` on an Upload page. The server parses
    them with `altarmy.parse_characters` and `auctionator.parse_price_database`, stores only the extracted
    fields and discards the file. Size limit, progress, and a result summary.
-2. **CLI watcher.** `altarmy-profit watch --server URL --key KEY` (`watch.py`). It finds the files with
+2. **CLI watcher.** `altarmy-site watch --server URL --key KEY` (`watch.py`). It finds the files with
    `prices.find_*`, keeps what it sent in a JSON state file of mtimes, and POSTs changed files gzipped to
    `/api/uploads`. The flavor folder decides `game_version`. Local mode's `service.sync` stays as it is;
    the two share the finders and the parsers.
@@ -231,7 +231,7 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
 Phase 6 status (done, 2026-09-24). Revision `0004` adds `auction_houses.price_version`. Differences from
 the list above and from section 4:
 
-- **The merge** (`merge.py`, `altarmy-profit merge`) runs hourly as the `altarmy-merge` Cloud Run job
+- **The merge** (`merge.py`, `altarmy-site merge`) runs hourly as the `altarmy-merge` Cloud Run job
   (Cloud Scheduler at :30) and after each local sync. There is no separate daily aggregation: the merge
   recomputes the last 30 days each run. `price_daily.median` is the median of the day's Auctionator low
   and high plus that UTC day's accepted scan prices, clamped to low..high (observations hold only news, so

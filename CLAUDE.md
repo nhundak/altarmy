@@ -4,7 +4,7 @@ Conventions for AI agents working in the `altarmy` monorepo: Alt Army, one produ
 
 ## Layout
 
-- `site/` – the Alt Army site (`altarmy-profit`: the Python API and CLI jobs, the React front end, and Alt Army
+- `site/` – the Alt Army website (`altarmy-site`: the Python API and CLI jobs, the React front end, and Alt Army
   Sync, the Windows uploader). Its own `CLAUDE.md`, README, venv (`site/.venv`), `package.json` (the dev loop)
   and `frontend/node_modules`. Every command in its docs runs from `site/`.
 - `addon/` – the Alt Army addon (`AltArmy_TBC/`, Lua 5.1) with its specs, data scripts and Lua tooling. Its own
@@ -27,24 +27,24 @@ make (wago.tools tables, emulator databases) share the git-ignored root `.cache/
 
 The addon writes what the site reads, and the golden files live with the addon:
 
-- `addon/AltArmy_TBC/Data/ProfitExport.lua` writes the `AAX1` export; `site/src/altarmy_profit/paste.py` decodes
+- `addon/AltArmy_TBC/Data/ProfitExport.lua` writes the `AAX1` export; `site/src/altarmy_site/paste.py` decodes
   it; `addon/spec/fixtures/profit_export_v2.txt` is the golden string both test against.
 - `addon/AltArmy_TBC/Data/Auctions/AuctionScan.lua` and `AuctionBook.lua` write `AltArmyTBC_AuctionBook`;
-  `site/src/altarmy_profit/book.py` reads it; `addon/spec/fixtures/auction_book_v1.lua` is the golden file.
-- `AltArmy_TBC.lua` (the addon's main SavedVariable) is read by `site/src/altarmy_profit/altarmy.py`.
+  `site/src/altarmy_site/book.py` reads it; `addon/spec/fixtures/auction_book_v1.lua` is the golden file.
+- `AltArmy_TBC.lua` (the addon's main SavedVariable) is read by `site/src/altarmy_site/altarmy.py`.
 - `site/tests/addon_fixtures.py` names the golden files for the site's tests, so a format change is one commit
   that changes the writer, the reader and the fixture, and `site-check` fails if they disagree. `site-check` also
   runs on commits touching only those addon files (the fixtures, the writers, the TOC), so such a commit redeploys
   the site unchanged.
-- The TOC's `## Interface:` lists exactly the interfaces of `site/src/altarmy_profit/versions.py`'s versions
+- The TOC's `## Interface:` lists exactly the interfaces of `site/src/altarmy_site/versions.py`'s versions
   (`site/tests/test_versions.py`): a game patch moving one updates both.
 - `addon/scripts/generate-waylaid-crates.py` and `generate-writs.py` read the site's development database
-  (`site/data/altarmy-profit.sqlite`; the writs one also the pinned build's cached ItemSparse and ItemNameDescription
+  (`site/data/altarmy.sqlite`; the writs one also the pinned build's cached ItemSparse and ItemNameDescription
   tables), and `site`'s ingest regenerates the addon's Waylaid Crates and Craftsman's Writs tables
-  (`site/src/altarmy_profit/addon_crates.py`).
+  (`site/src/altarmy_site/addon_crates.py`).
 - **Game data is on one pin**: `site/data/game-data.json` names each version's wago.tools build and emulator release.
   The site loads exactly that build (locally, and in prod after each deploy), and the addon's `RecipeData_*.lua`
-  are made at it (`site/tests/test_versions.py`). `site/src/altarmy_profit/gamedata.py` (stdlib only) downloads
+  are made at it (`site/tests/test_versions.py`). `site/src/altarmy_site/gamedata.py` (stdlib only) downloads
   and caches for both; the addon's scripts load it by its path.
 
 ## Game data

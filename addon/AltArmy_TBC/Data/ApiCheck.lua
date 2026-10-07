@@ -133,7 +133,7 @@ AC.MANIFEST = {
     { area = "Auctions", label = "GetBidInfo",
       candidates = { "GetAuctionItemInfo", "C_AuctionHouse.GetBidInfo" } },
 
-    -- Auction house listings (every listing at once: the full scan altarmy-profit's prices are to come
+    -- Auction house listings (every listing at once: the full scan the website's prices are to come
     -- from). Existing says nothing about what they return: /altarmy debug ahprobe asks once
     -- (AuctionProbe.lua). The browse and search entries are the fallback if the full scan is missing.
     { area = "Auction Listings", label = "ReplicateItems", candidates = { "C_AuctionHouse.ReplicateItems" } },

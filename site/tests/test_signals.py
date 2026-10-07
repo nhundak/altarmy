@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import signals
+from altarmy_site import signals
 
 
 class FakeSignals:

@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import timing
-from altarmy_profit.timing import DEFAULT_CONFIG, Block, CityMap, TimeConfig
+from altarmy_site import timing
+from altarmy_site.timing import DEFAULT_CONFIG, Block, CityMap, TimeConfig
 
 # Distances in yards; with run speed 10 and detour 1 a yard is 0.1 s.
 FAST = TimeConfig(run_speed=10.0, detour=1.0)

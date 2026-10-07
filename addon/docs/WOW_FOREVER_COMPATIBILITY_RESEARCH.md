@@ -650,7 +650,7 @@ WoW Forever's **Legacy** system: an account-wide progression layer, separate fro
 **The Legacy system in Forever's DB2** (wago.tools, build 1.60.1.70009):
 - `TraitSystem` 45 owns `TraitTree` 1187, 1188 and 1189.
 - Those trees spend `TraitCurrency` 4225, which has `SourcedMax` 16 (the launch cap).
-- Nodes the altarmy-profit site uses, all in tree 1187:
+- Nodes the Alt Army website uses, all in tree 1187:
 
 | Talent | Node | Entry | Definition | Spell | Max ranks |
 | --- | --- | --- | --- | --- | --- |
@@ -727,7 +727,7 @@ Guild sharing followed (2026-09-28): characters and senders are identified by GU
 
 ## Auction house: the full scan works, and what it returns (2026-09-29)
 
-altarmy-profit is to price crafts from Alt Army's own scans, which needs every listing, not one price per item.
+The website is to price crafts from Alt Army's own scans, which needs every listing, not one price per item.
 Checked on a live client (interface 16001, Classic Beta PvE, Horde) with `/altarmy debug apicheck` and
 `/altarmy debug ahprobe` (`Data/Auctions/AuctionProbe.lua`).
 

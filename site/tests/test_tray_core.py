@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import signin, tray_core
-from altarmy_profit.tray_core import TrayConfig
+from altarmy_site import signin, tray_core
+from altarmy_site.tray_core import TrayConfig
 
 
 def test_the_live_site_by_default_and_staging_or_another_on_request() -> None:
@@ -95,7 +95,7 @@ def test_autostart_command_runs_the_exe_or_the_module_with_the_target_flags() ->
         r'"C:\Apps\altarmy-sync.exe"'
     )
     assert tray_core.autostart_command(r"C:\venv\Scripts\python.exe", frozen=False) == (
-        r'"C:\venv\Scripts\pythonw.exe" -m altarmy_profit.tray'
+        r'"C:\venv\Scripts\pythonw.exe" -m altarmy_site.tray'
     )
     assert tray_core.autostart_command(r"C:\Apps\altarmy-sync.exe", frozen=True, args=("--staging",)) == (
         r'"C:\Apps\altarmy-sync.exe" --staging'
@@ -195,7 +195,7 @@ def test_the_icon_needs_none_of_the_pillow_extensions_the_exe_leaves_out() -> No
     code = (
         "import io, sys\n"
         f"for m in {tray_core.PILLOW_UNUSED!r}: sys.modules[m] = None  # unimportable, as in the exe\n"
-        "from altarmy_profit.tray import _icon_image\n"
+        "from altarmy_site.tray import _icon_image\n"
         "out = io.BytesIO()\n"
         "_icon_image().save(out, format='ICO')  # what pystray does with it\n"
         "assert out.getvalue()[:4] == bytes([0, 0, 1, 0])\n"

@@ -77,7 +77,7 @@ export function SearchTab({
   const select = useSelectRealm()
   const professionsQuery = useProfessions()
   const professionNames = professionsQuery.data
-  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
+  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy.setup.${uid}`, storedSetup, null)
   const groups = characters.data?.groups ?? []
   // Show the realm being switched to while the server imports its prices.
   const selection = select.isPending ? select.variables : status.data?.selection
@@ -135,7 +135,7 @@ export function SearchTab({
   if (status.data.recipes === 0) {
     return (
       <Alert color="red">
-        No game data has been loaded yet. If you run this site, run `altarmy-profit ingest`.
+        No game data has been loaded yet. If you run this site, run `altarmy-site ingest`.
       </Alert>
     )
   }

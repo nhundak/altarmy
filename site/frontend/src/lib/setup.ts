@@ -256,8 +256,8 @@ export function presetsFor(aim: Aim): Presets {
  * Where an aim keeps one of its search filters: making gold and skilling up each remember their own, so answering one
  * never overwrites the other's. `legacySearchKey` is where every filter was kept before, read while an aim has none.
  */
-export const searchKey = (aim: Aim, name: string) => `altarmy-profit.search.${aim}.${name}`
-export const legacySearchKey = (name: string) => `altarmy-profit.search.${name}`
+export const searchKey = (aim: Aim, name: string) => `altarmy.search.${aim}.${name}`
+export const legacySearchKey = (name: string) => `altarmy.search.${name}`
 
 /**
  * Store the filters an aim presets under its keys, for its search to start from: only those it has none of yet, so

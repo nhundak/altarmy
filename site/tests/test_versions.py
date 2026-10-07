@@ -5,9 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import engine, gamedata, versions, wowfiles
-from altarmy_profit.engine import Item, Market, Recipe
-from altarmy_profit.versions import VERSIONS
+from altarmy_site import engine, gamedata, versions, wowfiles
+from altarmy_site.engine import Item, Market, Recipe
+from altarmy_site.versions import VERSIONS
 
 from .addon_fixtures import ADDON_TOC, RECIPE_DATA
 

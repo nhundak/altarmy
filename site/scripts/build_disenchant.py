@@ -2,7 +2,7 @@
 
 Usage: python scripts/build_disenchant.py [--auctionator <Interface/AddOns/Auctionator folder>]
 Without --auctionator it uses the copy installed in the TBC Anniversary client (`_anniversary_`) under the
-usual WoW install folders. Then run a TBC game data update (or `altarmy-profit --game-version tbc ingest`).
+usual WoW install folders. Then run a TBC game data update (or `altarmy-site --game-version tbc ingest`).
 The Forever table (data/forever/disenchant.csv) is hand-checked and is not regenerated.
 """
 
@@ -11,7 +11,7 @@ import csv
 import sys
 from pathlib import Path
 
-from altarmy_profit import disenchant_rates, wowfiles
+from altarmy_site import disenchant_rates, wowfiles
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "tbc" / "disenchant.csv"

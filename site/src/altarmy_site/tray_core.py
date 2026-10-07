@@ -19,7 +19,7 @@ RELEASES_URL = "https://api.github.com/repos/ntower/altarmy/releases?per_page=10
 RELEASE_TAG = "sync-v"
 PROD_SERVER = "https://alt-army.com"
 STAGING_SERVER = "https://alt-army-prod--staging-hn1s06um.web.app"  # the Hosting `staging` preview channel
-SETTINGS_DIR = Path.home() / ".altarmy-profit"
+SETTINGS_DIR = signin.SETTINGS_DIR
 STATUS_MAX = 90  # characters of status in the menu
 PROBLEMS = ("Upload failed", "Stopped", "Rejected")  # watch.py's log lines that need the user's attention
 # Pillow's extensions the tray icon never needs (fonts, colour management, image formats), left out of the
@@ -171,7 +171,7 @@ def autostart_command(executable: str, *, frozen: bool, args: tuple[str, ...] = 
     if frozen:
         command = f'"{executable}"'
     else:
-        command = f'"{PureWindowsPath(executable).with_name("pythonw.exe")}" -m altarmy_profit.tray'
+        command = f'"{PureWindowsPath(executable).with_name("pythonw.exe")}" -m altarmy_site.tray'
     return " ".join([command, *(f'"{a}"' if " " in a else a for a in args)])
 
 

@@ -1,5 +1,5 @@
 """The Discord relay: Cloud Monitoring's alert policies and Error Reporting notify a basic-auth webhook
-channel ("altarmy Discord", deploy/setup.sh `discord`) pointing at this service (`altarmy-profit
+channel ("altarmy Discord", deploy/setup.sh `discord`) pointing at this service (`altarmy-site
 alert-relay`, Cloud Run `altarmy-alerts`), which posts each notification to a Discord channel's webhook
 (`DISCORD_WEBHOOK_URL`). Monitoring has no Discord channel, Discord refuses its webhook JSON, and Error
 Reporting notifies only email, Slack and webhooks (not Pub/Sub).

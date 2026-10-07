@@ -1,6 +1,6 @@
 """The in-memory sliding-window rate limiter hosted mode puts on every request."""
 
-from altarmy_profit.ratelimit import RateLimiter, client_ip
+from altarmy_site.ratelimit import RateLimiter, client_ip
 
 
 def test_allows_up_to_the_limit_per_window_and_key() -> None:

@@ -7,7 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from altarmy_profit import cloudlog
+from altarmy_site import cloudlog
 
 LOGGERS = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
 
@@ -19,14 +19,14 @@ def record(exc: bool) -> logging.LogRecord:
             raise RuntimeError("boom")
         except RuntimeError:
             exc_info = sys.exc_info()
-    return logging.LogRecord("altarmy_profit.x", logging.ERROR, __file__, 1, "it %s", ("failed",), exc_info)
+    return logging.LogRecord("altarmy_site.x", logging.ERROR, __file__, 1, "it %s", ("failed",), exc_info)
 
 
 def test_a_record_is_one_json_line() -> None:
     line = cloudlog.JsonFormatter("altarmy").format(record(exc=False))
     assert "\n" not in line
     out = json.loads(line)
-    assert out == {"severity": "ERROR", "message": "it failed", "logger": "altarmy_profit.x"}
+    assert out == {"severity": "ERROR", "message": "it failed", "logger": "altarmy_site.x"}
 
 
 def test_an_exception_is_an_error_reporting_event() -> None:

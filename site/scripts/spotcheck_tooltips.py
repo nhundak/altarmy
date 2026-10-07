@@ -2,7 +2,7 @@
 
     python scripts/spotcheck_tooltips.py [--game-version forever] [--build 1.60.1.69913] [item ids...]
 
-Downloads the build's tables into `cache/` (once), computes every item's lines as `altarmy-profit ingest`
+Downloads the build's tables into `cache/` (once), computes every item's lines as `altarmy-site ingest`
 would (no database), fetches each item's tooltip from nether.wowhead.com and prints, per item, `ok` or
 the lines we have that Wowhead lacks (`missing`) and the stat, armor, damage and green lines it has that
 we lack (`unmatched`). WoW: Forever reworked some items, so a difference is not always our mistake.
@@ -18,7 +18,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-from altarmy_profit import gamedata, ingest, itemstats, versions
+from altarmy_site import gamedata, ingest, itemstats, versions
 
 # Gear, a weapon and consumables whose Classic tooltips match the Forever data (Forever changed many
 # weapons' speeds and some elixirs' durations; their DPS still agrees, so those are not our mistake).

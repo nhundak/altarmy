@@ -1,4 +1,4 @@
-from altarmy_profit import reputation
+from altarmy_site import reputation
 
 VANILLA = {6: 10, 7: 10, 8: 10}
 

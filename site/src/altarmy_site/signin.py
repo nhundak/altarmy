@@ -10,6 +10,7 @@ Standard library only, like `watch`.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
 import urllib.error
@@ -112,7 +113,7 @@ def _base(config: AuthConfig, host: str) -> str:
 
 
 def _headers(config: AuthConfig, content_type: str) -> dict[str, str]:
-    return {"Content-Type": content_type, "Referer": f"{config.site}/", "User-Agent": "altarmy-profit"}
+    return {"Content-Type": content_type, "Referer": f"{config.site}/", "User-Agent": "altarmy-site"}
 
 
 def _error_code(body: Any) -> str:
@@ -248,8 +249,22 @@ class Credentials:
         return self.session.id_token
 
 
+# --- where the CLI watcher and Alt Army Sync keep their files -----------------------------------------
+SETTINGS_DIR = Path.home() / ".altarmy"
+OLD_SETTINGS_DIR = Path.home() / ".altarmy-profit"  # the folder's name before the site was renamed
+
+
+def move_old_settings(new: Path = SETTINGS_DIR, old: Path = OLD_SETTINGS_DIR) -> None:
+    """Renames the settings folder from its old name, so a sign-in saved before the rename is kept. Nothing
+    when the new folder exists already or the move fails (a file held open: the user signs in again)."""
+    if new.exists() or not old.is_dir():
+        return
+    with contextlib.suppress(OSError):
+        old.rename(new)
+
+
 # --- the CLI watcher's saved sign-in (the tray keeps its own in sync.json) ----------------------------
-DEFAULT_AUTH = Path.home() / ".altarmy-profit" / "watch-auth.json"
+DEFAULT_AUTH = SETTINGS_DIR / "watch-auth.json"
 
 
 def load_saved(path: Path, site: str) -> tuple[str, str] | None:

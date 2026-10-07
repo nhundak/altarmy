@@ -4,7 +4,7 @@ Every visitor is signed in with Firebase (anonymously at first); the front end s
 token and a `TokenVerifier` turns it into claims. Linking an email account keeps the uid and moves the
 user from the free to the linked tier. Development signs in against the Firebase Auth emulator.
 
-Site admins carry the custom claim `admin: true`, which only the Admin SDK sets (`altarmy-profit admin
+Site admins carry the custom claim `admin: true`, which only the Admin SDK sets (`altarmy-site admin
 grant`): it is never stored in the database, and a token shows it once it is issued after the grant.
 """
 

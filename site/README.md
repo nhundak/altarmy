@@ -1,6 +1,6 @@
-# altarmy-profit
+# Alt Army website
 
-A website, **Alt Army** (https://alt-army.com), that finds profitable crafting recipes and production
+The **Alt Army** website (https://alt-army.com) finds profitable crafting recipes and production
 chains for **WoW: Forever** and **TBC Anniversary**, the two clients the Alt Army addon runs on. Both share one
 database.
 
@@ -18,7 +18,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -e ".[dev,ui]"   # ui: the server (FastAPI, uvicorn, firebase-admin); the watcher needs neither
 npm ci; cd frontend; npm ci; cd ..   # front end and dev tooling, the Firebase emulator included (needs Node.js, Java 11+)
-altarmy-profit ingest       # WoW: Forever's game data into data/altarmy-profit.sqlite
+altarmy-site ingest       # WoW: Forever's game data into data/altarmy.sqlite
 npm run dev                 # the site on http://localhost:5173 (see Development)
 python scripts/check.py     # Python: ruff, mypy (strict), pytest. Front end: oxlint, vitest, tsc + vite build
 ```
@@ -38,16 +38,16 @@ GitHub Actions (`.github/workflows/check.yml`) runs `check.py` and the Postgres 
 ## Usage
 
 ```powershell
-altarmy-profit ingest                          # downloads DB2 tables into ../.cache/, loads WoW: Forever's pinned build
-altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
-altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
-altarmy-profit ingest --only-if-new            # the pinned build, unless loaded by this ingest code and CSVs (the site's job)
-altarmy-profit ingest --only-if-new --force    # reload the pinned build even if loaded (add --force to the job's args)
-altarmy-profit serve [--reload]                # the API (and the built front end) on http://127.0.0.1:8600; --reload restarts it on code changes
-altarmy-profit watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
-altarmy-profit migrate                         # migrate the database now (each deploy runs this once)
-altarmy-profit prune                           # drop price observations older than 180 days
-altarmy-profit merge                           # recompute daily medians and 7-day price statistics (hourly job)
+altarmy-site ingest                          # downloads DB2 tables into ../.cache/, loads WoW: Forever's pinned build
+altarmy-site ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
+altarmy-site --game-version tbc ingest       # TBC Anniversary's instead
+altarmy-site ingest --only-if-new            # the pinned build, unless loaded by this ingest code and CSVs (the site's job)
+altarmy-site ingest --only-if-new --force    # reload the pinned build even if loaded (add --force to the job's args)
+altarmy-site serve [--reload]                # the API (and the built front end) on http://127.0.0.1:8600; --reload restarts it on code changes
+altarmy-site watch --server URL --key KEY    # upload the addon files to the site as WoW rewrites them
+altarmy-site migrate                         # migrate the database now (each deploy runs this once)
+altarmy-site prune                           # drop price observations older than 180 days
+altarmy-site merge                           # recompute daily medians and 7-day price statistics (hourly job)
 ```
 
 Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
@@ -55,7 +55,7 @@ game's data in the database, the data files under `data/<version>/` and the wago
 (`wow_classic_beta` or `wow_anniversary`).
 
 The database is `DATABASE_URL` (a SQLAlchemy URL such as `postgresql+psycopg://user:pass@host/db`), else
-`data/altarmy-profit.sqlite`; `--db <file>` picks another SQLite file. `serve` and the CLI jobs migrate it
+`data/altarmy.sqlite`; `--db <file>` picks another SQLite file. `serve` and the CLI jobs migrate it
 (Alembic); the site's instances never do, its deploy runs `migrate` once.
 
 Prices belong to an auction house: a realm and faction. Forever's come from the Alt Army addon's own
@@ -137,9 +137,9 @@ late or failed ones flagged), every user's uploads and price snapshots per sourc
 with Firebase Auth admin rights (your own `gcloud auth application-default login` on the project):
 
 ```bash
-FIREBASE_PROJECT_ID=alt-army-prod altarmy-profit admin grant you@example.com   # or revoke; `admin list`
+FIREBASE_PROJECT_ID=alt-army-prod altarmy-site admin grant you@example.com   # or revoke; `admin list`
 # development, against the Auth emulator of `npm run dev`:
-FIREBASE_PROJECT_ID=demo-altarmy FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 altarmy-profit admin grant you@example.com
+FIREBASE_PROJECT_ID=demo-altarmy FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 altarmy-site admin grant you@example.com
 ```
 
 The claim shows once the browser's sign-in token is refreshed: sign out and in (or wait up to an hour).
@@ -161,16 +161,16 @@ The claim shows once the browser's sign-in token is refreshed: sign out and in (
   `/api/config`). On the computer you play on, with this package installed:
 
   ```powershell
-  altarmy-profit watch --server https://<site>   # asks for the email and password once
+  altarmy-site watch --server https://<site>   # asks for the email and password once
   ```
 
-  Only Firebase's refresh token is kept, in `~/.altarmy-profit/watch-auth.json` (per site), never the
+  Only Firebase's refresh token is kept, in `~/.altarmy/watch-auth.json` (per site), never the
   password; it gets a fresh ID token every hour. `--sign-in` asks again, `--create-account` makes a new
   account (it starts empty), and `ALTARMY_EMAIL`/`ALTARMY_PASSWORD` answer the questions when running
   unattended. A sign-in that stops working (password changed, account deleted) is forgotten and the
   watcher exits. It finds both addons' files for both games under the usual WoW folders (`--wow-root` for
   another), uploads the ones WoW rewrote every 15 seconds (`--interval`), and remembers what it sent in
-  `~/.altarmy-profit/watch-state.json`. `--once` uploads what changed and exits. It needs no database. The
+  `~/.altarmy/watch-state.json`. `--once` uploads what changed and exits. It needs no database. The
   site's Firebase browser key only answers the site's origins, so these requests send the site as their
   Referer.
 - **Alt Army Sync (Windows).** The same watcher without Python or a terminal: download
@@ -191,8 +191,8 @@ The claim shows once the browser's sign-in token is refreshed: sign out and in (
     Each has its own settings, log and Start with Windows entry (`sync-staging.json`, `sync-dev.json`, ...),
     shows its name in the tooltip ("Alt Army Sync (staging)"), and can run next to the live one; Start with
     Windows keeps the flag.
-  - Settings are in `~/.altarmy-profit/sync.json`: `email` and Firebase's `refresh_token` (plain text, never
-    the password). The log is `~/.altarmy-profit/sync.log`. A release before the email sign-in kept an API
+  - Settings are in `~/.altarmy/sync.json`: `email` and Firebase's `refresh_token` (plain text, never
+    the password). The log is `~/.altarmy/sync.log`. A release before the email sign-in kept an API
     key and a `server` there, which are ignored: sign in again, and pick the site with the flags.
   - From source: `pip install -e ".[tray]"`, then `altarmy-sync`.
   - To build the exe: `pip install -e ".[tray,build-tray]"` and `python scripts/build_sync.py
@@ -258,7 +258,7 @@ The site runs on Google Cloud in `alt-army-prod` (us-central1). The config is in
 | Service accounts | `altarmy-run` (prod's service and jobs), `altarmy-staging-run` (staging's), `altarmy-scheduler`, `altarmy-deploy` (CI) |
 | Firebase Auth | prod: `alt-army-prod`; staging: `alt-army-staging`, a free Spark project (see "Firebase projects") |
 | Firestore | price signals only (`priceSignals/<auction house id>`: the price version, never prices), in each environment's Firebase project; the API and jobs write them, signed-in browsers read them (`firestore.rules`, deployed with Hosting). Within the free tier |
-| Alerts | Cloud Monitoring's alert policies (a job failed; `price_observations` needs partitioning) and Error Reporting notify the basic-auth webhook channel "altarmy Discord", which calls `altarmy-alerts` (a public Cloud Run service on prod's image, `altarmy-profit alert-relay`, refusing requests without the channel's password, secret `alerts-relay-password`), which posts them to a Discord channel's webhook (secret `discord-webhook`). On Cloud Run the service and jobs log JSON lines (`cloudlog.py`), so every exception is an Error Reporting event |
+| Alerts | Cloud Monitoring's alert policies (a job failed; `price_observations` needs partitioning) and Error Reporting notify the basic-auth webhook channel "altarmy Discord", which calls `altarmy-alerts` (a public Cloud Run service on prod's image, `altarmy-site alert-relay`, refusing requests without the channel's password, secret `alerts-relay-password`), which posts them to a Discord channel's webhook (secret `discord-webhook`). On Cloud Run the service and jobs log JSON lines (`cloudlog.py`), so every exception is an Error Reporting event |
 
 About $9 to 11 a month, nearly all of it Cloud SQL; Cloud Run stays in its free tier at hobby traffic.
 Staging adds little: its database shares the Cloud SQL instance, its Auth project has no billing, and its
@@ -313,17 +313,17 @@ each new error and on a resolved one coming back. To try the path (curl asks for
 - the Firestore emulator (127.0.0.1:8080), where the API and the CLI's `merge` (with
   `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` and `FIREBASE_PROJECT_ID=demo-altarmy`) write price signals, so an
   open page refetches and says "Prices updated";
-- the API on :8600 (`altarmy-profit serve` via the venv, `scripts/dev-api.mjs`), on the SQLite file
-  `data/altarmy-profit.sqlite` (or `DATABASE_URL`), migrated on start; once it answers, the script runs
-  the merge (`altarmy-profit merge`) in the background (`npm run dev:api -- --no-prices` skips it);
+- the API on :8600 (`altarmy-site serve` via the venv, `scripts/dev-api.mjs`), on the SQLite file
+  `data/altarmy.sqlite` (or `DATABASE_URL`), migrated on start; once it answers, the script runs
+  the merge (`altarmy-site merge`) in the background (`npm run dev:api -- --no-prices` skips it);
 - once both answer, Vite on http://localhost:5173, which it opens. Vite hot-reloads the React code and
   proxies `/api` to the API; press Ctrl+C and rerun for Python changes.
 
-A fresh database needs game data first: `altarmy-profit ingest` (and `altarmy-profit --game-version tbc
+A fresh database needs game data first: `altarmy-site ingest` (and `altarmy-site --game-version tbc
 ingest`); `serve` says so when it is missing. Prices come in as on the site: scan with Alt Army in game, then
 upload `AltArmy_TBC.lua` on the Upload page, or point the watcher or Alt Army Sync at
 `http://127.0.0.1:8600`.
-Uploads don't merge: run `altarmy-profit merge` for the 7-day medians. Emulator accounts are forgotten when it
+Uploads don't merge: run `altarmy-site merge` for the 7-day medians. Emulator accounts are forgotten when it
 stops; to keep them, run `npx firebase emulators:start --only auth --project demo-altarmy --import
 .firebase/auth-emulator --export-on-exit` yourself (the folder must exist).
 
@@ -336,7 +336,7 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 ## Data notes
 
 - **The addon's Waylaid Crates.** After ingesting WoW: Forever into a SQLite file, `ingest` runs the Alt Army
-  addon's `scripts/generate-waylaid-crates.py` against it (`src/altarmy_profit/addon_crates.py`), when the addon
+  addon's `scripts/generate-waylaid-crates.py` against it (`src/altarmy_site/addon_crates.py`), when the addon
   is checked out next to the site (the monorepo's `../addon`, or `ALTARMY_ADDON_DIR`). A changed crate list then shows up
   as a change to commit there. The hosted jobs (Postgres, no addon) skip it, and a failure never fails the ingest.
 - Pinned builds: `data/game-data.json` (each version's wago.tools build and the emulator release its CSVs
@@ -362,14 +362,14 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   medians over its latest 7 days with data in the last 30). So a lone overpriced listing (a 2g bag
   listed at 2,700g) isn't taken for the going rate. A sale that may take over 2 days at the rate the
   item sold lately is flagged; where nothing is known of its sales, one resting on fewer than 5 listed
-  units, or fewer than the plan sells. The merge (`altarmy-profit merge`, hourly on the site) fills
+  units, or fewer than the plan sells. The merge (`altarmy-site merge`, hourly on the site) fills
   the medians and sale figures; prices set by hand are used as they are.
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
   Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and
   cover greens ilvl 5–65, blues 11–65, epics 40–80. Counts within a row are assumed uniform.
   Forever-specific rates are not yet published — verify against Wowhead's Forever database as data comes
-  in, then re-run `altarmy-profit ingest`. TBC's are generated from the TBC client's Auctionator
+  in, then re-run `altarmy-site ingest`. TBC's are generated from the TBC client's Auctionator
   (one row per count) by `python scripts/build_disenchant.py`.
 - **Arcane Salvager** (WoW: Forever): an Enchanting-made station (recipe spell 1263056). Near it a
   disenchant has a 10% chance of a second roll of the same table, so with the search's Arcane Salvager
@@ -401,7 +401,7 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
   `python scripts/build_vendor_items.py --game-version forever|tbc` (at the pinned release; `game_data.py`
   runs it). The price is DB2's `BuyPrice` per
   `VendorStackCount`, rounded up to whole copper. Reagents are bought from whichever of vendor and AH is
-  cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor
+  cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-site ingest` if a vendor
   item is missing or wrong.
 - **Reputation discounts.** A vendor takes 10% off for a buyer who is Honored or better with the vendor's
   faction (vanilla's rule, `GameVersion.reputation_discounts`; it adds to the Bartering talent's discount,
@@ -433,30 +433,30 @@ API's models or routes, regenerate the TypeScript types with `python scripts/exp
 
 ## Layout
 
-- `src/altarmy_profit/versions.py` – the game versions (TBC Anniversary, Forever): data files,
+- `src/altarmy_site/versions.py` – the game versions (TBC Anniversary, Forever): data files,
   wago.tools product, WoW flavor folder, AH cut and postage
-- `src/altarmy_profit/db.py`, `schema.py`, `migrations/` – the database (SQLAlchemy Core, SQLite or
+- `src/altarmy_site/db.py`, `schema.py`, `migrations/` – the database (SQLAlchemy Core, SQLite or
   Postgres), its tables and Alembic migrations
-- `src/altarmy_profit/ingest.py` – download + load DB2 CSVs; `addon_crates.py` – regenerate the Alt Army
+- `src/altarmy_site/ingest.py` – download + load DB2 CSVs; `addon_crates.py` – regenerate the Alt Army
   addon's Waylaid Crates table after a local Forever ingest
-- `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
-- `src/altarmy_profit/timing.py` – pure play-time model (action seconds, city maps, routes, per-hour
+- `src/altarmy_site/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
+- `src/altarmy_site/timing.py` – pure play-time model (action seconds, city maps, routes, per-hour
   rates); `cities.py` builds city presets from vmangos spawns (`scripts/build_cities.py`)
-- `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices,
+- `src/altarmy_site/prices.py` – the price store (auction houses, snapshots, current and daily prices,
   screening uploads, coverage); `book.py` reads Alt Army's auction house scans and prices from their
   ladders; `auctionator.py` parses Auctionator's SavedVariables (TBC);
   `merge.py` – daily medians and 7-day statistics
-- `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
-- `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification), each user's
+- `src/altarmy_site/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
+- `src/altarmy_site/auth.py`, `users.py` – users and tiers (Firebase token verification), each user's
   settings and trust; `signin.py` – the watcher's and Alt Army Sync's email sign-in
-- `src/altarmy_profit/uploads.py`, `watch.py` – uploaded addon files (parse, pool, history, rate limit)
+- `src/altarmy_site/uploads.py`, `watch.py` – uploaded addon files (parse, pool, history, rate limit)
   and the CLI watcher that sends them; `paste.py` – the Alt Army addon's export string; `wowfiles.py` –
   where WoW keeps SavedVariables; `tray.py`, `tray_core.py` – Alt Army Sync, the Windows uploader
-- `src/altarmy_profit/store.py` – load the database into engine dataclasses
-- `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the site
-- `src/altarmy_profit/cli.py` – command line; `ratelimit.py` – the API's per-IP and per-user limits
+- `src/altarmy_site/store.py` – load the database into engine dataclasses
+- `src/altarmy_site/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the site
+- `src/altarmy_site/cli.py` – command line; `ratelimit.py` – the API's per-IP and per-user limits
 - `Dockerfile`, `firebase.json`, `deploy/`, `.github/workflows/deploy.yml` – the deploy (see Deploy)
-- `src/altarmy_profit/vmangos.py`, `cmangos.py`, `disenchant_rates.py` – sources for the hand data files
+- `src/altarmy_site/vmangos.py`, `cmangos.py`, `disenchant_rates.py` – sources for the hand data files
 - `scripts/bench_rank.py` (ranking timings), `scripts/probe_blizzard_api.py` (Blizzard AH API check)
 - `frontend/` – Vite + React + TypeScript + Mantine front end
 - `docs/` – plans: `HOSTED_PLAN.md` (the move to a hosted, multi-user site), `ROADMAP_IDEAS.md` (feature ideas)

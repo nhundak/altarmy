@@ -200,8 +200,8 @@ export function ProfitPage() {
   const view = parseProfitPath(usePath())
   const characters = useCharacters()
   const track = useTrack()
-  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy-profit.setup.${uid}`, storedSetup, null)
-  const [landing, setLanding] = useStoredState(`altarmy-profit.landing.${uid}`, landingSchema, NOT_BROWSED)
+  const [lastSetup, setLastSetup] = useStoredState<SetupAnswers | null>(`altarmy.setup.${uid}`, storedSetup, null)
+  const [landing, setLanding] = useStoredState(`altarmy.landing.${uid}`, landingSchema, NOT_BROWSED)
   const [open, setOpenKey] = useState<CardKey | null>(null)
   // The card the strip grows into and shrinks back from: the one picked last.
   const [lastPicked, setLastPicked] = useState<CardKey>('import')

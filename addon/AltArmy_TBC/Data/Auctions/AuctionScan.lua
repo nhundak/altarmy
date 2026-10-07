@@ -1,4 +1,4 @@
--- AltArmy TBC — auction house scans: full scans for altarmy-profit, summary scans as the fallback.
+-- AltArmy TBC — auction house scans: full scans for the website, summary scans as the fallback.
 -- A full scan asks the client for every listing (C_AuctionHouse.ReplicateItems: once per 15 minutes per
 -- account) and reads what comes back into AuctionBook's ladders, a batch a frame. It also reads a full scan
 -- another addon asked for (Auctionator's full scan): the listings event is the client's, whoever asked.
@@ -8,7 +8,7 @@
 -- Auction House): "prefer_full" (the default) runs a full scan when the client allows one and a summary when
 -- it cannot (cooldown, the client refused, no full-scan API); "only_full" runs full scans alone, and nothing
 -- during the cooldown; "only_summary" runs summaries alone. Summaries are stored apart
--- (AuctionBook.StoreSummary) so altarmy-profit only ever gets full scans.
+-- (AuctionBook.StoreSummary) so the website only ever gets full scans.
 -- Only a scan read to its end is stored; one the auction house closed on is dropped.
 -- With the automatic scan on (AltArmyTBC_Options.auctionAutoScan, the Auction House options), a scan starts
 -- AUTO_DELAY seconds after the auction house opens, if the client allows one and none is under way.
@@ -108,7 +108,7 @@ local function isForever()
     return DS and DS.IsWowForever and true or false
 end
 
---- True where Alt Army can full-scan: WoW Forever (altarmy-profit takes Forever's prices from these scans
+--- True where Alt Army can full-scan: WoW Forever (the website takes Forever's prices from these scans
 --- alone), with the client's full-scan API. Off elsewhere (TBC Anniversary) even if the client has the API.
 function S.HasFullApi()
     if not isForever() then return false end

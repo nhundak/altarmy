@@ -4,7 +4,7 @@ addon files to a server), `admin` (the site admin claim on Firebase accounts) an
 Discord relay, `alerts`).
 
 `--game-version` (tbc | forever) picks the game's data and wago.tools product. Every version shares one
-database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
+database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy.sqlite.
 """
 
 from __future__ import annotations
@@ -160,10 +160,10 @@ def cmd_serve(args: argparse.Namespace) -> None:
         for v in versions.VERSIONS.values():
             if db.count_rows(conn, "recipes", v.key) == 0:
                 flag = "" if v.key == versions.DEFAULT_VERSION else f" --game-version {v.key}"
-                print(f"No {v.label} game data yet: run `altarmy-profit{flag} ingest`.")
+                print(f"No {v.label} game data yet: run `altarmy-site{flag} ingest`.")
     if not (DEFAULT_DIST / "index.html").is_file():
         print(f"Front end not built ({DEFAULT_DIST} missing): `npm run dev` serves it through Vite instead.")
-    print(f"altarmy-profit API on http://{args.host}:{args.port} (Ctrl+C to stop)")
+    print(f"Alt Army website API on http://{args.host}:{args.port} (Ctrl+C to stop)")
     if not args.reload:
         uvicorn.run(app, host=args.host, port=args.port)
         return
@@ -172,7 +172,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
     os.environ["DATABASE_URL"] = args.database.url.render_as_string(hide_password=False)
     package = Path(__file__).resolve().parent
     uvicorn.run(
-        "altarmy_profit.cli:serve_app",
+        "altarmy_site.cli:serve_app",
         factory=True,
         host=args.host,
         port=args.port,
@@ -282,6 +282,7 @@ def watch_credentials(
 
 def cmd_watch(args: argparse.Namespace) -> None:
     """Upload the addon files to a server whenever WoW rewrites them (no local database)."""
+    signin.move_old_settings()
     roots = [Path(r) for r in args.wow_root] if args.wow_root else wowfiles.WOW_ROOTS
     state = Path(args.state)
     auth_path = Path(args.auth)
@@ -311,16 +312,14 @@ def cmd_watch(args: argparse.Namespace) -> None:
 
 def main(argv: list[str] | None = None) -> None:
     cloudlog.configure()  # on Cloud Run (the jobs): JSON logs, a failure's traceback for Error Reporting
-    p = argparse.ArgumentParser(prog="altarmy-profit")
+    p = argparse.ArgumentParser(prog="altarmy-site")
     p.add_argument(
         "--game-version",
         choices=list(versions.VERSIONS),
         default=versions.DEFAULT_VERSION,
         help="which game's data to use (default: %(default)s)",
     )
-    p.add_argument(
-        "--db", help="SQLite database file (default: DATABASE_URL, else data/altarmy-profit.sqlite)"
-    )
+    p.add_argument("--db", help="SQLite database file (default: DATABASE_URL, else data/altarmy.sqlite)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="download DB2 tables from wago.tools and build the database")
@@ -367,7 +366,7 @@ def main(argv: list[str] | None = None) -> None:
     s.set_defaults(fn=cmd_serve)
 
     s = sub.add_parser(
-        "watch", help="upload the addon files to an altarmy-profit server whenever WoW rewrites them"
+        "watch", help="upload the addon files to the Alt Army website whenever WoW rewrites them"
     )
     s.add_argument("--server", required=True, help="e.g. https://alt-army.com")
     s.add_argument(

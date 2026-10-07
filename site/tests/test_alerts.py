@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from altarmy_profit import alerts
+from altarmy_site import alerts
 
 
 def incident(**changes: Any) -> dict[str, Any]:

@@ -38,7 +38,7 @@ apis() {
 
 registry() {
   gcloud artifacts repositories create "$REPO" --repository-format docker --location "$REGION" \
-    --description "altarmy-profit images" "${G[@]}"
+    --description "Alt Army website images" "${G[@]}"
   gcloud artifacts repositories set-cleanup-policies "$REPO" --location "$REGION" \
     --policy deploy/ar-cleanup.json --no-dry-run "${G[@]}"
 }
@@ -50,9 +50,9 @@ project_role() { # project_role MEMBER ROLE
 }
 
 accounts() {
-  gcloud iam service-accounts create altarmy-run --display-name "altarmy-profit service and jobs" "${G[@]}"
-  gcloud iam service-accounts create altarmy-scheduler --display-name "altarmy-profit scheduler" "${G[@]}"
-  gcloud iam service-accounts create altarmy-deploy --display-name "altarmy-profit CI deploys" "${G[@]}"
+  gcloud iam service-accounts create altarmy-run --display-name "Alt Army website service and jobs" "${G[@]}"
+  gcloud iam service-accounts create altarmy-scheduler --display-name "Alt Army website scheduler" "${G[@]}"
+  gcloud iam service-accounts create altarmy-deploy --display-name "Alt Army website CI deploys" "${G[@]}"
 
   # runtime: Cloud SQL, its secrets (granted per secret in `database`), deleting Firebase Auth users
   project_role "serviceAccount:$PROD_RUN_SA" roles/cloudsql.client
@@ -88,7 +88,7 @@ database() { # database prod|staging: its database, user and DATABASE_URL secret
 }
 
 staging_auth() { # staging's own runtime account: its database secret only, and admin of staging's Auth only
-  gcloud iam service-accounts create altarmy-staging-run --display-name "altarmy-profit staging service and jobs" \
+  gcloud iam service-accounts create altarmy-staging-run --display-name "Alt Army website staging service and jobs" \
     "${G[@]}"
   project_role "serviceAccount:$STAGING_RUN_SA" roles/cloudsql.client
   # deleting accounts (DELETE /api/me) in the staging Firebase project; that project has no billing, so the
@@ -220,7 +220,7 @@ discord() { # discord [IMAGE]: alert policies' and Error Reporting's notificatio
 
   # the relay's account: reads both secrets
   if ! gcloud iam service-accounts describe "$ALERTS_SA" "${G[@]}" >/dev/null 2>&1; then
-    gcloud iam service-accounts create altarmy-alerts --display-name "altarmy-profit Discord relay" "${G[@]}"
+    gcloud iam service-accounts create altarmy-alerts --display-name "Alt Army website Discord relay" "${G[@]}"
   fi
   local secret
   for secret in "$DISCORD_SECRET" "$RELAY_SECRET"; do

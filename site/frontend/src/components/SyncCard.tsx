@@ -19,7 +19,7 @@ export function SyncCard() {
           <Anchor href={SYNC_DOWNLOAD} size="sm">
             Alt Army Sync for Windows
           </Anchor>{' '}
-          (or <Code>altarmy-profit watch</Code> from the Python package) runs on the computer you play on and uploads
+          (or <Code>altarmy-site watch</Code> from the Python package) runs on the computer you play on and uploads
           AltArmy_TBC.lua (your characters and auction house scans) whenever WoW rewrites it. It signs in with your account's email and
           password once and keeps only a sign-in token, never the password; signing out in its menu forgets it.
           Windows warns once because the app is unsigned (More info → Run anyway).

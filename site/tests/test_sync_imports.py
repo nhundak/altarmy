@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import altarmy_profit
+import altarmy_site
 
-PACKAGE = Path(altarmy_profit.__file__).parent
+PACKAGE = Path(altarmy_site.__file__).parent
 SYNC_MODULES = {"tray", "tray_core", "watch", "signin", "wowfiles", "versions"}
 TRAY_EXTRAS = {"pystray", "PIL"}
 

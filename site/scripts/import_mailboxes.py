@@ -11,7 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
-from altarmy_profit import cities, versions, wowfiles
+from altarmy_site import cities, versions, wowfiles
 
 ROOT = Path(__file__).resolve().parents[1]
 

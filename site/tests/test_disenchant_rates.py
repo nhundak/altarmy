@@ -2,8 +2,8 @@
 
 import pytest
 
-from altarmy_profit import disenchant_rates
-from altarmy_profit.engine import DisenchantRow, Item, Market
+from altarmy_site import disenchant_rates
+from altarmy_site.engine import DisenchantRow, Item, Market
 
 # Trimmed from Auctionator's Source_Classic/Enchant/DisenchantingProbabilities.lua: same layout, comments
 # included (commented rows use another format and must be skipped).

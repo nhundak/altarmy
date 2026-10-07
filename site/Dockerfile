@@ -21,4 +21,4 @@ RUN useradd --system --uid 10001 app
 USER app
 
 # Cloud Run sets PORT and puts a proxy in front (Firebase Hosting, then Google's front end).
-CMD ["sh", "-c", "exec uvicorn altarmy_profit.api:create_app --factory --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips '*'"]
+CMD ["sh", "-c", "exec uvicorn altarmy_site.api:create_app --factory --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips '*'"]

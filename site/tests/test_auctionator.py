@@ -5,8 +5,8 @@ from datetime import date
 
 import pytest
 
-from altarmy_profit import altarmy, auctionator, book, paste
-from altarmy_profit.auctionator import DayStats, ItemPrice
+from altarmy_site import altarmy, auctionator, book, paste
+from altarmy_site.auctionator import DayStats, ItemPrice
 
 from .addon_fixtures import AUCTION_BOOK, PROFIT_EXPORT
 from .test_altarmy import ALTARMY_SV

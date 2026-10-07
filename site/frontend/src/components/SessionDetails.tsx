@@ -226,7 +226,7 @@ export function SessionDetails({
  * and Copy steps (a plain checklist, as detailed as the list shown) below.
  */
 function StepsPanel({ result, items, editing }: { result: RankResult; items: ItemMap; editing: PlanEditing }) {
-  const [detailed, setDetailed] = useStoredState('altarmy-profit.steps.detailed', z.boolean(), false)
+  const [detailed, setDetailed] = useStoredState('altarmy.steps.detailed', z.boolean(), false)
   const [copied, setCopied] = useState<RankResult | null>(null) // the plan copied: another plan or view isn't yet
   const track = useTrack()
   const copy = () => {

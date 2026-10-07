@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import addon_crates, db
+from altarmy_site import addon_crates, db
 
 
 def fake_addon(tmp_path: Path, body: str = "print('wrote WaylaidCrates.lua: 31 crates')") -> Path:

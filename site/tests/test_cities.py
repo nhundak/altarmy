@@ -7,9 +7,9 @@ from typing import Any
 
 import pytest
 
-from altarmy_profit import cities, ingest, timing, vmangos
-from altarmy_profit.cities import CitySpec
-from altarmy_profit.vmangos import Spawn
+from altarmy_site import cities, ingest, timing, vmangos
+from altarmy_site.cities import CitySpec
+from altarmy_site.vmangos import Spawn
 
 SCHEMA = """
 CREATE TABLE game_tele (id INTEGER, position_x REAL, position_y REAL, position_z REAL, orientation REAL,

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection, insert, update
 
-from altarmy_profit import altarmy, ingest, itemstats, schema, store
+from altarmy_site import altarmy, ingest, itemstats, schema, store
 
 from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV

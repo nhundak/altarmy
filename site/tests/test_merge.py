@@ -2,9 +2,9 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlalchemy import Connection, select
 
-from altarmy_profit import book, merge, prices, schema, store
-from altarmy_profit.auctionator import DayStats, ItemPrice
-from altarmy_profit.prices import Observation
+from altarmy_site import book, merge, prices, schema, store
+from altarmy_site.auctionator import DayStats, ItemPrice
+from altarmy_site.prices import Observation
 
 from .conftest import FOREVER
 

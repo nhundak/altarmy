@@ -27,7 +27,7 @@ TABLE_URL = "https://wago.tools/db2/{table}/csv?build={build}"
 USER_AGENT = "altarmy-game-data/1.0"
 # Relative to the working directory, like versions.DATA_DIR: the site runs from site/, the image from /app
 PINS = Path("data") / "game-data.json"
-# The repository root's cache, for local runs (this file is site/src/altarmy_profit/gamedata.py)
+# The repository root's cache, for local runs (this file is site/src/altarmy_site/gamedata.py)
 REPO_CACHE = Path(__file__).resolve().parents[3] / ".cache"
 
 Fetch = Callable[[str], bytes]

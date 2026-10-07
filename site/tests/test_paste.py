@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import paste
-from altarmy_profit.altarmy import Character, Profession
+from altarmy_site import paste
+from altarmy_site.altarmy import Character, Profession
 
 from .addon_fixtures import PROFIT_EXPORT
 

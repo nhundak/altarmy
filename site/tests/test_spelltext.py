@@ -1,8 +1,8 @@
 """Spell descriptions as tooltip text (examples are the Forever client's, checked against Wowhead)."""
 
-from altarmy_profit import spelltext
-from altarmy_profit.itemstats import Effect
-from altarmy_profit.spelltext import EffectValues, SpellData
+from altarmy_site import spelltext
+from altarmy_site.itemstats import Effect
+from altarmy_site.spelltext import EffectValues, SpellData
 
 DATA = SpellData(
     descriptions={

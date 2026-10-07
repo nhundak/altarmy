@@ -6,7 +6,7 @@
 > listing in a feed's table had made recipes look profitable that were not. The survey stays for the
 > record.
 
-Which third-party sources could supply auction house prices to `altarmy-profit`, beside the addon scans
+Which third-party sources could supply auction house prices to the Alt Army website, beside the addon scans
 users upload. Surveyed 2026-09-26; every claim below was checked against the live site or API that day
 unless marked otherwise. The hosted plan's decision that addon uploads are the primary source
 ([HOSTED_PLAN.md](HOSTED_PLAN.md), section 1) stands; this file is about what could be added on top.
@@ -25,7 +25,7 @@ unless marked otherwise. The hosted plan's decision that addon uploads are the p
 
 ## AHledger (implemented 2026-09-27, removed 2026-09-29)
 
-It was `src/altarmy_profit/ahledger.py`, run hourly as `altarmy-profit ahledger`. Findings while
+It was `src/altarmy_site/ahledger.py`, run hourly as `altarmy-site ahledger`. Findings while
 building it:
 
 - **Row order is `item:median:minBuyout:quantity:median7d:median30d:low30d:high30d`**: the median comes

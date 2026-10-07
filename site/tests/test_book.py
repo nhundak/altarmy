@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from altarmy_profit import book
-from altarmy_profit.book import Level
+from altarmy_site import book
+from altarmy_site.book import Level
 
 from .addon_fixtures import AUCTION_BOOK as FIXTURE
 

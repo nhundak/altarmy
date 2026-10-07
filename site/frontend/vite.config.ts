@@ -1,7 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
-// `npm run dev` serves on :5173 and proxies /api to `altarmy-profit serve` on :8600.
+// `npm run dev` serves on :5173 and proxies /api to `altarmy-site serve` on :8600.
 export default defineConfig({
   plugins: [react()],
   // One bundle is fine at this size (Firebase is loaded lazily).

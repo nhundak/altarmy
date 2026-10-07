@@ -585,7 +585,7 @@ debugClearAuctionHint:SetWidth(520)
 debugClearAuctionHint:SetJustifyH("LEFT")
 debugClearAuctionHint:SetText(
     "Deletes every stored auction house scan (all realms and factions) used by Economy > Waylaid Crates "
-        .. "and altarmy-profit. The client's 15-minute full-scan cooldown is kept.")
+        .. "and the Alt Army website. The client's 15-minute full-scan cooldown is kept.")
 
 local debugShowZygorMissingRow = Theme.CreateLabeledCheckbox(debugScrollChild, {
     point = "TOPLEFT",

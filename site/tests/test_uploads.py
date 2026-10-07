@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import book, prices, schema, service, store, uploads, users
-from altarmy_profit.auth import User
+from altarmy_site import book, prices, schema, service, store, uploads, users
+from altarmy_site.auth import User
 
 from .addon_fixtures import PROFIT_EXPORT
 from .conftest import FOREVER, ME, book_scan, saved_book

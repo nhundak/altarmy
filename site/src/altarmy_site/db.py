@@ -21,7 +21,7 @@ from sqlalchemy.engine import make_url
 
 from . import schema, versions
 
-DEFAULT_DB = Path("data/altarmy-profit.sqlite")
+DEFAULT_DB = Path("data/altarmy.sqlite")
 
 
 def sqlite_url(path: Path | str) -> str:
@@ -29,7 +29,7 @@ def sqlite_url(path: Path | str) -> str:
 
 
 def default_url(db: Path | str | None = None) -> str:
-    """`DATABASE_URL` if set, else the SQLite file `db` (default data/altarmy-profit.sqlite)."""
+    """`DATABASE_URL` if set, else the SQLite file `db` (default data/altarmy.sqlite)."""
     if db is not None:
         return sqlite_url(db)
     return os.environ.get("DATABASE_URL") or sqlite_url(DEFAULT_DB)
@@ -61,7 +61,7 @@ def pool_options() -> dict[str, int]:
 
 class Database:
     """One engine per process, created on first use; the schema is migrated to the newest revision then,
-    unless `migrate` is False (hosted instances: the deploy runs `altarmy-profit migrate` once instead).
+    unless `migrate` is False (hosted instances: the deploy runs `altarmy-site migrate` once instead).
 
     Share one instance across threads and open a connection per request (`begin` or `connect`).
     """
@@ -142,7 +142,7 @@ def alembic_config(conn: Connection | None = None) -> Any:
     from alembic.config import Config
 
     cfg = Config()
-    cfg.set_main_option("script_location", "altarmy_profit:migrations")
+    cfg.set_main_option("script_location", "altarmy_site:migrations")
     if conn is not None:
         cfg.attributes["connection"] = conn
     return cfg

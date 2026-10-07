@@ -8,7 +8,7 @@ Reads the client's DB2 tables as wago.tools CSV exports (downloaded once per bui
 data/recipes/<version>/ (scripts/build-recipe-server-facts.py). Stdlib only.
 
 A recipe is a SkillLineAbility row on a profession skill line whose spell takes reagents and creates an item
-(effect 24) or enchants one (53) — the rule altarmy-profit's ingest uses. Each becomes
+(effect 24) or enchants one (53) — the rule the website's ingest uses. Each becomes
     [spellID] = { professionKey, resultItemID, reqSkill, yellow, gray, source, recipeItemID }
 with false for an unknown value:
   resultItemID  the item the spell creates; 0 for an enchant
@@ -47,7 +47,7 @@ PINS = os.path.join(ROOT, "..", "site", "data", "game-data.json")
 
 def load_gamedata():
     """The site's stdlib-only gamedata.py (downloads, cache, pins), loaded by its path."""
-    path = os.path.join(ROOT, "..", "site", "src", "altarmy_profit", "gamedata.py")
+    path = os.path.join(ROOT, "..", "site", "src", "altarmy_site", "gamedata.py")
     spec = importlib.util.spec_from_file_location("gamedata", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["gamedata"] = module

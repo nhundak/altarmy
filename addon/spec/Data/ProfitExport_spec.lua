@@ -1,5 +1,5 @@
 --[[
-  Unit tests for ProfitExport.lua: the string the altarmy-profit site's Upload tab takes.
+  Unit tests for ProfitExport.lua: the string the Alt Army website's Upload tab takes.
   Run from project root: npm test
 
   spec/fixtures/profit_export_v2.txt is the golden export of CHARACTERS below. The site's tests (site/tests,

@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Connection
 
-from altarmy_profit import addon_crates, db, jobs, launch, service
-from altarmy_profit.versions import VERSIONS, GameVersion
+from altarmy_site import addon_crates, db, jobs, launch, service
+from altarmy_site.versions import VERSIONS, GameVersion
 
 from .conftest import FOREVER
 

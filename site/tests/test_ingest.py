@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import Connection, func, select
 from sqlalchemy.engine import Row
 
-from altarmy_profit import db, ingest, prices, schema, spelltext, store
+from altarmy_site import db, ingest, prices, schema, spelltext, store
 
 from .conftest import FOREVER, set_prices, write_csv
 

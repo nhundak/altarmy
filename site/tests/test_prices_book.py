@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Connection, select
 
-from altarmy_profit import book, prices, schema
-from altarmy_profit.book import Level
+from altarmy_site import book, prices, schema
+from altarmy_site.book import Level
 
 from .conftest import FOREVER, ME
 

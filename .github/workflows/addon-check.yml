@@ -4,9 +4,9 @@ name: addon-check
 # (which load the site's gamedata.py), run when something under addon/ changed.
 on:
   push:
-    paths: ["addon/**", "site/src/altarmy_profit/gamedata.py", ".github/workflows/addon-check.yml"]
+    paths: ["addon/**", "site/src/altarmy_site/gamedata.py", ".github/workflows/addon-check.yml"]
   pull_request:
-    paths: ["addon/**", "site/src/altarmy_profit/gamedata.py", ".github/workflows/addon-check.yml"]
+    paths: ["addon/**", "site/src/altarmy_site/gamedata.py", ".github/workflows/addon-check.yml"]
 
 defaults:
   run:

@@ -51,7 +51,7 @@ EMULATOR = {"tbc": "cmangos", "forever": "vmangos"}
 
 def load_gamedata():
     """The site's stdlib-only gamedata.py (downloads, cache, pins), loaded by its path."""
-    path = os.path.join(ROOT, "..", "site", "src", "altarmy_profit", "gamedata.py")
+    path = os.path.join(ROOT, "..", "site", "src", "altarmy_site", "gamedata.py")
     spec = importlib.util.spec_from_file_location("gamedata", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["gamedata"] = module

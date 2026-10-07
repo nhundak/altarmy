@@ -494,7 +494,7 @@ export function AimSearch({
   const [reach] = useFilter(aim, 'reachTarget', z.number(), DEFAULT_REACH_TARGET)
   // The newest scan's notice, dismissed per auction house.
   const [dismissed, setDismissed] = useStoredState(
-    `altarmy-profit.notice.unwatched.${houseId ?? 0}`,
+    `altarmy.notice.unwatched.${houseId ?? 0}`,
     z.boolean(),
     false,
   )

@@ -200,7 +200,7 @@ describe('SearchTab', () => {
   })
 
   it('makes gold at its path, ranking by profit, both ways to sell side by side', async () => {
-    localStorage.setItem('altarmy-profit.search.unlearned', '"soon"')
+    localStorage.setItem('altarmy.search.unlearned', '"soon"')
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -242,8 +242,8 @@ describe('SearchTab', () => {
 
   it('skills up one profession: each recipe as a run until it turns grey, losing ones included', async () => {
     at('/profit/skill')
-    localStorage.setItem('altarmy-profit.search.minProfit', JSON.stringify(0.5))
-    localStorage.setItem('altarmy-profit.search.minRoi', JSON.stringify(0))
+    localStorage.setItem('altarmy.search.minProfit', JSON.stringify(0.5))
+    localStorage.setItem('altarmy.search.minRoi', JSON.stringify(0))
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -286,7 +286,7 @@ describe('SearchTab', () => {
     expect(rank?.searchParams.getAll('skill_crafters')).toEqual(['Tailor Guy'])
     expect(screen.queryByRole('radio')).not.toBeInTheDocument() // no colour to stop at
     expect(screen.queryByRole('checkbox', { name: /Disenchant/ })).not.toBeInTheDocument()
-    expect(localStorage.getItem('altarmy-profit.search.minProfit')).toBe('0.5') // where it used to be: left alone
+    expect(localStorage.getItem('altarmy.search.minProfit')).toBe('0.5') // where it used to be: left alone
     expect(screen.queryByRole('group', { name: 'Your setup' })).not.toBeInTheDocument()
     // none of making gold's options
     expect(screen.getByRole('button', { name: 'Options' })).toBeInTheDocument()
@@ -490,7 +490,7 @@ describe('SearchTab', () => {
       expect(rank?.searchParams.get('runs')).toBe('true')
       expect(rank?.searchParams.get('unlearned')).toBe('train')
       // the answers, remembered to mark them next time
-      expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({
+      expect(JSON.parse(localStorage.getItem('altarmy.setup.g1') ?? '')).toEqual({
         aim: 'skill',
         profession: 'Tailoring',
         climberSkill: 45,
@@ -681,17 +681,17 @@ describe('SearchTab', () => {
   })
 
   it('ranks with the stored parameters', async () => {
-    localStorage.setItem('altarmy-profit.search.unlearned', '"train"')
-    localStorage.setItem('altarmy-profit.search.lookAhead', '15')
-    localStorage.setItem('altarmy-profit.search.sources', JSON.stringify(['bop', 'trainer']))
-    localStorage.setItem('altarmy-profit.search.includeTrivial', 'false')
-    localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['advanced', 'characters']))
-    localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
-    localStorage.setItem('altarmy-profit.search.minCost', JSON.stringify(0.5))
-    localStorage.setItem('altarmy-profit.search.maxCost', JSON.stringify(20))
-    localStorage.setItem('altarmy-profit.search.minRoi', 'null')
-    localStorage.setItem('altarmy-profit.search.maxRoi', JSON.stringify(250))
-    localStorage.setItem('altarmy-profit.search.minConfidence', '"medium"')
+    localStorage.setItem('altarmy.search.unlearned', '"train"')
+    localStorage.setItem('altarmy.search.lookAhead', '15')
+    localStorage.setItem('altarmy.search.sources', JSON.stringify(['bop', 'trainer']))
+    localStorage.setItem('altarmy.search.includeTrivial', 'false')
+    localStorage.setItem('altarmy.search.open', JSON.stringify(['advanced', 'characters']))
+    localStorage.setItem('altarmy.search.exits', JSON.stringify(['ah', 'vendor']))
+    localStorage.setItem('altarmy.search.minCost', JSON.stringify(0.5))
+    localStorage.setItem('altarmy.search.maxCost', JSON.stringify(20))
+    localStorage.setItem('altarmy.search.minRoi', 'null')
+    localStorage.setItem('altarmy.search.maxRoi', JSON.stringify(250))
+    localStorage.setItem('altarmy.search.minConfidence', '"medium"')
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -725,7 +725,7 @@ describe('SearchTab', () => {
 
   it('skills up with the stored skill options', async () => {
     at(TAILOR)
-    localStorage.setItem('altarmy-profit.search.sources', JSON.stringify(['bop', 'trainer'])) // from before
+    localStorage.setItem('altarmy.search.sources', JSON.stringify(['bop', 'trainer'])) // from before
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': withEnchanter,
@@ -749,7 +749,7 @@ describe('SearchTab', () => {
   it('keeps the filters of making gold and of skilling up apart', { timeout: 15_000 }, async () => {
     at(TAILOR)
     // from before the two were kept apart: making gold starts there
-    localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
+    localStorage.setItem('altarmy.search.exits', JSON.stringify(['ah', 'vendor']))
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': withEnchanter,
@@ -765,7 +765,7 @@ describe('SearchTab', () => {
 
     act(() => navigate('/profit/gold'))
     await waitFor(() => expect(exitsSent()).toEqual(['vendor', 'disenchant', 'ah'])) // every way, whatever was stored
-    expect(localStorage.getItem('altarmy-profit.search.skill.sources')).toBe('["recipe"]') // untouched by gold
+    expect(localStorage.getItem('altarmy.search.skill.sources')).toBe('["recipe"]') // untouched by gold
 
     // back to skilling up: what may teach its recipes, as the user left it
     act(() => window.history.back())
@@ -824,7 +824,7 @@ describe('SearchTab', () => {
       expect(urls(fetch, '/api/rank')).toHaveLength(1)
       await userEvent.click(box())
       await waitFor(() => expect(salvager()).toBe('false'))
-      expect(localStorage.getItem('altarmy-profit.search.arcaneSalvager')).toBe('false')
+      expect(localStorage.getItem('altarmy.search.arcaneSalvager')).toBe('false')
     },
   )
 
@@ -936,7 +936,7 @@ describe('SearchTab', () => {
   })
 
   it('opens and closes Advanced Filters, remembering it, and ignores sections that are gone', async () => {
-    localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['characters']))
+    localStorage.setItem('altarmy.search.open', JSON.stringify(['characters']))
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -949,13 +949,13 @@ describe('SearchTab', () => {
     expect(advanced).toHaveAttribute('aria-expanded', 'false')
     await userEvent.click(advanced)
     expect(advanced).toHaveAttribute('aria-expanded', 'true')
-    expect(localStorage.getItem('altarmy-profit.search.gold.open')).toBe('["advanced"]')
+    expect(localStorage.getItem('altarmy.search.gold.open')).toBe('["advanced"]')
     await userEvent.click(advanced)
-    expect(localStorage.getItem('altarmy-profit.search.gold.open')).toBe('[]')
+    expect(localStorage.getItem('altarmy.search.gold.open')).toBe('[]')
   })
 
   it('sells every way, even when none was ticked before', async () => {
-    localStorage.setItem('altarmy-profit.search.gold.exits', '[]')
+    localStorage.setItem('altarmy.search.gold.exits', '[]')
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -1076,7 +1076,7 @@ describe('SearchTab', () => {
       }),
     )
     fireEvent.click(within(taught).getByRole('checkbox', { name: 'Taught by trainers' }))
-    expect(localStorage.getItem('altarmy-profit.search.skill.sources')).toBe('["recipe","bop"]')
+    expect(localStorage.getItem('altarmy.search.skill.sources')).toBe('["recipe","bop"]')
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(2))
     expect(urls(fetch, '/api/rank')[1]?.searchParams.getAll('sources')).toEqual(['recipe', 'bop'])
     expect(screen.queryByRole('slider')).not.toBeInTheDocument() // only what can be trained now
@@ -1102,7 +1102,7 @@ describe('SearchTab', () => {
     )
     await waitFor(() => expect(urls(fetch, '/api/rank')).toHaveLength(1))
     fireEvent.change(chance, { target: { value: '95' } })
-    expect(localStorage.getItem('altarmy-profit.search.skill.reachTarget')).toBe('95')
+    expect(localStorage.getItem('altarmy.search.skill.reachTarget')).toBe('95')
     expect(screen.getByText(/Since skill ups are random/)).toHaveTextContent(/so you have a 95% chance.*95% of the time/)
     fireEvent.change(chance, { target: { value: '100' } })
     fireEvent.blur(chance)
@@ -1112,8 +1112,8 @@ describe('SearchTab', () => {
   })
 
   it('saves changed parameters and ignores malformed stored values', async () => {
-    localStorage.setItem('altarmy-profit.search.maxProfit', 'garbage')
-    localStorage.setItem('altarmy-profit.search.exits', '["trade"]')
+    localStorage.setItem('altarmy.search.maxProfit', 'garbage')
+    localStorage.setItem('altarmy.search.exits', '["trade"]')
     mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -1123,9 +1123,9 @@ describe('SearchTab', () => {
     const maxProfit = await screen.findByLabelText('Max profit (gold)')
     expect(maxProfit).toHaveValue('')
     fireEvent.change(maxProfit, { target: { value: '40' } })
-    expect(localStorage.getItem('altarmy-profit.search.gold.maxProfit')).toBe('40')
+    expect(localStorage.getItem('altarmy.search.gold.maxProfit')).toBe('40')
     fireEvent.change(maxProfit, { target: { value: '' } })
-    expect(localStorage.getItem('altarmy-profit.search.gold.maxProfit')).toBe('null')
+    expect(localStorage.getItem('altarmy.search.gold.maxProfit')).toBe('null')
   })
 })
 
@@ -1137,7 +1137,7 @@ describe('SearchTab: making gold', () => {
   })
 
   it('sorts on the server by the headings, either way round, else by the better of the two', async () => {
-    localStorage.setItem('altarmy-profit.search.gold.sort', '"spend"') // a sort from before: the default now
+    localStorage.setItem('altarmy.search.gold.sort', '"spend"') // a sort from before: the default now
     const fetch = mockApi({
       '/api/status': status(),
       '/api/characters': characters,
@@ -1153,7 +1153,7 @@ describe('SearchTab: making gold', () => {
     await waitFor(() => expect(sorted()).toBe('safe desc'))
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Safe profit' }))
     await waitFor(() => expect(sorted()).toBe('safe asc'))
-    expect(localStorage.getItem('altarmy-profit.search.gold.order')).toBe('"asc"')
+    expect(localStorage.getItem('altarmy.search.gold.order')).toBe('"asc"')
     await userEvent.click(screen.getByRole('button', { name: 'Sort by Auction profit' }))
     await waitFor(() => expect(sorted()).toBe('ah desc'))
     expect(urls(fetch, '/api/rank').at(-1)?.searchParams.has('min_verdict')).toBe(false)
@@ -1184,7 +1184,7 @@ describe('SearchTab: making gold', () => {
     expect(await screen.findByText("Sales aren't watched here yet (0.3 h this week)")).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByText(/Sales aren't watched here yet/)).not.toBeInTheDocument()
-    expect(localStorage.getItem('altarmy-profit.notice.unwatched.1')).toBe('true')
+    expect(localStorage.getItem('altarmy.notice.unwatched.1')).toBe('true')
   })
 })
 
@@ -1233,7 +1233,7 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
 
   it('never sends them for another profession, even if the old option was ticked', async () => {
     at(TAILOR)
-    localStorage.setItem('altarmy-profit.search.skill.skillOnly', 'true')
+    localStorage.setItem('altarmy.search.skill.skillOnly', 'true')
     const fetch = api()
     renderWithProviders(<SearchTab />)
     await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'keep']))
@@ -1242,7 +1242,7 @@ describe('SearchTab: enhancing items for the skill point alone', () => {
 
   it('is never offered when making gold', async () => {
     at(GOLD)
-    localStorage.setItem('altarmy-profit.search.skillOnly', 'true')
+    localStorage.setItem('altarmy.search.skillOnly', 'true')
     const fetch = api()
     renderWithProviders(<SearchTab />)
     await waitFor(() => expect(exitsSent(fetch)).toEqual(['vendor', 'disenchant', 'ah']))

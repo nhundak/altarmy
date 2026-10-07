@@ -1,12 +1,12 @@
 """Alembic environment: migrates the connection `db.upgrade` passes in, or the configured URL (the
-`sqlalchemy.url` option, else `db.default_url()`: `DATABASE_URL` or data/altarmy-profit.sqlite)."""
+`sqlalchemy.url` option, else `db.default_url()`: `DATABASE_URL` or data/altarmy.sqlite)."""
 
 from __future__ import annotations
 
 from alembic import context
 from sqlalchemy import Connection
 
-from altarmy_profit import db, schema
+from altarmy_site import db, schema
 
 
 def _run(conn: Connection) -> None:

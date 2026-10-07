@@ -1,4 +1,4 @@
-"""The CLI watcher (`altarmy-profit watch`): uploads the Alt Army SavedVariables file (characters and, on
+"""The CLI watcher (`altarmy-site watch`): uploads the Alt Army SavedVariables file (characters and, on
 WoW: Forever, the addon's auction house scans) to a server whenever WoW rewrites it (on logout or /reload),
 and Auctionator's where prices still come from it (TBC).
 
@@ -25,7 +25,7 @@ from pathlib import Path, PurePath
 from . import signin, versions, wowfiles
 from .signin import SignedOut
 
-DEFAULT_STATE = Path.home() / ".altarmy-profit" / "watch-state.json"
+DEFAULT_STATE = signin.SETTINGS_DIR / "watch-state.json"
 KINDS = (("altarmy", wowfiles.find_altarmy_files), ("auctionator", wowfiles.find_auctionator_files))
 MAX_BACKOFF = 300  # seconds between retries after failures, at most
 
@@ -131,7 +131,7 @@ def upload(server: str, auth: Auth, f: Found, transport: Transport) -> tuple[boo
         raise UploadFailed(f"could not sign in: {e}") from e
     headers = {
         "Content-Type": content_type,
-        "User-Agent": "altarmy-profit-watch",
+        "User-Agent": "altarmy-watch",
         "Authorization": f"Bearer {token}",
     }
     query = urllib.parse.urlencode({"game_version": f.game_version})

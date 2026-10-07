@@ -29,24 +29,24 @@ Options opened on a particular control (for example from the Alt Army scan butto
 |---------|--------|
 | `/altarmy` / `/alta` | Open main UI |
 | `/altarmy networth [all] [scale]` | Net worth (vendor + Auctionator); `all` = all realms; scale 0–1 (default 0.9) |
-| `/altarmy export` | Export for altarmy-profit (see below; there is no button for it) |
+| `/altarmy export` | Export for the Alt Army website (see below; there is no button for it) |
 | `/altarmy scan` | Scan the open auction house (same as the **Alt Army scan** button): the kind the scan mode allows now (Options → General → Auction House) |
 | `/altarmy debug on` / `off` | Show/hide Debug options tab and enable/suppress debug logging |
 | `/altarmy debug resize on` / `off` | Show/hide the main window's resize grip (the Debug options' **Window resize**); while on, `/altarmy resetsize` restores the stock size |
 
 Additional `debug …` subcommands exist for developers (mail alerts, compare dump, guild share inject, etc.); they are not part of the product feature surface.
 
-## Export for altarmy-profit
+## Export for the Alt Army website
 
 Only `/altarmy export` opens it. An **Export** dialog with one selected line of text (starts with `AAX1:`) and
 "Copy this string into the alt army website to upload your data": press Ctrl+C and paste it on the Upload tab of
-the altarmy-profit site (alt-army-prod.web.app), which then knows your characters without a SavedVariables
+the Alt Army website (alt-army-prod.web.app), which then knows your characters without a SavedVariables
 upload or `/reload`. It holds every saved character's realm, full name, GUID, faction, class, level, professions
 (rank and max), learned recipe ids, Legacy talents and standing with the eight city factions (the site discounts
 vendor prices by reputation), plus the client's interface number and build so the site can tell TBC
 Anniversary from Forever. The string is LibDeflate-compressed text built by `Data/ProfitExport.lua`; its
 format is documented there, and `spec/fixtures/profit_export_v2.txt` (format v2) is the golden string the site's parser is
-tested against (the altarmy-profit repo keeps a copy).
+tested against.
 
 When some of that is known not to have been gathered yet, a gold note above the string lists each such
 character with what to do, worded like the Summary tab's `!` tooltip (log in with this character, open your

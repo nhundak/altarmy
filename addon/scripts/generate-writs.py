@@ -1,6 +1,6 @@
 """Regenerate AltArmy_TBC/Data/Economy/Writs.lua: WoW Forever's Craftsman's Writs and the crafting trees behind them.
 
-Usage: python scripts/generate-writs.py [--db <altarmy-profit sqlite>] [--build pinned|latest|<build>]
+Usage: python scripts/generate-writs.py [--db <website sqlite>] [--build pinned|latest|<build>]
                                         [--out <lua file>] [--check]
 
 A Craftsman's Writ ("Craftsman's Writ: Lesser Wizard's Robe", items 264011..) starts a quest asking for a
@@ -33,7 +33,7 @@ from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
-DEFAULT_DB = os.path.join(ROOT, "..", "site", "data", "altarmy-profit.sqlite")
+DEFAULT_DB = os.path.join(ROOT, "..", "site", "data", "altarmy.sqlite")
 DEFAULT_OUT = os.path.join(ROOT, "AltArmy_TBC", "Data", "Economy", "Writs.lua")
 PINS = os.path.join(ROOT, "..", "site", "data", "game-data.json")
 PRODUCT = "wow_classic_beta"
@@ -51,7 +51,7 @@ TABLES = ("ItemSparse", "ItemNameDescription")
 
 def load_gamedata():
     """The site's stdlib-only gamedata.py (downloads, cache, pins), loaded by its path."""
-    path = os.path.join(ROOT, "..", "site", "src", "altarmy_profit", "gamedata.py")
+    path = os.path.join(ROOT, "..", "site", "src", "altarmy_site", "gamedata.py")
     spec = importlib.util.spec_from_file_location("gamedata", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["gamedata"] = module
@@ -112,7 +112,7 @@ def read_rows(path, wanted_ids=None, key="ID"):
 
 
 def read_game(db_path):
-    """Writs, items, craft recipes and their reagents from the altarmy-profit database (Forever)."""
+    """Writs, items, craft recipes and their reagents from the website's database (Forever)."""
     db = sqlite3.connect(f"file:{os.path.abspath(db_path)}?mode=ro", uri=True)
     writs = db.execute(
         "SELECT id, name FROM items WHERE game_version='forever' AND name LIKE ? ORDER BY id", (PREFIX + "%",)
@@ -320,7 +320,7 @@ def main():
     if args.check:
         if read_normalized(args.out) != text:
             sys.exit(
-                f"{os.path.relpath(args.out)} is out of date with altarmy-profit's game data.\n"
+                f"{os.path.relpath(args.out)} is out of date with the website's game data.\n"
                 "Run `python scripts/generate-writs.py` and commit the change."
             )
         return

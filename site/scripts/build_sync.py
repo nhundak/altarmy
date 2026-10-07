@@ -14,7 +14,7 @@ from pathlib import Path
 
 import PyInstaller.__main__
 
-from altarmy_profit import tray, tray_core
+from altarmy_site import tray, tray_core
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "altarmy-sync"
@@ -34,9 +34,9 @@ def main() -> None:
         tray._icon_image().save(icon, sizes=[(16, 16), (32, 32), (48, 48), (64, 64)])
         entry = work / "tray_entry.py"
         entry.write_text(
-            "from altarmy_profit import tray_core\n"
+            "from altarmy_site import tray_core\n"
             f"tray_core.VERSION = {version!r}\n"
-            "from altarmy_profit.tray import main\n\nmain()\n",
+            "from altarmy_site.tray import main\n\nmain()\n",
             encoding="utf-8",
         )
         PyInstaller.__main__.run(

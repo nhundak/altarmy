@@ -118,7 +118,7 @@ describe('the Steps view plans a session', () => {
     expect(await line('Sell 20x Green Robe to Thread Seller (Gross 1 0 0 · Net 40 0)')).toBeInTheDocument()
     expect(await line('Purchase 20x Coarse Thread from Thread Seller (20 0)')).toBeInTheDocument()
     expect(await line('Run to Mailbox at 50.0, 70.4. Retrieve 200x Linen Cloth.')).toBeInTheDocument()
-    expect(localStorage.getItem('altarmy-profit.steps.detailed')).toBe('true')
+    expect(localStorage.getItem('altarmy.steps.detailed')).toBe('true')
     expect(screen.getAllByRole('listitem').map((li) => shown(li)?.split(' ')[0])).toContain('Craft')
   })
 
@@ -147,7 +147,7 @@ describe('the Steps view plans a session', () => {
   })
 
   it('shows the zone map with the spot marked on hovering a run', async () => {
-    localStorage.setItem('altarmy-profit.steps.detailed', 'true')
+    localStorage.setItem('altarmy.steps.detailed', 'true')
     serve()
     await openSteps()
     await userEvent.hover(await screen.findByText('Run to Mailbox at 50.0, 70.4'))
@@ -249,7 +249,7 @@ describe('no line of a session says how long it takes', () => {
         { kind: 'step', who: 'Frell', step: 0, location: null, retrieve: [], seconds: 0 },
       ],
     }
-    localStorage.setItem('altarmy-profit.steps.detailed', 'true')
+    localStorage.setItem('altarmy.steps.detailed', 'true')
     await openSteps(disenchanted)
     // the switch starts Frell's steps, under their name
     const frell = await screen.findByRole('group', { name: "Frell's steps" })

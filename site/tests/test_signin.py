@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import signin
-from altarmy_profit.signin import AuthConfig, Session
+from altarmy_site import signin
+from altarmy_site.signin import AuthConfig, Session
 
 SITE = "https://site.test"
 CONFIG = AuthConfig(SITE, "browser-key")
@@ -183,3 +183,27 @@ def test_saved_sign_ins_per_site(tmp_path: Path) -> None:
     assert signin.load_saved(path, "https://other.test") == ("alt@example.com", "rt2")
     path.write_text("not json")
     assert signin.load_saved(path, SITE) is None
+
+
+def test_settings_saved_under_the_old_folder_name_are_moved(tmp_path: Path) -> None:
+    old, new = tmp_path / ".altarmy-profit", tmp_path / ".altarmy"
+    old.mkdir()
+    (old / "sync.json").write_text("{}")
+    signin.move_old_settings(new, old)
+    assert (new / "sync.json").read_text() == "{}"
+    assert not old.exists()
+
+
+def test_an_existing_settings_folder_is_never_replaced(tmp_path: Path) -> None:
+    old, new = tmp_path / ".altarmy-profit", tmp_path / ".altarmy"
+    old.mkdir()
+    new.mkdir()
+    (new / "sync.json").write_text("new")
+    signin.move_old_settings(new, old)
+    assert (new / "sync.json").read_text() == "new"
+    assert old.exists()
+
+
+def test_nothing_to_move_is_fine(tmp_path: Path) -> None:
+    signin.move_old_settings(tmp_path / ".altarmy", tmp_path / ".altarmy-profit")
+    assert not (tmp_path / ".altarmy").exists()

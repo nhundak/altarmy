@@ -66,7 +66,7 @@ describe('ProfitPage', () => {
     expect(await screen.findByText('No characters uploaded.')).toBeInTheDocument()
     await waitFor(() => expect(cards()).not.toBeInTheDocument())
     await waitFor(() => expect(hero()).not.toBeInTheDocument())
-    expect(JSON.parse(localStorage.getItem('altarmy-profit.landing.g1') ?? '')).toEqual({ browsed: true })
+    expect(JSON.parse(localStorage.getItem('altarmy.landing.g1') ?? '')).toEqual({ browsed: true })
     // nothing is ranked until the setup is complete; skilling up is open without characters too (one is made up)
     const aims = within(search).getByRole('group', { name: "What's your goal?" })
     expect(within(aims).getByRole('button', { name: 'Skill up' })).toBeEnabled()
@@ -76,7 +76,7 @@ describe('ProfitPage', () => {
     await waitFor(() => expect(paths(fetch, '/api/rank')).toHaveLength(1))
     expect(screen.queryByRole('group', { name: "What's your goal?" })).not.toBeInTheDocument()
     expect(new URL(paths(fetch, '/api/rank')[0]!.url).searchParams.get('sort')).toBe('likely')
-    expect(JSON.parse(localStorage.getItem('altarmy-profit.setup.g1') ?? '')).toEqual({ aim: 'gold' })
+    expect(JSON.parse(localStorage.getItem('altarmy.setup.g1') ?? '')).toEqual({ aim: 'gold' })
 
     // the back button asks again, the answer given marked
     act(() => window.history.back())

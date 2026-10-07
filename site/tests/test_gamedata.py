@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import gamedata, ingest, versions
-from altarmy_profit.gamedata import Pin
+from altarmy_site import gamedata, ingest, versions
+from altarmy_site.gamedata import Pin
 
 
 def test_gamedata_imports_only_the_standard_library() -> None:

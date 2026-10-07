@@ -80,15 +80,15 @@ One-time dialogs shown at most once each (guild-share prompt, bank-alt suggestio
 | Questie / NovaInstanceTracker | Level history import into Graphs |
 | Zygor Guides | Reputation tab guide links |
 
-### Export for altarmy-profit
+### Export for the Alt Army website
 
 `/altarmy export` (the only way in; no button) shows the account's characters,
-professions and learned recipes as one copyable string for the altarmy-profit site, which ranks profitable
+professions and learned recipes as one copyable string for the Alt Army website, which ranks profitable
 crafts for them; a note above it says which characters still lack data the export carries, and what to do.
-See [tabs/options.md](tabs/options.md#export-for-altarmy-profit). Bundles LibDeflate
+See [tabs/options.md](tabs/options.md#export-for-the-alt-army-website). Bundles LibDeflate
 (zlib license) for the compression.
 
-### Auction house scan for altarmy-profit
+### Auction house scan for the Alt Army website
 
 On WoW Forever only, an **Alt Army scan** button sits above the auction house window; `/altarmy scan` does
 the same. Elsewhere (TBC Anniversary) the button, the Auction House options section, the automatic scan and
@@ -96,7 +96,7 @@ the reading of other addons' full scans are all off, whatever the client's API o
 (`AuctionScan.HasApi` checks `DataStore.IsWowForever` first).
 
 - A **full scan** reads every listing and saves, per item, how many units are listed at each price.
-  altarmy-profit prices crafts from that, so one odd listing no longer decides what an item costs.
+  The website prices crafts from that, so one odd listing no longer decides what an item costs.
 - The game allows one full scan every 15 minutes per account. During that wait, or if the game refuses the
   full scan, the button runs a **summary scan** instead: each item's cheapest price and how many units are
   listed. It has no cooldown and is faster, but cannot say how many units sit at each price.
@@ -104,7 +104,7 @@ the reading of other addons' full scans are all off, whatever the client's API o
   full scans** (nothing during the cooldown: the button is disabled and the automatic scan does nothing) or
   **Only summary scans**.
 - Summary scans are kept apart from full scans (the newest one per realm and faction) and are never uploaded
-  to altarmy-profit, which only gets full scans. A summary never replaces a stored full scan.
+  to the website, which only gets full scans. A summary never replaces a stored full scan.
 - When the full scan is cooling down and no summary scan is possible, the button counts the wait down. Its
   tooltip says which kind of scan a click runs now.
 - **Scan automatically:** Options → General → **Auction House** can start the scan by itself a second after

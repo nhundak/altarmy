@@ -592,8 +592,8 @@ export function MarketSection({
   onSelect: (itemId: number) => void
   watchedHours: number
 }) {
-  const [book, setBook] = useStoredState('altarmy-profit.market.book', z.boolean(), false)
-  const [more, setMore] = useStoredState('altarmy-profit.market.more', z.boolean(), false)
+  const [book, setBook] = useStoredState('altarmy.market.book', z.boolean(), false)
+  const [more, setMore] = useStoredState('altarmy.market.more', z.boolean(), false)
   const m = list.find((x) => x.itemId === selected)
   if (!m)
     return (

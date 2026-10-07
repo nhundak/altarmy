@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit.engine import (
+from altarmy_site.engine import (
     DISENCHANTABLE_CLASSES,
     DISENCHANTABLE_QUALITIES,
     DisenchantRow,

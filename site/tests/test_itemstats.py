@@ -1,7 +1,7 @@
 """Item stats, armor and damage from the DB2 formulas (verified against Wowhead's Classic tooltips)."""
 
-from altarmy_profit import itemstats
-from altarmy_profit.itemstats import Effect, GameTables, ItemSpec
+from altarmy_site import itemstats
+from altarmy_site.itemstats import Effect, GameTables, ItemSpec
 
 # RandPropPoints for ilvl 61 as the Forever client has it (epic, superior, good; five slot groups each).
 POINTS_61 = ((45, 34, 25, 19, 14), (35, 26, 20, 15, 11), (27, 20, 15, 11, 8))

@@ -6,9 +6,9 @@ from typing import Any
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import auth, schema, service, store, users
-from altarmy_profit.altarmy import Character
-from altarmy_profit.auth import User
+from altarmy_site import auth, schema, service, store, users
+from altarmy_site.altarmy import Character
+from altarmy_site.auth import User
 
 from .conftest import FOREVER, ME
 

@@ -68,7 +68,7 @@ class InProcessJobs:
     def _ingest(self, version: GameVersion) -> None:
         try:
             run_ingest(self.database, version, self.cache_dir)
-            note = addon_crates.regenerate(self.database, version.key)  # as `altarmy-profit ingest` does
+            note = addon_crates.regenerate(self.database, version.key)  # as `altarmy-site ingest` does
             if note:
                 log.info(note)
         except BaseException:  # recorded as failed in job_runs; a thread has nobody else to tell

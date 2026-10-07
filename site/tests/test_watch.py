@@ -9,8 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection
 
-from altarmy_profit import cli, signin, store, uploads, watch
-from altarmy_profit.versions import VERSIONS
+from altarmy_site import cli, signin, store, uploads, watch
+from altarmy_site.versions import VERSIONS
 
 from .conftest import FOREVER, ME, SV_DIR
 from .test_altarmy import ALTARMY_SV
