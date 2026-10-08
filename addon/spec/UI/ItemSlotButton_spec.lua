@@ -327,6 +327,32 @@ describe("ItemSlotButton", function()
     end)
   end)
 
+  describe("bag highlight", function()
+    it("shows retail's blue bag indicator over the slot, which SetEmpty clears", function()
+      local btn = ISB.Create({}, { caps = {} })
+      assert.are.equal("Interface\\Store\\store-item-highlight", btn.bagHighlight.texture)
+      assert.are.equal("OVERLAY", btn.bagHighlight.layer)
+      assert.are.same({ 64, 64 }, { btn.bagHighlight.w, btn.bagHighlight.h })
+      assert.is_false(btn.bagHighlight.shown)
+      ISB.SetBagHighlight(btn, true)
+      assert.is_true(btn.bagHighlight.shown)
+      ISB.SetBagHighlight(btn, false)
+      assert.is_false(btn.bagHighlight.shown)
+      ISB.SetBagHighlight(btn, true)
+      ISB.SetEmpty(btn)
+      assert.is_false(btn.bagHighlight.shown)
+    end)
+
+    it("tells onHover when the mouse enters and leaves, item or not", function()
+      local btn = ISB.Create({}, { caps = {} })
+      local calls = {}
+      btn.onHover = function(b, inside) calls[#calls + 1] = { b, inside } end
+      btn.scripts.OnEnter(btn)
+      btn.scripts.OnLeave(btn)
+      assert.are.same({ { btn, true }, { btn, false } }, calls)
+    end)
+  end)
+
   describe("CreatePool", function()
     it("pools any frame kind with a create and reset of the caller's", function()
       local made, resets = 0, 0

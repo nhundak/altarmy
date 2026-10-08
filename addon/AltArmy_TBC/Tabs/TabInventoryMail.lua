@@ -325,7 +325,7 @@ end
 local function LayoutGrid(messages, width)
     headerRow:Hide()
     local slots = IL.MailGrid(messages)
-    local columns = IL.ColumnsForWidth(width, UI.SLOT, UI.GAP, IL.CONST.COMBINED_MAX_COLUMNS)
+    local columns = IL.ColumnsForWidth(width, UI.SLOT, UI.GAP) -- as many as the viewport fits
     local m = IL.GridMetrics(#slots, UI.SLOT, UI.GAP, columns)
     for i, entry in ipairs(slots) do
         local btn = gridSlots.Acquire()

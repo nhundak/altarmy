@@ -16,10 +16,7 @@ IL.CONST = {
     -- Stock ContainerFrame geometry: 37 px slots on a 42 px pitch.
     SLOT = 37,
     SPACING = 5,
-    BLOCK_COLUMNS = 4, -- bag windows
-    BANK_MAIN_COLUMNS = 7, -- the bank window's main grid
-    WIDE_BLOCK_SLOTS = 20, -- a bag bigger than this (Forever's bank tabs) is drawn 7 wide too
-    COMBINED_MAX_COLUMNS = 10, -- retail's combined bags
+    BLOCK_COLUMNS = 5, -- every block of the per-bag layout, bank and keyring included
     MAIL_ATTACHMENTS_MAX = 12,
 }
 local C = IL.CONST
@@ -394,15 +391,6 @@ function IL.SlotGroups(blocks)
         if byKey[key] then groups[#groups + 1] = byKey[key] end
     end
     return groups
-end
-
---- Columns a block is drawn with in the blocks layout: the stock bag window's 4, or the bank window's 7
---- for the main bank and for any bag too big for 4 (WoW Forever's bank tabs).
-function IL.BlockColumns(block)
-    if block.kind == "bank" or (block.numSlots or 0) > C.WIDE_BLOCK_SLOTS then
-        return C.BANK_MAIN_COLUMNS
-    end
-    return C.BLOCK_COLUMNS
 end
 
 --- Columns that fit `width` at a slot size and spacing, between 1 and maxColumns.

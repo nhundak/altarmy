@@ -1008,7 +1008,7 @@ local function ShowOutlierOptionTooltip(owner)
         0.9, 0.9, 0.9, true
     )
     GameTooltip:AddLine(
-        "For example, if your character sat at level 60 for several days, "
+        "For example, if your character spent several days at level 29 to do that bracket of pvp, "
             .. "the graph can be hard to read unless you turn this feature on.",
         0.9, 0.9, 0.9, true
     )

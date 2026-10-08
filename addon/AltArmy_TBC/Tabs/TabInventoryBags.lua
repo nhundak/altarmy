@@ -1,7 +1,7 @@
 -- AltArmy TBC — Inventory tab, Bags and Bank views: fills frame.BagsView and frame.BankView with one
 -- character's containers drawn like the stock windows. Two layouts (Data/Inventory/InventoryOptions.lua):
 -- "blocks", one block per bag with its icon and name (the bank: its main grid, then each bank bag), or
--- "combined", a bag bar over one grid (retail's combined bags). Slots: UI/ItemSlotButton.lua; what to
+-- "combined", a bag bar over one grid as wide as the window allows. Slots: UI/ItemSlotButton.lua; what to
 -- draw: Data/Inventory/InventoryLayout.lua.
 -- luacheck: globals GameTooltip GetContainerNumSlots NUM_BANKGENERIC_SLOTS
 
@@ -24,7 +24,7 @@ local UI = {
     HEADER_ICON = 16,
     HEADER_GAP = 2, -- header to its grid
     BLOCK_GAP_Y = 12, -- between rows of blocks
-    BLOCK_GAP_X = 16, -- between blocks in a row
+    BLOCK_GAP_X = ISB.SPACING, -- between blocks in a row: the slot gap, so three bags span 15 slots
     MIN_BLOCK_WIDTH = 150, -- room for a bag's name in the header
     BAR_SLOT = 26, -- the combined layout's bag bar
     BAR_GAP = 4,
@@ -214,7 +214,7 @@ end
 local function LayoutBlocks(view, blocks, width)
     local x, y, rowHeight = 0, 0, 0
     for _, block in ipairs(blocks) do
-        local columns = IL.BlockColumns(block)
+        local columns = IL.CONST.BLOCK_COLUMNS
         local m = IL.GridMetrics(block.numSlots, UI.SLOT, UI.GAP, columns)
         local blockWidth = math.max(m.width, UI.MIN_BLOCK_WIDTH)
         if x > 0 and x + blockWidth > width then
@@ -240,20 +240,27 @@ local function LayoutBlocks(view, blocks, width)
     return y + rowHeight
 end
 
---- "combined": the bag bar, then every slot in one grid.
+--- "combined": the bag bar, then every slot in one grid. Hovering a bag on the bar lights its slots.
 local function LayoutCombined(view, blocks, width)
     local combined = IL.Combined(blocks)
+    local function HighlightBag(barButton, inside)
+        for _, btn in ipairs(view.slots.active) do
+            ISB.SetBagHighlight(btn, inside and btn.bagID == barButton.bagID)
+        end
+    end
     local x = 0
     for _, bag in ipairs(combined.bagBar) do
         local btn = view.bar.Acquire()
         btn:SetPoint("TOPLEFT", view.child, "TOPLEFT", x, 0)
         local entry = { itemID = bag.itemID, link = bag.link, icon = bag.icon, name = bag.name, count = 1 }
         entry.where = string.format("%d / %d slots used", bag.used, bag.numSlots)
+        btn.bagID = bag.bagID
+        btn.onHover = HighlightBag
         btn.tooltipExtra = SlotTooltipExtra
         TrackPendingIcon(ISB.SetItem(btn, entry))
         x = x + UI.BAR_SLOT + UI.BAR_GAP
     end
-    local columns = IL.ColumnsForWidth(width, UI.SLOT, UI.GAP, IL.CONST.COMBINED_MAX_COLUMNS)
+    local columns = IL.ColumnsForWidth(width, UI.SLOT, UI.GAP) -- as many as the viewport fits
     local m = IL.GridMetrics(#combined.slots, UI.SLOT, UI.GAP, columns)
     local top = UI.BAR_HEIGHT
     local byBag = {}
@@ -261,6 +268,7 @@ local function LayoutCombined(view, blocks, width)
     for i, entry in ipairs(combined.slots) do
         local btn = view.slots.Acquire()
         btn:SetPoint("TOPLEFT", view.child, "TOPLEFT", m.x(i), -(top + m.y(i)))
+        btn.bagID = entry.bagID
         if entry.itemID then
             entry.where = SlotWhere(byBag[entry.bagID] or {}, entry.slot)
             btn.tooltipExtra = SlotTooltipExtra

@@ -25,6 +25,8 @@ ISB.SEARCH_GLOW_TEXTURE = "Interface\\Buttons\\UI-ActionButton-Border" -- the ac
 ISB.SEARCH_GLOW_SCALE = 1.8 -- the ring's art is drawn inside a larger square
 ISB.SEARCH_GLOW_COLOR = { 1, 0.82, 0 } -- gold
 ISB.DIMMED_ALPHA = 0.3 -- a slot the search leaves out
+-- Retail's combined bags' BagIndicator: the blue glow on a hovered bag's slots (in every client's art).
+ISB.BAG_HIGHLIGHT_TEXTURE = "Interface\\Store\\store-item-highlight"
 
 -- Fallbacks for ITEM_QUALITY_COLORS (uncommon, rare, epic, legendary).
 local QUALITY_RGB = { [2] = { 0, 1, 0 }, [3] = { 0, 0.44, 0.87 }, [4] = { 0.64, 0.21, 0.93 }, [5] = { 1, 0.5, 0 } }
@@ -86,6 +88,7 @@ function ISB.QualityColor(quality)
 end
 
 local function onEnter(btn)
+    if btn.onHover then btn.onHover(btn, true) end
     local entry = btn.entry
     if not entry or not GameTooltip then return end
     GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
@@ -105,7 +108,8 @@ local function onEnter(btn)
     GameTooltip:Show()
 end
 
-local function onLeave()
+local function onLeave(btn)
+    if btn.onHover then btn.onHover(btn, false) end
     if GameTooltip then GameTooltip:Hide() end
 end
 
@@ -168,6 +172,15 @@ function ISB.Create(parent, opts)
     glow:Hide()
     btn.searchGlow = glow
 
+    -- The glow on the slots of the bag the combined layout's bag bar is hovering (OVERLAY sublevel 2, as
+    -- retail draws it); the art is drawn larger than the button, like the slot art.
+    local bagHighlight = btn:CreateTexture(nil, "OVERLAY", nil, 2)
+    bagHighlight:SetTexture(ISB.BAG_HIGHLIGHT_TEXTURE)
+    bagHighlight:SetSize(ISB.SLOT_ART_SIZE * scale, ISB.SLOT_ART_SIZE * scale)
+    bagHighlight:SetPoint("CENTER", btn, "CENTER", 0, 0)
+    bagHighlight:Hide()
+    btn.bagHighlight = bagHighlight
+
     local count = btn:CreateFontString(nil, "OVERLAY", countFont())
     count:SetPoint("BOTTOMRIGHT", btn, "BOTTOMRIGHT", -5 * scale, 2 * scale)
     count:SetJustifyH("RIGHT")
@@ -221,11 +234,17 @@ function ISB.ApplySearch(btn, queryLower)
     setSearchLook(btn, match, not match)
 end
 
+--- Show or hide the hovered bag's glow on the slot.
+function ISB.SetBagHighlight(btn, shown)
+    if shown then btn.bagHighlight:Show() else btn.bagHighlight:Hide() end
+end
+
 --- Show nothing in the slot.
 function ISB.SetEmpty(btn)
     btn.entry = nil
     btn.itemName = nil
     setSearchLook(btn, false, false)
+    btn.bagHighlight:Hide()
     btn.icon:Hide()
     btn.border:Hide()
     btn.count:Hide()
